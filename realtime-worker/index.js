@@ -160,6 +160,60 @@ async function r2PutStream(bucket, key, stream, contentLength, contentType, meta
   return fetch(url, { method: 'PUT', headers, body: stream })
 }
 
+// Presign a GET URL for an R2 object using S3 SigV4 query-string signing.
+// Returns a fully-formed https URL the browser can use directly (range/seek supported).
+async function r2PresignGet(bucket, key, accessKeyId, secretKey, accountId, expiresSec = 3600) {
+  const host = `${accountId}.r2.cloudflarestorage.com`
+  const now = new Date()
+  const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '')
+  const timeStr = now.toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z'
+  const region = 'auto'
+  const service = 's3'
+  const credentialScope = `${dateStr}/${region}/${service}/aws4_request`
+  const signedHeaders = 'host'
+
+  // RFC3986-encode each path segment (R2 keys can contain spaces, parens, etc.)
+  const encodePathSegment = (s) => encodeURIComponent(s).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase())
+  const encodedKey = String(key).split('/').map(encodePathSegment).join('/')
+  const canonicalUri = `/${bucket}/${encodedKey}`
+
+  const queryParams = {
+    'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+    'X-Amz-Credential': `${accessKeyId}/${credentialScope}`,
+    'X-Amz-Date': timeStr,
+    'X-Amz-Expires': String(expiresSec),
+    'X-Amz-SignedHeaders': signedHeaders,
+  }
+  const canonicalQuery = Object.keys(queryParams).sort()
+    .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(queryParams[k])}`)
+    .join('&')
+
+  const canonicalHeaders = `host:${host}\n`
+  const payloadHash = 'UNSIGNED-PAYLOAD'
+  const canonicalRequest = ['GET', canonicalUri, canonicalQuery, canonicalHeaders, signedHeaders, payloadHash].join('\n')
+
+  const encoder = new TextEncoder()
+  const hashHex = (buf) => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+  const stringToSign = [
+    'AWS4-HMAC-SHA256',
+    timeStr,
+    credentialScope,
+    hashHex(await crypto.subtle.digest('SHA-256', encoder.encode(canonicalRequest))),
+  ].join('\n')
+
+  const sign = async (key, data) => {
+    const k = await crypto.subtle.importKey('raw', typeof key === 'string' ? encoder.encode(key) : key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+    return new Uint8Array(await crypto.subtle.sign('HMAC', k, encoder.encode(data)))
+  }
+  const signingKey = await sign(await sign(await sign(await sign(encoder.encode('AWS4' + secretKey), dateStr), region), service), 'aws4_request')
+  const signature = hashHex(await crypto.subtle.sign('HMAC',
+    await crypto.subtle.importKey('raw', signingKey, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']),
+    encoder.encode(stringToSign)
+  ))
+
+  return `https://${host}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`
+}
+
 async function r2List(bucket, prefix, accessKeyId, secretKey, accountId) {
   const host = `${accountId}.r2.cloudflarestorage.com`
   const now = new Date()
@@ -195,6 +249,27 @@ async function r2List(bucket, prefix, accessKeyId, secretKey, accountId) {
   return res
 }
 
+function sanitizeUploadName(value) {
+  return String(value || '')
+    .trim()
+    .replace(/[^\w.\- ]+/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+}
+
+function buildManualRecordingTarget(filename, contentType) {
+  const originalName = sanitizeUploadName(filename || 'upload.mp4')
+  const fallbackBase = `manual-upload-${Date.now()}`
+  const preferredName = originalName || fallbackBase
+  const hasExtension = /\.[A-Za-z0-9]{2,6}$/.test(preferredName)
+  const defaultExt = (String(contentType || 'video/mp4').split('/')[1] || 'mp4').replace(/[^A-Za-z0-9]/g, '') || 'mp4'
+  const finalName = hasExtension ? preferredName : `${preferredName}.${defaultExt}`
+  return {
+    name: finalName,
+    key: `recordings/${finalName}`,
+  }
+}
+
 async function validateWorkerApiToken(request, env) {
   const apiToken = request.headers.get('X-API-Token')
   if (!apiToken) return { valid: false, error: 'Missing X-API-Token header' }
@@ -205,11 +280,19 @@ async function validateWorkerApiToken(request, env) {
 
   try {
     const configUser = await env.vegvisr_org
-      .prepare('SELECT email, user_id, Role FROM config WHERE emailVerificationToken = ?')
+      .prepare('SELECT email, user_id, Role, Systemowner FROM config WHERE emailVerificationToken = ?')
       .bind(apiToken)
       .first()
     if (configUser) {
-      return { valid: true, userId: configUser.user_id, email: configUser.email, role: configUser.Role, source: 'config', scopes: ['ai:chat'] }
+      return {
+        valid: true,
+        userId: configUser.user_id,
+        email: configUser.email,
+        role: configUser.Role,
+        isSystemOwner: configUser.Systemowner === 1,
+        source: 'config',
+        scopes: ['ai:chat'],
+      }
     }
 
     const tokenHash = await hashStringSha256(apiToken)
@@ -228,6 +311,27 @@ async function validateWorkerApiToken(request, env) {
   } catch (e) {
     return { valid: false, error: 'Token validation error: ' + e.message }
   }
+}
+
+// Resolve which user's data this request should operate on.
+// - If no `asUser` is supplied (query param or body), use the caller's own email.
+// - If `asUser` is supplied AND caller is Superadmin, use that email.
+// - Otherwise refuse.
+async function resolveEffectiveEmail(request, auth, asUserOverride) {
+  let asUser = asUserOverride
+  if (!asUser) {
+    try {
+      const url = new URL(request.url)
+      asUser = url.searchParams.get('asUser')
+    } catch {}
+  }
+  if (!asUser || asUser === auth.email) {
+    return { ok: true, email: auth.email, isImpersonating: false }
+  }
+  if (auth.role !== 'Superadmin') {
+    return { ok: false, status: 403, error: 'Superadmin access required to act on behalf of another user' }
+  }
+  return { ok: true, email: asUser, isImpersonating: true }
 }
 
 export default {
@@ -402,19 +506,32 @@ export default {
         if (!auth.email || !env.vegvisr_org) return createResponse(JSON.stringify({ error: 'Could not resolve user email or database' }), 400)
 
         const body = await request.json()
-        const { meetingId, title } = body || {}
+        const { meetingId, title, asUser } = body || {}
         if (!meetingId || typeof title !== 'string' || !title.trim()) return createResponse(JSON.stringify({ error: 'meetingId and title are required' }), 400)
 
+        const eff = await resolveEffectiveEmail(request, auth, asUser)
+        if (!eff.ok) return createResponse(JSON.stringify({ error: eff.error }), eff.status)
+        const effectiveEmail = eff.email
+
+        // Allow rename if meeting is one of the effective user's permanent rooms…
         const row = await env.vegvisr_org
           .prepare("SELECT json_extract(data, '$.realtime') as realtime FROM config WHERE email = ?")
-          .bind(auth.email).first()
-
+          .bind(effectiveEmail).first()
         let rt = {}
         if (row?.realtime) { try { rt = JSON.parse(row.realtime) } catch (_) {} }
+        let allowed = (meetingId === rt.personalMeetingId || meetingId === rt.teamMeetingId)
 
-        if (meetingId !== rt.personalMeetingId && meetingId !== rt.teamMeetingId) {
-          return createResponse(JSON.stringify({ error: 'You can only rename your own permanent rooms' }), 403)
+        // …or any meeting they own (e.g. ad-hoc meetings recorded under this user).
+        if (!allowed) {
+          try {
+            const ownRow = await env.vegvisr_org
+              .prepare('SELECT 1 FROM meeting_ownership WHERE owner_email = ? AND meeting_id = ?')
+              .bind(effectiveEmail, meetingId).first()
+            if (ownRow) allowed = true
+          } catch (_) {}
         }
+
+        if (!allowed) return createResponse(JSON.stringify({ error: 'You can only rename rooms you own' }), 403)
 
         const appId = env.REALTIMEKIT_APP_ID
         const accountId = env.CF_ACCOUNT_ID
@@ -742,14 +859,114 @@ export default {
       }
     }
 
+    // ── GET /realtime/admin/superadmins ────────────────────────────────────────
+    // Returns the list of Superadmin users (email + display data) so the UI can
+    // show an account switcher. Caller MUST be a Superadmin.
+    if (pathname === '/realtime/admin/superadmins' && request.method === 'GET') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+        if (auth.role !== 'Superadmin') return createResponse(JSON.stringify({ error: 'Superadmin access required' }), 403)
+
+        const rows = await env.vegvisr_org
+          .prepare("SELECT email, user_id FROM config WHERE Role = 'Superadmin' ORDER BY email ASC")
+          .all()
+        const users = (rows.results || []).map(r => ({ email: r.email, userId: r.user_id }))
+        return createResponse(JSON.stringify({
+          success: true,
+          users,
+          currentEmail: auth.email,
+          isSystemOwner: !!auth.isSystemOwner,
+        }))
+      } catch (e) {
+        console.error('Error in /realtime/admin/superadmins:', e)
+        return createResponse(JSON.stringify({ error: e.message }), 500)
+      }
+    }
+
+    // ── GET /realtime/admin/users ──────────────────────────────────────────────
+    // Systemowner-only: list every user in the config table for the
+    // "Login as…" picker. Returns email, role, display_name, isSystemOwner.
+    if (pathname === '/realtime/admin/users' && request.method === 'GET') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+        if (!auth.isSystemOwner) return createResponse(JSON.stringify({ error: 'System Owner access required' }), 403)
+
+        const rows = await env.vegvisr_org
+          .prepare('SELECT email, user_id, Role, Systemowner, display_name FROM config ORDER BY Systemowner DESC, Role DESC, email ASC')
+          .all()
+        const users = (rows.results || []).map(r => ({
+          email: r.email,
+          userId: r.user_id,
+          role: r.Role,
+          displayName: r.display_name || null,
+          isSystemOwner: r.Systemowner === 1,
+        }))
+        return createResponse(JSON.stringify({ success: true, users, total: users.length }))
+      } catch (e) {
+        console.error('Error in /realtime/admin/users:', e)
+        return createResponse(JSON.stringify({ error: e.message }), 500)
+      }
+    }
+
+    // ── POST /realtime/admin/impersonate ───────────────────────────────────────
+    // Systemowner-only: returns the full auth payload of another user so the
+    // frontend can store it in localStorage and "log in" as that user without
+    // requiring a magic-link round-trip. The caller's original token is NOT
+    // returned — the frontend keeps it in `originalUser` localStorage so the
+    // user can return to their own account.
+    if (pathname === '/realtime/admin/impersonate' && request.method === 'POST') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+        if (!auth.isSystemOwner) return createResponse(JSON.stringify({ error: 'System Owner access required' }), 403)
+
+        const body = await request.json().catch(() => ({}))
+        const targetEmail = (body?.email || '').trim()
+        if (!targetEmail) return createResponse(JSON.stringify({ error: 'email is required' }), 400)
+        if (targetEmail === auth.email) return createResponse(JSON.stringify({ error: 'Cannot impersonate yourself' }), 400)
+
+        const target = await env.vegvisr_org
+          .prepare('SELECT email, user_id, Role, Systemowner, display_name, emailVerificationToken FROM config WHERE email = ?')
+          .bind(targetEmail).first()
+        if (!target) return createResponse(JSON.stringify({ error: 'User not found' }), 404)
+        if (!target.emailVerificationToken) {
+          return createResponse(JSON.stringify({ error: 'Target user has no auth token (never logged in via magic link). Send them a magic link first.' }), 400)
+        }
+
+        console.log(`[impersonate] systemowner=${auth.email} took over account=${target.email} (role=${target.Role})`)
+
+        return createResponse(JSON.stringify({
+          success: true,
+          impersonatedBy: auth.email,
+          user: {
+            email: target.email,
+            user_id: target.user_id,
+            role: target.Role,
+            displayName: target.display_name || null,
+            emailVerificationToken: target.emailVerificationToken,
+            isSystemOwner: target.Systemowner === 1,
+          },
+        }))
+      } catch (e) {
+        console.error('Error in /realtime/admin/impersonate:', e)
+        return createResponse(JSON.stringify({ error: e.message }), 500)
+      }
+    }
+
     // ── GET /realtime/recordings ───────────────────────────────────────────────
     if (pathname === '/realtime/recordings' && request.method === 'GET') {
       try {
         const auth = await validateWorkerApiToken(request, env)
         if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
 
+        const eff = await resolveEffectiveEmail(request, auth)
+        if (!eff.ok) return createResponse(JSON.stringify({ error: eff.error }), eff.status)
+        const effectiveEmail = eff.email
+
         const recordings = []
-        const creds = await getUserCloudflareCredentials(auth.email, env)
+        const creds = await getUserCloudflareCredentials(effectiveEmail, env)
 
         if (creds.r2AccessKeyId && creds.r2Secret && creds.r2Bucket && creds.r2AccountId) {
           // User has their own R2 bucket — list via S3 API
@@ -759,7 +976,11 @@ export default {
               const xml = await res.text()
               const keys = [...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].map(m => m[1])
               for (const key of keys) {
-                recordings.push({ key, name: key.replace('recordings/', ''), size: 0, source: 'r2-own' })
+                let playUrl = null
+                try {
+                  playUrl = await r2PresignGet(creds.r2Bucket, key, creds.r2AccessKeyId, creds.r2Secret, creds.r2AccountId, 3600)
+                } catch (presignErr) { console.error('presign failed for', key, presignErr) }
+                recordings.push({ key, name: key.replace('recordings/', ''), size: 0, source: 'r2-own', playUrl })
               }
             }
           } catch (r2Err) { console.error('R2 own list error:', r2Err) }
@@ -768,12 +989,13 @@ export default {
           try {
             const listed = await env.MEETING_RECORDINGS.list({ prefix: 'recordings/', limit: 200 })
             for (const obj of listed.objects || []) {
-              recordings.push({ key: obj.key, name: obj.key.replace('recordings/', ''), size: obj.size, uploaded: obj.uploaded, etag: obj.etag, customMetadata: obj.customMetadata || {}, source: 'r2' })
+              const name = obj.key.replace('recordings/', '')
+              recordings.push({ key: obj.key, name, size: obj.size, uploaded: obj.uploaded, etag: obj.etag, customMetadata: obj.customMetadata || {}, source: 'r2', playUrl: `https://realtimevideos.vegvisr.org/recordings/${encodeURIComponent(name)}` })
             }
             const rootListed = await env.MEETING_RECORDINGS.list({ limit: 200 })
             for (const obj of rootListed.objects || []) {
               if (!obj.key.startsWith('recordings/')) {
-                recordings.push({ key: obj.key, name: obj.key, size: obj.size, uploaded: obj.uploaded, etag: obj.etag, customMetadata: obj.customMetadata || {}, source: 'r2' })
+                recordings.push({ key: obj.key, name: obj.key, size: obj.size, uploaded: obj.uploaded, etag: obj.etag, customMetadata: obj.customMetadata || {}, source: 'r2', playUrl: `https://realtimevideos.vegvisr.org/${encodeURIComponent(obj.key)}` })
               }
             }
           } catch (r2Err) { console.error('R2 list error:', r2Err) }
@@ -794,9 +1016,22 @@ export default {
               // Restrict RealtimeKit results to meetings owned by this user
               const ownedMeetingIds = new Set()
               try {
-                const ownedRows = await env.vegvisr_org.prepare('SELECT meeting_id FROM meeting_ownership WHERE owner_email = ?').bind(auth.email).all()
+                const ownedRows = await env.vegvisr_org.prepare('SELECT meeting_id FROM meeting_ownership WHERE owner_email = ?').bind(effectiveEmail).all()
                 for (const r of ownedRows.results || []) ownedMeetingIds.add(r.meeting_id)
               } catch (e) { console.error('meeting_ownership lookup failed:', e) }
+
+              // Lookup meeting owners for all meetings in this batch
+              let meetingOwners = {};
+              try {
+                const meetingIds = Array.from(new Set((rtkData.data || []).map(r => r.meeting_id).filter(Boolean)))
+                if (meetingIds.length > 0) {
+                  const placeholders = meetingIds.map(() => '?').join(',')
+                  const ownerRows = await env.vegvisr_org.prepare(`SELECT meeting_id, owner_email FROM meeting_ownership WHERE meeting_id IN (${placeholders})`).bind(...meetingIds).all()
+                  for (const row of ownerRows.results || []) {
+                    meetingOwners[row.meeting_id] = row.owner_email
+                  }
+                }
+              } catch (e) { console.error('meeting_ownership batch lookup failed:', e) }
 
               for (const rec of rtkData.data || []) {
                 if (ownedMeetingIds.size > 0 && !ownedMeetingIds.has(rec.meeting_id)) continue
@@ -807,6 +1042,7 @@ export default {
                   meetingId: rec.meeting_id, meetingTitle: rec.meeting?.title || null, status: rec.status,
                   download_url: rec.download_url || null, download_url_expiry: rec.download_url_expiry || null,
                   error: userHasOwnR2 ? null : (rec.err_message || null), source: 'realtimekit',
+                  ownerEmail: meetingOwners[rec.meeting_id] || null,
                 })
               }
             }
@@ -831,14 +1067,20 @@ export default {
         if (!auth.email) return createResponse(JSON.stringify({ error: 'No email on token' }), 401)
         if (!env.R2_SYNC_QUEUE) return createResponse(JSON.stringify({ error: 'R2_SYNC_QUEUE binding not configured' }), 500)
 
-        const creds = await getUserCloudflareCredentials(auth.email, env)
+        let bodyJson = {}
+        try { bodyJson = await request.json() } catch {}
+        const eff = await resolveEffectiveEmail(request, auth, bodyJson?.asUser)
+        if (!eff.ok) return createResponse(JSON.stringify({ error: eff.error }), eff.status)
+        const effectiveEmail = eff.email
+
+        const creds = await getUserCloudflareCredentials(effectiveEmail, env)
         const { appId, accountId, apiToken, r2AccountId, r2Bucket, r2AccessKeyId, r2Secret } = creds
         const useOwnR2 = !!(r2AccessKeyId && r2Secret && r2Bucket && r2AccountId)
         if (!useOwnR2 && !env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: 'Recordings bucket not configured' }), 500)
         if (!appId || !accountId || !apiToken) return createResponse(JSON.stringify({ error: 'RealtimeKit not configured' }), 500)
 
         let filterIds = null
-        try { const body = await request.json(); if (body.recordingIds && Array.isArray(body.recordingIds)) filterIds = new Set(body.recordingIds) } catch {}
+        if (bodyJson.recordingIds && Array.isArray(bodyJson.recordingIds)) filterIds = new Set(bodyJson.recordingIds)
 
         const rtkResp = await fetch(
           `https://api.cloudflare.com/client/v4/accounts/${accountId}/realtime/kit/${appId}/recordings`,
@@ -850,7 +1092,7 @@ export default {
 
         const ownedMeetingIds = new Set()
         try {
-          const ownedRows = await env.vegvisr_org.prepare('SELECT meeting_id FROM meeting_ownership WHERE owner_email = ?').bind(auth.email).all()
+          const ownedRows = await env.vegvisr_org.prepare('SELECT meeting_id FROM meeting_ownership WHERE owner_email = ?').bind(effectiveEmail).all()
           for (const r of ownedRows.results || []) ownedMeetingIds.add(r.meeting_id)
         } catch (e) { console.error('meeting_ownership lookup failed:', e) }
 
@@ -889,10 +1131,10 @@ export default {
             await env.vegvisr_org.prepare(
               `INSERT INTO r2_sync_jobs (job_id, owner_email, rtk_recording_id, meeting_id, file_name, status, message, bytes_total, r2_target)
                VALUES (?, ?, ?, ?, ?, 'queued', NULL, ?, ?)`
-            ).bind(jobId, auth.email, rec.id, rec.meeting_id || null, fileName, rec.file_size || null, useOwnR2 ? 'own' : 'shared').run()
+            ).bind(jobId, effectiveEmail, rec.id, rec.meeting_id || null, fileName, rec.file_size || null, useOwnR2 ? 'own' : 'shared').run()
             await env.R2_SYNC_QUEUE.send({
               jobId,
-              ownerEmail: auth.email,
+              ownerEmail: effectiveEmail,
               recordingId: rec.id,
               meetingId: rec.meeting_id || null,
               meetingTitle: rec.meeting?.title || null,
@@ -925,6 +1167,10 @@ export default {
         if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
         if (!auth.email) return createResponse(JSON.stringify({ error: 'No email on token' }), 401)
 
+        const eff = await resolveEffectiveEmail(request, auth)
+        if (!eff.ok) return createResponse(JSON.stringify({ error: eff.error }), eff.status)
+        const effectiveEmail = eff.email
+
         const jobIdsParam = url.searchParams.get('jobIds')
         let rows
         if (jobIdsParam) {
@@ -934,13 +1180,13 @@ export default {
           const stmt = env.vegvisr_org.prepare(
             `SELECT job_id, owner_email, rtk_recording_id, meeting_id, file_name, status, message, bytes_total, r2_target, created_at, updated_at
              FROM r2_sync_jobs WHERE owner_email = ? AND job_id IN (${placeholders})`
-          ).bind(auth.email, ...ids)
+          ).bind(effectiveEmail, ...ids)
           rows = await stmt.all()
         } else {
           rows = await env.vegvisr_org.prepare(
             `SELECT job_id, owner_email, rtk_recording_id, meeting_id, file_name, status, message, bytes_total, r2_target, created_at, updated_at
              FROM r2_sync_jobs WHERE owner_email = ? ORDER BY created_at DESC LIMIT 50`
-          ).bind(auth.email).all()
+          ).bind(effectiveEmail).all()
         }
 
         const jobs = (rows.results || []).map(r => ({
@@ -958,6 +1204,205 @@ export default {
         return createResponse(JSON.stringify({ success: true, jobs }))
       } catch (e) {
         console.error('Error in /realtime/recordings/sync-status:', e)
+        return createResponse(JSON.stringify({ error: e.message }), 500)
+      }
+    }
+
+    // ── GET /realtime/recordings/play-url ──────────────────────────────────────
+    // Returns a short-lived URL the browser/agent can put directly into <video src>.
+    // - r2-own users get a SigV4 presigned R2 URL (cross-account, range/seek works).
+    // - Shared bucket users get the public realtimevideos.vegvisr.org URL.
+    if (pathname === '/realtime/recordings/play-url' && request.method === 'GET') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+
+        const key = url.searchParams.get('key')
+        if (!key) return createResponse(JSON.stringify({ error: 'Missing key parameter' }), 400)
+
+        const eff = await resolveEffectiveEmail(request, auth)
+        if (!eff.ok) return createResponse(JSON.stringify({ error: eff.error }), eff.status)
+
+        const expiresSec = Math.min(Math.max(parseInt(url.searchParams.get('expires') || '3600', 10) || 3600, 60), 24 * 3600)
+        const creds = await getUserCloudflareCredentials(eff.email, env)
+        const normalizedKey = key.startsWith('recordings/') ? key : `recordings/${key}`
+
+        if (creds.r2AccessKeyId && creds.r2Secret && creds.r2Bucket && creds.r2AccountId) {
+          const presigned = await r2PresignGet(creds.r2Bucket, normalizedKey, creds.r2AccessKeyId, creds.r2Secret, creds.r2AccountId, expiresSec)
+          return createResponse(JSON.stringify({
+            success: true,
+            url: presigned,
+            source: 'r2-own',
+            expiresAt: new Date(Date.now() + expiresSec * 1000).toISOString(),
+          }))
+        }
+
+        // Shared-bucket fallback (public Custom Domain)
+        return createResponse(JSON.stringify({
+          success: true,
+          url: `https://realtimevideos.vegvisr.org/${encodeURIComponent(normalizedKey)}`,
+          source: 'r2',
+          expiresAt: null,
+        }))
+      } catch (e) {
+        console.error('Error in /realtime/recordings/play-url:', e)
+        return createResponse(JSON.stringify({ error: e.message }), 500)
+      }
+    }
+
+    // ── POST /realtime/recordings/upload/init ──────────────────────────────────
+    // Creates a multipart upload session for a manual Superadmin upload.
+    if (pathname === '/realtime/recordings/upload/init' && request.method === 'POST') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+        if (auth.role !== 'Superadmin') return createResponse(JSON.stringify({ error: 'Superadmin access required' }), 403)
+        if (!env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: 'Recordings bucket not configured' }), 500)
+
+        const { filename, contentType, size } = await request.json()
+        if (!filename || typeof filename !== 'string') return createResponse(JSON.stringify({ error: 'filename is required' }), 400)
+        if (!size || typeof size !== 'number') return createResponse(JSON.stringify({ error: 'size is required' }), 400)
+        const effectiveSize = Math.trunc(size)
+        if (effectiveSize <= 0) return createResponse(JSON.stringify({ error: 'Uploaded file is empty' }), 400)
+        if (effectiveSize > 25 * 1024 * 1024 * 1024) return createResponse(JSON.stringify({ error: 'Upload exceeds 25 GB limit' }), 400)
+        const effectiveType = typeof contentType === 'string' && contentType.trim() ? contentType.trim() : 'video/mp4'
+        if (!effectiveType.startsWith('video/')) {
+          return createResponse(JSON.stringify({ error: 'Only video uploads are supported' }), 400)
+        }
+
+        const target = buildManualRecordingTarget(filename, effectiveType)
+        const upload = await env.MEETING_RECORDINGS.createMultipartUpload(target.key, {
+          httpMetadata: { contentType: effectiveType },
+          customMetadata: {
+            uploadedBy: auth.email || '',
+            uploadedAt: new Date().toISOString(),
+            source: 'manual',
+            originalFilename: filename || target.name,
+          },
+        })
+
+        return createResponse(JSON.stringify({
+          success: true,
+          uploadId: upload.uploadId,
+          key: target.key,
+          name: target.name,
+          size: effectiveSize,
+          contentType: effectiveType,
+        }))
+      } catch (e) {
+        console.error('Error in /realtime/recordings/upload/init:', e)
+        return createResponse(JSON.stringify({ error: e.message }), 500)
+      }
+    }
+
+    // ── POST /realtime/recordings/upload/part ──────────────────────────────────
+    // Uploads a single multipart chunk through the worker to R2.
+    if (pathname === '/realtime/recordings/upload/part' && request.method === 'POST') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+        if (auth.role !== 'Superadmin') return createResponse(JSON.stringify({ error: 'Superadmin access required' }), 403)
+        if (!env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: 'Recordings bucket not configured' }), 500)
+
+        const url = new URL(request.url)
+        const key = String(url.searchParams.get('key') || '')
+        const uploadId = String(url.searchParams.get('uploadId') || '')
+        const partNumber = Number(url.searchParams.get('partNumber') || '')
+        if (!key.startsWith('recordings/')) return createResponse(JSON.stringify({ error: 'Invalid upload key' }), 400)
+        if (!uploadId) return createResponse(JSON.stringify({ error: 'uploadId is required' }), 400)
+        if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10000) {
+          return createResponse(JSON.stringify({ error: 'partNumber must be an integer between 1 and 10000' }), 400)
+        }
+
+        const body = await request.arrayBuffer()
+        if (!body.byteLength) return createResponse(JSON.stringify({ error: 'Upload part is empty' }), 400)
+
+        const upload = env.MEETING_RECORDINGS.resumeMultipartUpload(key, uploadId)
+        const uploadedPart = await upload.uploadPart(partNumber, body)
+
+        return createResponse(JSON.stringify({
+          success: true,
+          part: uploadedPart,
+        }))
+      } catch (e) {
+        console.error('Error in /realtime/recordings/upload/part:', e)
+        return createResponse(JSON.stringify({ error: e.message }), 500)
+      }
+    }
+
+    // ── POST /realtime/recordings/upload/complete ──────────────────────────────
+    // Completes a multipart upload after the client has uploaded all parts.
+    if (pathname === '/realtime/recordings/upload/complete' && request.method === 'POST') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+        if (auth.role !== 'Superadmin') return createResponse(JSON.stringify({ error: 'Superadmin access required' }), 403)
+        if (!env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: 'Recordings bucket not configured' }), 500)
+
+        const { key, uploadId, parts, name, size, contentType } = await request.json()
+        if (!key || typeof key !== 'string' || !key.startsWith('recordings/')) return createResponse(JSON.stringify({ error: 'Valid key is required' }), 400)
+        if (!uploadId || typeof uploadId !== 'string') return createResponse(JSON.stringify({ error: 'uploadId is required' }), 400)
+        if (!Array.isArray(parts) || !parts.length) return createResponse(JSON.stringify({ error: 'parts are required' }), 400)
+
+        const normalizedParts = parts
+          .map((part) => ({
+            partNumber: Number(part?.partNumber),
+            etag: String(part?.etag || ''),
+          }))
+          .filter((part) => Number.isInteger(part.partNumber) && part.partNumber > 0 && part.etag)
+          .sort((a, b) => a.partNumber - b.partNumber)
+
+        if (!normalizedParts.length) return createResponse(JSON.stringify({ error: 'No valid parts were provided' }), 400)
+
+        const upload = env.MEETING_RECORDINGS.resumeMultipartUpload(key, uploadId)
+        await upload.complete(normalizedParts)
+
+        return createResponse(JSON.stringify({
+          success: true,
+          key,
+          name: typeof name === 'string' && name ? name : key.replace(/^recordings\//, ''),
+          size: typeof size === 'number' ? size : null,
+          contentType: typeof contentType === 'string' && contentType ? contentType : 'video/mp4',
+          playUrl: `https://realtimevideos.vegvisr.org/${key}`,
+        }))
+      } catch (e) {
+        console.error('Error in /realtime/recordings/upload/complete:', e)
+        return createResponse(JSON.stringify({ error: e.message }), 500)
+      }
+    }
+
+    // ── POST /realtime/recordings/upload/abort ─────────────────────────────────
+    // Best-effort cleanup for an interrupted multipart upload.
+    if (pathname === '/realtime/recordings/upload/abort' && request.method === 'POST') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+        if (auth.role !== 'Superadmin') return createResponse(JSON.stringify({ error: 'Superadmin access required' }), 403)
+        if (!env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: 'Recordings bucket not configured' }), 500)
+
+        const { key, uploadId } = await request.json()
+        if (!key || typeof key !== 'string' || !key.startsWith('recordings/')) return createResponse(JSON.stringify({ error: 'Valid key is required' }), 400)
+        if (!uploadId || typeof uploadId !== 'string') return createResponse(JSON.stringify({ error: 'uploadId is required' }), 400)
+
+        const upload = env.MEETING_RECORDINGS.resumeMultipartUpload(key, uploadId)
+        await upload.abort()
+
+        return createResponse(JSON.stringify({ success: true }))
+      } catch (e) {
+        console.error('Error in /realtime/recordings/upload/abort:', e)
+        return createResponse(JSON.stringify({ error: e.message }), 500)
+      }
+    }
+
+    // ── POST /realtime/recordings/upload ───────────────────────────────────────
+    // Kept for compatibility; large uploads should use the multipart flow above.
+    if (pathname === '/realtime/recordings/upload' && request.method === 'POST') {
+      try {
+        return createResponse(JSON.stringify({
+          error: 'Use /realtime/recordings/upload/init for multipart uploads',
+        }), 410)
+      } catch (e) {
+        console.error('Error in /realtime/recordings/upload:', e)
         return createResponse(JSON.stringify({ error: e.message }), 500)
       }
     }
