@@ -1108,7 +1108,7 @@ export default {
               } catch (e) { console.error('meeting_ownership batch lookup failed:', e) }
 
               for (const rec of rtkData.data || []) {
-                if (ownedMeetingIds.size > 0 && !ownedMeetingIds.has(rec.meeting_id)) continue
+                if (!rec.meeting_id || !ownedMeetingIds.has(rec.meeting_id)) continue
                 if (rec.output_file_name && r2Keys.has(rec.output_file_name)) continue
                 recordings.push({
                   key: rec.id, name: rec.output_file_name || rec.id, size: rec.file_size || 0,
