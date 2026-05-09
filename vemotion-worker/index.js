@@ -115,6 +115,7 @@ function projectSummary(project) {
     projectId: project.projectId,
     title: project.title,
     description: project.description || '',
+    compositionId: project.compositionId || project.templateId || 'VEmotionIntro',
     templateId: project.templateId || 'custom',
     status: project.status || 'draft',
     version: project.version || 1,
@@ -127,7 +128,14 @@ function projectSummary(project) {
 function buildProjectRecord(input, auth, env, existing = null) {
   const now = new Date().toISOString()
   const projectId = existing?.projectId || (typeof input.projectId === 'string' && input.projectId.trim() ? input.projectId.trim() : crypto.randomUUID())
-  const templateId = typeof input.templateId === 'string' && input.templateId.trim() ? input.templateId.trim() : (existing?.templateId || 'custom')
+  const requestedCompositionId =
+    typeof input.compositionId === 'string' && input.compositionId.trim()
+      ? input.compositionId.trim()
+      : typeof input.templateId === 'string' && input.templateId.trim()
+        ? input.templateId.trim()
+        : ''
+  const compositionId = requestedCompositionId || existing?.compositionId || existing?.templateId || 'VEmotionIntro'
+  const templateId = typeof input.templateId === 'string' && input.templateId.trim() ? input.templateId.trim() : (existing?.templateId || compositionId)
   const title = typeof input.title === 'string' && input.title.trim() ? input.title.trim() : (existing?.title || 'Untitled VEmotion Project')
   const description = typeof input.description === 'string' ? input.description.trim() : (existing?.description || '')
   const status = typeof input.status === 'string' && input.status.trim() ? input.status.trim() : (existing?.status || 'draft')
@@ -152,6 +160,7 @@ function buildProjectRecord(input, auth, env, existing = null) {
     projectId,
     userId: auth.userId,
     userEmail: auth.email,
+    compositionId,
     templateId,
     title,
     description,
@@ -182,6 +191,7 @@ async function putProject(env, project) {
       userEmail: project.userEmail,
       title: project.title,
       status: project.status,
+      compositionId: project.compositionId,
       templateId: project.templateId,
       updatedAt: project.updatedAt,
     },
