@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": "../../Agent-Builder"
+		},
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../photos-vegvisr"
+		},
+		{
+			"path": "../../vegvisr-realtime"
+		},
+		{
+			"path": "../../vemail-vegvisr"
+		}
+	],
+	"settings": {}
+}
