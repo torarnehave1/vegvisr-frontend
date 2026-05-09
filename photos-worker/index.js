@@ -1,6 +1,6 @@
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Token'
 }
 
@@ -14,6 +14,7 @@ const createErrorResponse = (message, status = 400) =>
   createResponse(JSON.stringify({ error: message }), status)
 
 const PHOTO_ALBUM_PREFIX = 'album:'
+const IMAGE_METADATA_PREFIX = 'image-meta:'
 
 const normalizeAlbumName = (rawName) => {
   if (!rawName || typeof rawName !== 'string') return ''
@@ -21,6 +22,91 @@ const normalizeAlbumName = (rawName) => {
 }
 
 const buildAlbumKey = (name) => `${PHOTO_ALBUM_PREFIX}${name}`
+const buildImageMetadataKey = (key) => `${IMAGE_METADATA_PREFIX}${key}`
+
+const normalizeTags = (value) => {
+  const rawTags = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : []
+
+  const seen = new Set()
+  const tags = []
+  for (const rawTag of rawTags) {
+    if (typeof rawTag !== 'string') continue
+    const trimmed = rawTag.trim()
+    if (!trimmed) continue
+    const normalized = trimmed.toLowerCase()
+    if (seen.has(normalized)) continue
+    seen.add(normalized)
+    tags.push(trimmed)
+  }
+  return tags
+}
+
+const parseMetadataPayload = (input) => {
+  if (!input || typeof input !== 'object') {
+    return { name: null, displayName: null, tags: [] }
+  }
+
+  const name = typeof input.name === 'string' ? input.name.trim() : ''
+  const displayName = typeof input.displayName === 'string' ? input.displayName.trim() : ''
+  const tags = normalizeTags(
+    input.tagsCsv ||
+      input.tags ||
+      []
+  )
+
+  return {
+    name: name || null,
+    displayName: displayName || name || null,
+    tags
+  }
+}
+
+const readImageMetadata = async (env, key) => {
+  if (!env.PHOTO_ALBUMS || !key) return null
+  const stored = await env.PHOTO_ALBUMS.get(buildImageMetadataKey(key))
+  if (!stored) return null
+  try {
+    const parsed = JSON.parse(stored)
+    if (!parsed || typeof parsed !== 'object') return null
+    const metadata = parseMetadataPayload(parsed)
+    return metadata.name || metadata.displayName || metadata.tags.length > 0 ? metadata : null
+  } catch {
+    return null
+  }
+}
+
+const writeImageMetadata = async (env, key, payload) => {
+  if (!env.PHOTO_ALBUMS || !key) return null
+  const metadata = parseMetadataPayload(payload)
+  const hasMetadata = metadata.name || metadata.displayName || metadata.tags.length > 0
+  const storageKey = buildImageMetadataKey(key)
+  if (!hasMetadata) {
+    await env.PHOTO_ALBUMS.delete(storageKey)
+    return { key, ...metadata }
+  }
+  const record = {
+    key,
+    ...metadata,
+    updatedAt: new Date().toISOString()
+  }
+  await env.PHOTO_ALBUMS.put(storageKey, JSON.stringify(record))
+  return record
+}
+
+const enrichImageWithMetadata = async (env, image) => {
+  const metadata = await readImageMetadata(env, image.key)
+  if (!metadata) return image
+  return {
+    ...image,
+    name: metadata.name,
+    displayName: metadata.displayName,
+    tags: metadata.tags
+  }
+}
 
 const validateAuth = async (request, env) => {
   const apiToken = request.headers.get('X-API-Token')
@@ -121,11 +207,11 @@ const handleListR2Images = async (request, env) => {
         return createErrorResponse('Unauthorized to view this album', 403)
       }
     }
-    const images = (album.images || []).map((key) => ({
+    const images = await Promise.all((album.images || []).map(async (key) => enrichImageWithMetadata(env, {
       key,
       url: `${baseUrl}${key}`,
       uploaded: null
-    }))
+    })))
     return createResponse(JSON.stringify({ images, album: album.name }), 200)
   }
 
@@ -138,14 +224,14 @@ const handleListR2Images = async (request, env) => {
     cursor = listResult.truncated ? listResult.cursor : undefined
   } while (cursor)
 
-  const images = allObjects
+  const images = await Promise.all(allObjects
     .filter((obj) => !obj.key.startsWith('trash/'))
-    .filter((obj) => /\.(png|jpe?g|gif|webp)$/i.test(obj.key))
-    .map((obj) => ({
+    .filter((obj) => /\.(png|jpe?g|gif|webp|svg)$/i.test(obj.key))
+    .map(async (obj) => enrichImageWithMetadata(env, {
       key: obj.key,
       url: `${baseUrl}${obj.key}`,
       uploaded: obj.uploaded ? obj.uploaded.toISOString() : null
-    }))
+    })))
 
   return createResponse(JSON.stringify({ images }), 200)
 }
@@ -285,6 +371,12 @@ const handleUpload = async (request, env) => {
   const files = formData.getAll('file').filter((entry) => entry instanceof File)
   const customFilename = formData.get('filename')
   const albumName = normalizeAlbumName(formData.get('album'))
+  const metadataInput = parseMetadataPayload({
+    name: formData.get('name'),
+    displayName: formData.get('displayName'),
+    tags: formData.get('tags'),
+    tagsCsv: formData.get('tagsCsv')
+  })
   const baseUrl = resolveBaseUrl(env.PHOTOS_BASE_URL, 'https://vegvisr.imgix.net/')
 
   if (!files.length) {
@@ -313,6 +405,9 @@ const handleUpload = async (request, env) => {
     await env.PHOTOS_BUCKET.put(fileName, file.stream(), {
       httpMetadata: { contentType }
     })
+    if (metadataInput.name || metadataInput.displayName || metadataInput.tags.length > 0) {
+      await writeImageMetadata(env, fileName, metadataInput)
+    }
     uploadedKeys.push(fileName)
   }
 
@@ -329,6 +424,52 @@ const handleUpload = async (request, env) => {
 
   const urls = uploadedKeys.map((key) => `${baseUrl}${key}`)
   return createResponse(JSON.stringify({ urls, keys: uploadedKeys, album: albumName || null }), 200)
+}
+
+const handleImageMetadata = async (request, env) => {
+  const auth = await validateAuth(request, env)
+  if (!auth.valid) {
+    return createErrorResponse(auth.error, 401)
+  }
+
+  if (!env.PHOTO_ALBUMS) {
+    return createErrorResponse('Metadata storage is not configured', 500)
+  }
+
+  if (request.method === 'GET') {
+    const url = new URL(request.url)
+    const key = url.searchParams.get('key')
+    if (!key) {
+      return createErrorResponse('key is required', 400)
+    }
+    const metadata = await readImageMetadata(env, key)
+    return createResponse(JSON.stringify({
+      key,
+      name: metadata?.name || null,
+      displayName: metadata?.displayName || null,
+      tags: metadata?.tags || []
+    }), 200)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const key = typeof body?.key === 'string' ? body.key.trim() : ''
+  if (!key) {
+    return createErrorResponse('key is required', 400)
+  }
+
+  const exists = await env.PHOTOS_BUCKET.head(key)
+  if (!exists) {
+    return createErrorResponse('Image not found', 404)
+  }
+
+  const metadata = await writeImageMetadata(env, key, body)
+  return createResponse(JSON.stringify(metadata), 200)
 }
 
 const handleUploadFavicon = async (request, env) => {
@@ -490,7 +631,7 @@ export default {
             '/upload': {
               post: {
                 summary: 'Upload images',
-                description: 'Upload one or more image files to R2 storage, optionally adding them to an album.',
+                description: 'Upload one or more image files to R2 storage, optionally adding them to an album and storing semantic metadata.',
                 requestBody: {
                   required: true,
                   content: {
@@ -500,7 +641,11 @@ export default {
                         properties: {
                           file: { type: 'array', items: { type: 'string', format: 'binary' }, description: 'One or more image files' },
                           filename: { type: 'string', description: 'Custom filename (single file upload only)' },
-                          album: { type: 'string', description: 'Album name to add uploaded images to' }
+                          album: { type: 'string', description: 'Album name to add uploaded images to' },
+                          name: { type: 'string', description: 'Semantic asset name' },
+                          displayName: { type: 'string', description: 'Human-readable asset label' },
+                          tags: { type: 'string', description: 'JSON array of tags' },
+                          tagsCsv: { type: 'string', description: 'Comma-separated tags' }
                         },
                         required: ['file']
                       }
@@ -525,6 +670,89 @@ export default {
                   },
                   '400': { description: 'Missing file or invalid file name' },
                   '500': { description: 'Album storage not configured' }
+                }
+              }
+            },
+            '/image-metadata': {
+              get: {
+                summary: 'Get image metadata',
+                description: 'Fetch semantic metadata for a single image key.',
+                parameters: [
+                  { name: 'key', in: 'query', required: true, schema: { type: 'string' }, description: 'R2 object key of the image' }
+                ],
+                responses: {
+                  '200': {
+                    description: 'Metadata fetched',
+                    content: {
+                      'application/json': {
+                        schema: {
+                          type: 'object',
+                          properties: {
+                            key: { type: 'string' },
+                            name: { type: 'string', nullable: true },
+                            displayName: { type: 'string', nullable: true },
+                            tags: { type: 'array', items: { type: 'string' } }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  '400': { description: 'key is required' },
+                  '401': { description: 'Unauthorized' }
+                }
+              },
+              post: {
+                summary: 'Save image metadata',
+                description: 'Create or update semantic metadata for an image key.',
+                requestBody: {
+                  required: true,
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          key: { type: 'string' },
+                          name: { type: 'string', nullable: true },
+                          displayName: { type: 'string', nullable: true },
+                          tags: { type: 'array', items: { type: 'string' } }
+                        },
+                        required: ['key']
+                      }
+                    }
+                  }
+                },
+                responses: {
+                  '200': { description: 'Metadata saved' },
+                  '400': { description: 'Invalid request' },
+                  '401': { description: 'Unauthorized' },
+                  '404': { description: 'Image not found' }
+                }
+              },
+              patch: {
+                summary: 'Patch image metadata',
+                description: 'Alias of POST for metadata updates.',
+                requestBody: {
+                  required: true,
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          key: { type: 'string' },
+                          name: { type: 'string', nullable: true },
+                          displayName: { type: 'string', nullable: true },
+                          tags: { type: 'array', items: { type: 'string' } }
+                        },
+                        required: ['key']
+                      }
+                    }
+                  }
+                },
+                responses: {
+                  '200': { description: 'Metadata saved' },
+                  '400': { description: 'Invalid request' },
+                  '401': { description: 'Unauthorized' },
+                  '404': { description: 'Image not found' }
                 }
               }
             },
@@ -748,6 +976,9 @@ export default {
       }
       if (pathname === '/upload' && request.method === 'POST') {
         return await handleUpload(request, env)
+      }
+      if (pathname === '/image-metadata' && (request.method === 'GET' || request.method === 'POST' || request.method === 'PATCH')) {
+        return await handleImageMetadata(request, env)
       }
       if (pathname === '/upload-favicon' && request.method === 'POST') {
         return await handleUploadFavicon(request, env)
