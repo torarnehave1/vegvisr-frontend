@@ -15,6 +15,7 @@ const createErrorResponse = (message, status = 400) =>
 
 const PHOTO_ALBUM_PREFIX = 'album:'
 const IMAGE_METADATA_PREFIX = 'image-meta:'
+const OPENAI_WORKER_BASE_URL = 'https://openai-worker.torarnehave.workers.dev'
 
 const normalizeAlbumName = (rawName) => {
   if (!rawName || typeof rawName !== 'string') return ''
@@ -174,6 +175,50 @@ const resolveBaseUrl = (value, fallback) => {
   const base = (value || fallback || '').trim()
   if (!base) return ''
   return base.endsWith('/') ? base : `${base}/`
+}
+
+const extractJsonObject = (text) => {
+  if (typeof text !== 'string') return null
+  const trimmed = text.trim()
+
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    // continue
+  }
+
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  if (fencedMatch?.[1]) {
+    try {
+      return JSON.parse(fencedMatch[1])
+    } catch {
+      // continue
+    }
+  }
+
+  const firstBrace = trimmed.indexOf('{')
+  const lastBrace = trimmed.lastIndexOf('}')
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const candidate = trimmed.slice(firstBrace, lastBrace + 1)
+    try {
+      return JSON.parse(candidate)
+    } catch {
+      return null
+    }
+  }
+
+  return null
+}
+
+const arrayBufferToBase64 = (buffer) => {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize)
+    binary += String.fromCharCode(...chunk)
+  }
+  return btoa(binary)
 }
 
 const handleListR2Images = async (request, env) => {
@@ -472,6 +517,119 @@ const handleImageMetadata = async (request, env) => {
   return createResponse(JSON.stringify(metadata), 200)
 }
 
+const handleSuggestImageMetadata = async (request, env) => {
+  const auth = await validateAuth(request, env)
+  if (!auth.valid) {
+    return createErrorResponse(auth.error, 401)
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return createErrorResponse('Invalid JSON body', 400)
+  }
+
+  const key = typeof body?.key === 'string' ? body.key.trim() : ''
+  const providedImageDataUrl = typeof body?.imageDataUrl === 'string' ? body.imageDataUrl.trim() : ''
+  if (!key) {
+    return createErrorResponse('key is required', 400)
+  }
+
+  const exists = await env.PHOTOS_BUCKET.head(key)
+  if (!exists) {
+    return createErrorResponse('Image not found', 404)
+  }
+
+  const imageUrl = `${resolveBaseUrl(env.PHOTOS_BASE_URL, 'https://vegvisr.imgix.net/')}${key}`
+  let analysisDataUrl = providedImageDataUrl
+
+  if (analysisDataUrl && !analysisDataUrl.startsWith('data:image/')) {
+    return createErrorResponse('imageDataUrl must be a valid data:image/... URL', 400)
+  }
+
+  if (!analysisDataUrl) {
+    const analysisUrl = new URL(imageUrl)
+    analysisUrl.searchParams.set('fit', 'max')
+    analysisUrl.searchParams.set('w', '1024')
+    analysisUrl.searchParams.set('h', '1024')
+    const analysisImageResponse = await fetch(analysisUrl.toString())
+    if (!analysisImageResponse.ok) {
+      return createErrorResponse(`Failed to fetch image for analysis (${analysisImageResponse.status})`, 502)
+    }
+    const analysisContentType = analysisImageResponse.headers.get('content-type') || 'image/png'
+    const analysisBuffer = await analysisImageResponse.arrayBuffer()
+    analysisDataUrl = `data:${analysisContentType};base64,${arrayBufferToBase64(analysisBuffer)}`
+  }
+  const openaiBaseUrl = resolveBaseUrl(env.OPENAI_WORKER_BASE_URL, OPENAI_WORKER_BASE_URL).replace(/\/$/, '')
+
+  const prompt = [
+    'Analyze this single image asset and suggest semantic metadata.',
+    'Return only valid JSON with this exact shape:',
+    '{"label":"lowercase-kebab-case-label","tags":["tag-one","tag-two"]}',
+    'Rules:',
+    '- keep the label short and specific',
+    '- use lowercase kebab-case for the label',
+    '- tags should be short lowercase words or hyphenated phrases',
+    '- focus on what the asset is visually, such as shape, color, style, logo, icon, solid, outline, glow',
+    '- do not include file extensions',
+    '- do not mention the background unless it is part of the asset',
+    '- maximum 6 tags'
+  ].join('\n')
+
+  const openaiResponse = await fetch(`${openaiBaseUrl}/gpt-4o`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      userId: auth.userId,
+      temperature: 0.2,
+      max_tokens: 250,
+      messages: [
+        {
+          role: 'system',
+          content: 'You produce concise semantic labels for visual assets and return JSON only.'
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: analysisDataUrl } }
+          ]
+        }
+      ]
+    })
+  })
+
+  if (!openaiResponse.ok) {
+    const errorText = await openaiResponse.text()
+    return createErrorResponse(errorText || `OpenAI worker error (${openaiResponse.status})`, openaiResponse.status)
+  }
+
+  const completion = await openaiResponse.json()
+  const rawContent = completion?.choices?.[0]?.message?.content
+  const parsed = extractJsonObject(rawContent)
+  if (!parsed) {
+    return createErrorResponse('Could not parse metadata suggestion from model response', 502)
+  }
+
+  const normalized = parseMetadataPayload({
+    name: parsed.label || parsed.name || parsed.displayName || null,
+    displayName: parsed.label || parsed.displayName || parsed.name || null,
+    tags: parsed.tags || []
+  })
+
+  return createResponse(JSON.stringify({
+    key,
+    imageUrl,
+    label: normalized.displayName || normalized.name || null,
+    name: normalized.name,
+    displayName: normalized.displayName,
+    tags: normalized.tags
+  }), 200)
+}
+
 const handleUploadFavicon = async (request, env) => {
   const formData = await request.formData()
   const files = formData.getAll('file').filter((entry) => entry instanceof File)
@@ -756,6 +914,54 @@ export default {
                 }
               }
             },
+            '/suggest-image-metadata': {
+              post: {
+                summary: 'Suggest image metadata',
+                description: 'Analyze an image with the OpenAI worker and return a suggested label and tags.',
+                requestBody: {
+                  required: true,
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        properties: {
+                          key: { type: 'string', description: 'R2 object key of the image to analyze' },
+                          imageDataUrl: {
+                            type: 'string',
+                            description: 'Optional data:image/... URL prepared by the frontend for vision analysis, useful for SVG assets.'
+                          }
+                        },
+                        required: ['key']
+                      }
+                    }
+                  }
+                },
+                responses: {
+                  '200': {
+                    description: 'Suggestion generated',
+                    content: {
+                      'application/json': {
+                        schema: {
+                          type: 'object',
+                          properties: {
+                            key: { type: 'string' },
+                            imageUrl: { type: 'string' },
+                            label: { type: 'string', nullable: true },
+                            name: { type: 'string', nullable: true },
+                            displayName: { type: 'string', nullable: true },
+                            tags: { type: 'array', items: { type: 'string' } }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  '400': { description: 'Invalid request' },
+                  '401': { description: 'Unauthorized' },
+                  '404': { description: 'Image not found' },
+                  '502': { description: 'Model output could not be parsed' }
+                }
+              }
+            },
             '/upload-favicon': {
               post: {
                 summary: 'Upload favicon',
@@ -979,6 +1185,9 @@ export default {
       }
       if (pathname === '/image-metadata' && (request.method === 'GET' || request.method === 'POST' || request.method === 'PATCH')) {
         return await handleImageMetadata(request, env)
+      }
+      if (pathname === '/suggest-image-metadata' && request.method === 'POST') {
+        return await handleSuggestImageMetadata(request, env)
       }
       if (pathname === '/upload-favicon' && request.method === 'POST') {
         return await handleUploadFavicon(request, env)
