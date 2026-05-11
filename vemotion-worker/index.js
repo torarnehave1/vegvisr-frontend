@@ -437,7 +437,7 @@ function buildOpenApiSpec(baseUrl) {
           required: ['id', 'type', 'position', 'size', 'properties'],
           properties: {
             id: { type: 'string' },
-            type: { type: 'string', enum: ['text', 'shape', 'image', 'video', 'kg-shape'] },
+            type: { type: 'string', enum: ['text', 'shape', 'image', 'video', 'kg-shape', 'card'] },
             position: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } }, required: ['x', 'y'] },
             size: { type: 'object', properties: { width: { type: 'number' }, height: { type: 'number' } }, required: ['width', 'height'] },
             startTime: { type: 'number', description: 'Layer start time in seconds' },
@@ -452,7 +452,7 @@ function buildOpenApiSpec(baseUrl) {
                 },
               },
             },
-            properties: { type: 'object', additionalProperties: true, description: 'Layer-type-specific properties (text, color, shape, svgPath, etc.)' },
+            properties: { type: 'object', additionalProperties: true, description: 'Layer-type-specific properties. For card layers see CardProperties schema.' },
           },
         },
         Composition: {
@@ -464,6 +464,25 @@ function buildOpenApiSpec(baseUrl) {
             width: { type: 'number', description: 'Canvas width in pixels' },
             height: { type: 'number', description: 'Canvas height in pixels' },
             layers: { type: 'array', items: { '$ref': '#/components/schemas/Layer' } },
+          },
+        },
+        CardProperties: {
+          type: 'object',
+          description: 'Properties for a card layer (type: card). Snapshotted from vemotion-cards KG graph.',
+          properties: {
+            title: { type: 'string', description: 'Card headline text' },
+            body: { type: 'string', description: 'Card body / description text' },
+            backgroundColor: { type: 'string', description: 'Hex background colour' },
+            padding: { type: 'number', description: 'Inner padding in pixels (default 24)' },
+            borderRadius: { type: 'number', description: 'Corner radius in pixels (default 12)' },
+            titleFontSize: { type: 'number' },
+            titleColor: { type: 'string' },
+            titleFontWeight: { type: 'string', default: '700' },
+            bodyFontSize: { type: 'number' },
+            bodyColor: { type: 'string' },
+            gap: { type: 'number', description: 'Gap between title and body in pixels (default 12)' },
+            kgNodeId: { type: 'string', description: 'Source node id in vemotion-cards graph' },
+            kgGraphId: { type: 'string', default: 'vemotion-cards' },
           },
         },
         CompositionSummary: {
