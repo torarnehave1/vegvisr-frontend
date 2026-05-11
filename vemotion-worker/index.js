@@ -463,6 +463,7 @@ function buildOpenApiSpec(baseUrl) {
             fps: { type: 'number', description: 'Frames per second' },
             width: { type: 'number', description: 'Canvas width in pixels' },
             height: { type: 'number', description: 'Canvas height in pixels' },
+            fontFamily: { type: 'string', description: 'Composition-level default font (e.g. Inter, Poppins, Caveat). Individual layers may override via properties.fontFamily.' },
             layers: { type: 'array', items: { '$ref': '#/components/schemas/Layer' } },
           },
         },
