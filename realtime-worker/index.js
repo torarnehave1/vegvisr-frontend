@@ -724,6 +724,12 @@ export default {
         const rtData = await rtResponse.json()
         const meetingId = rtData?.data?.id
         if (!meetingId) return createResponse(JSON.stringify({ error: 'No meetingId in RealtimeKit response', raw: rtData }), 502)
+
+        try {
+          await env.vegvisr_org.prepare('INSERT OR REPLACE INTO meeting_ownership (meeting_id, owner_email, room_type) VALUES (?, ?, ?)')
+            .bind(meetingId, auth.email, 'adhoc').run()
+        } catch (e) { console.error('meeting_ownership insert failed for adhoc meeting:', e) }
+
         return createResponse(JSON.stringify({ success: true, meetingId, status: rtData.data.status }))
       } catch (e) {
         console.error('Error in /realtime/create-meeting:', e)
@@ -1087,12 +1093,14 @@ export default {
               const r2Keys = new Set(recordings.map((r) => r.name))
               const userHasOwnR2 = !!(creds.r2AccessKeyId && creds.r2Secret && creds.r2Bucket && creds.r2AccountId)
 
-              // Restrict RealtimeKit results to meetings owned by this user
+              // Only filter by ownership if viewing another user's recordings (Superadmin impersonation)
               const ownedMeetingIds = new Set()
-              try {
-                const ownedRows = await env.vegvisr_org.prepare('SELECT meeting_id FROM meeting_ownership WHERE owner_email = ?').bind(effectiveEmail).all()
-                for (const r of ownedRows.results || []) ownedMeetingIds.add(r.meeting_id)
-              } catch (e) { console.error('meeting_ownership lookup failed:', e) }
+              if (eff.isImpersonating) {
+                try {
+                  const ownedRows = await env.vegvisr_org.prepare('SELECT meeting_id FROM meeting_ownership WHERE owner_email = ?').bind(effectiveEmail).all()
+                  for (const r of ownedRows.results || []) ownedMeetingIds.add(r.meeting_id)
+                } catch (e) { console.error('meeting_ownership lookup failed:', e) }
+              }
 
               // Lookup meeting owners for all meetings in this batch
               let meetingOwners = {};
@@ -1108,7 +1116,9 @@ export default {
               } catch (e) { console.error('meeting_ownership batch lookup failed:', e) }
 
               for (const rec of rtkData.data || []) {
-                if (!rec.meeting_id || !ownedMeetingIds.has(rec.meeting_id)) continue
+                if (!rec.meeting_id) continue
+                // If impersonating, only show recordings from owned meetings
+                if (eff.isImpersonating && !ownedMeetingIds.has(rec.meeting_id)) continue
                 if (rec.output_file_name && r2Keys.has(rec.output_file_name)) continue
                 recordings.push({
                   key: rec.id, name: rec.output_file_name || rec.id, size: rec.file_size || 0,
