@@ -7,6 +7,7 @@ const corsHeaders = {
 // ── KV key prefixes ───────────────────────────────────────────────────────────
 const PROJECT_PREFIX = 'vemotion:project:'
 const COMP_PREFIX = 'vemotion:comp:'
+const COMP_VER_PREFIX = 'vemotion:compver:'
 const RENDER_PREFIX = 'vemotion:render:'
 
 // ── Response helpers ──────────────────────────────────────────────────────────
@@ -22,6 +23,8 @@ const error = (message, status = 400, extra = {}) =>
 // ── KV key helpers ────────────────────────────────────────────────────────────
 const getProjectKey = (id) => `${PROJECT_PREFIX}${id}`
 const getCompKey = (id) => `${COMP_PREFIX}${id}`
+const getCompVersionPrefix = (id) => `${COMP_VER_PREFIX}${id}:`
+const getCompVersionKey = (id, version) => `${COMP_VER_PREFIX}${id}:${version}`
 const getRenderKey = (id) => `${RENDER_PREFIX}${id}`
 
 // ── Normalizers ───────────────────────────────────────────────────────────────
@@ -235,6 +238,34 @@ async function readComp(env, compId) {
   try { return JSON.parse(raw) } catch { return null }
 }
 
+async function listCompVersions(env, compId, limit = 30) {
+  const prefix = getCompVersionPrefix(compId)
+  const list = await env.VEMOTION_PROJECTS.list({ prefix, limit: Math.max(limit, 1) * 4 })
+  const versions = []
+  for (const item of list.keys) {
+    const raw = await env.VEMOTION_PROJECTS.get(item.name)
+    if (!raw) continue
+    try { versions.push(JSON.parse(raw)) } catch { continue }
+  }
+  versions.sort((a, b) => Number(b.version || 0) - Number(a.version || 0))
+  return versions.slice(0, limit)
+}
+
+async function trimCompVersions(env, compId, keep = 30) {
+  const prefix = getCompVersionPrefix(compId)
+  const list = await env.VEMOTION_PROJECTS.list({ prefix, limit: 500 })
+  const keys = list.keys
+    .map((item) => {
+      const version = Number(item.name.slice(prefix.length))
+      return Number.isFinite(version) ? { name: item.name, version } : null
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.version - a.version)
+
+  const stale = keys.slice(keep)
+  await Promise.all(stale.map((item) => env.VEMOTION_PROJECTS.delete(item.name)))
+}
+
 function compSummary(c) {
   return {
     id: c.id,
@@ -276,6 +307,31 @@ async function handleGetComposition(url, env, auth) {
   return json({ ok: true, ...record })
 }
 
+async function handleGetCompositionHistory(url, env, auth) {
+  const id = url.searchParams.get('id') || ''
+  if (!id) return error('id is required', 400)
+  const record = await readComp(env, id)
+  if (!record) return error('Composition not found', 404)
+  assertOwner(record, auth)
+  const history = await listCompVersions(env, id, 30)
+  return json({
+    ok: true,
+    id,
+    history: history.map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      version: entry.version || 1,
+      updatedAt: entry.updatedAt,
+      createdAt: entry.createdAt,
+      duration: entry.composition?.duration,
+      fps: entry.composition?.fps,
+      width: entry.composition?.width,
+      height: entry.composition?.height,
+      layerCount: Array.isArray(entry.composition?.layers) ? entry.composition.layers.length : 0,
+    })),
+  })
+}
+
 async function handleSaveComposition(request, env, auth) {
   const input = await request.json()
   const { name, composition } = input
@@ -291,11 +347,20 @@ async function handleSaveComposition(request, env, auth) {
 
   if (existing) assertOwner(existing, auth)
 
+  const trimmedName = String(name).trim()
+  const changed = !existing ||
+    existing.name !== trimmedName ||
+    JSON.stringify(existing.composition) !== JSON.stringify(composition)
+
+  if (!changed) {
+    return json({ ok: true, id, summary: compSummary(existing), version: existing.version || 1, unchanged: true })
+  }
+
   const record = {
     id,
     userId: auth.userId,
     userEmail: auth.email,
-    name: String(name).trim(),
+    name: trimmedName,
     composition,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
@@ -305,6 +370,12 @@ async function handleSaveComposition(request, env, auth) {
   await env.VEMOTION_PROJECTS.put(getCompKey(id), JSON.stringify(record), {
     metadata: { userId: record.userId, name: record.name, updatedAt: record.updatedAt },
   })
+
+  await env.VEMOTION_PROJECTS.put(getCompVersionKey(id, record.version), JSON.stringify(record), {
+    metadata: { userId: record.userId, name: record.name, updatedAt: record.updatedAt, version: record.version },
+  })
+
+  await trimCompVersions(env, id, 30)
 
   return json({ ok: true, id, summary: compSummary(record), version: record.version }, existing ? 200 : 201)
 }
@@ -614,6 +685,17 @@ function buildOpenApiSpec(baseUrl) {
           },
         },
       },
+      '/vemotion/composition/history': {
+        get: {
+          operationId: 'getCompositionHistory',
+          summary: 'List the latest 30 versions of a composition',
+          parameters: [{ name: 'id', in: 'query', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Composition version history' },
+            404: { description: 'Not found', content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } } },
+          },
+        },
+      },
 
       // ── Projects ──────────────────────────────────────────────────────────
       '/vemotion/projects': {
@@ -792,6 +874,9 @@ export default {
 
       if (pathname === '/vemotion/composition' && method === 'GET')
         return await handleGetComposition(url, env, auth)
+
+      if (pathname === '/vemotion/composition/history' && method === 'GET')
+        return await handleGetCompositionHistory(url, env, auth)
 
       if (pathname === '/vemotion/composition/save' && method === 'POST')
         return await handleSaveComposition(request, env, auth)
