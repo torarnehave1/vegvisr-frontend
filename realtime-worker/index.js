@@ -987,6 +987,45 @@ export default {
       }
     }
 
+    // ── GET /realtime/debug/rtk-recordings ────────────────────────────────────
+    // Raw RealtimeKit API response for debugging
+    if (pathname === '/realtime/debug/rtk-recordings' && request.method === 'GET') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+
+        const eff = await resolveEffectiveEmail(request, auth)
+        if (!eff.ok) return createResponse(JSON.stringify({ error: eff.error }), eff.status)
+        const effectiveEmail = eff.email
+
+        const creds = await getUserCloudflareCredentials(effectiveEmail, env)
+        const { appId, accountId, apiToken } = creds
+
+        if (!appId || !accountId || !apiToken) {
+          return createResponse(JSON.stringify({ error: 'RealtimeKit not configured', creds: { appId: !!appId, accountId: !!accountId, apiToken: !!apiToken } }), 400)
+        }
+
+        const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/realtime/kit/${appId}/recordings`
+        console.error(`[DEBUG] Calling RealtimeKit API: ${url}`)
+        const rtkResp = await fetch(url, { headers: { Authorization: `Bearer ${apiToken}` } })
+        const rtkData = await rtkResp.json()
+
+        console.error(`[DEBUG] RTK Response status: ${rtkResp.status}, recordings count: ${(rtkData.data || []).length}`)
+
+        return createResponse(JSON.stringify({
+          status: rtkResp.status,
+          ok: rtkResp.ok,
+          url,
+          user: effectiveEmail,
+          credentials: { appId: creds.appId, accountId: creds.accountId },
+          realtimekit_response: rtkData,
+        }), 200, { 'Content-Type': 'application/json' })
+      } catch (e) {
+        console.error('Error in /realtime/debug/rtk-recordings:', e)
+        return createResponse(JSON.stringify({ error: e.message, stack: e.stack }), 500)
+      }
+    }
+
     // ── GET /realtime/recordings ───────────────────────────────────────────────
     if (pathname === '/realtime/recordings' && request.method === 'GET') {
       try {
@@ -1090,6 +1129,7 @@ export default {
             )
             if (rtkResp.ok) {
               const rtkData = await rtkResp.json()
+              console.error(`[DEBUG] RealtimeKit API returned ${(rtkData.data || []).length} recordings for user ${effectiveEmail}`)
               const r2Keys = new Set(recordings.map((r) => r.name))
               const userHasOwnR2 = !!(creds.r2AccessKeyId && creds.r2Secret && creds.r2Bucket && creds.r2AccountId)
 
@@ -1116,10 +1156,17 @@ export default {
               } catch (e) { console.error('meeting_ownership batch lookup failed:', e) }
 
               for (const rec of rtkData.data || []) {
-                if (!rec.meeting_id) continue
+                if (!rec.meeting_id) {
+                  console.error(`[DEBUG] Skipping recording ${rec.id}: no meeting_id`)
+                  continue
+                }
                 // If impersonating, only show recordings from owned meetings
-                if (eff.isImpersonating && !ownedMeetingIds.has(rec.meeting_id)) continue
-                if (rec.output_file_name && r2Keys.has(rec.output_file_name)) continue
+                if (eff.isImpersonating && !ownedMeetingIds.has(rec.meeting_id)) {
+                  console.error(`[DEBUG] Skipping recording ${rec.id} for meeting ${rec.meeting_id}: not owned by ${effectiveEmail}`)
+                  continue
+                }
+                // Don't skip just because it's in R2 — show RealtimeKit recordings regardless
+                console.error(`[DEBUG] Adding recording ${rec.id} from meeting ${rec.meeting_id} (${rec.meeting?.title})`)
                 recordings.push({
                   key: rec.id, name: rec.output_file_name || rec.id, size: rec.file_size || 0,
                   uploaded: rec.stopped_time || rec.started_time, duration: rec.recording_duration,
