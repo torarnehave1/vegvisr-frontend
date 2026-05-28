@@ -1856,6 +1856,270 @@ export default {
       }
     }
 
+    // ── Custom Slug Endpoints ─────────────────────────────────────────────────
+    if (pathname === '/realtime/validate-slug' && request.method === 'POST') {
+      try {
+        const { slug, userEmail, requestJoinToken } = await request.json()
+        if (!slug || !userEmail) {
+          return createResponse(JSON.stringify({ success: false, error: 'Missing slug or userEmail' }), 400)
+        }
+        const normalizedEmail = String(userEmail).trim().toLowerCase()
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+          return createResponse(JSON.stringify({ success: false, error: 'Invalid email format' }), 400)
+        }
+        const row = await env.vegvisr_org
+          .prepare('SELECT id, meeting_id, owner_email, allowed_emails FROM custom_room_slugs WHERE slug = ? AND active = 1')
+          .bind(slug).first()
+        if (!row) {
+          return createResponse(JSON.stringify({ success: false, error: 'Slug not found' }), 400)
+        }
+        const allowedEmails = JSON.parse(row.allowed_emails).map(e => String(e).trim().toLowerCase())
+        if (!allowedEmails.includes(normalizedEmail)) {
+          return createResponse(JSON.stringify({
+            success: false,
+            ownerEmail: row.owner_email,
+            error: 'Not approved for this slug',
+          }), 403)
+        }
+
+        // Look up the email in config table — if registered, use their display_name and user_id.
+        // Otherwise use email's local-part and a guest-prefixed participant id.
+        let displayName = normalizedEmail.split('@')[0]
+        let registeredUserId = null
+        let isRegisteredUser = false
+        try {
+          const userRow = await env.vegvisr_org
+            .prepare('SELECT user_id, display_name FROM config WHERE LOWER(email) = ?')
+            .bind(normalizedEmail).first()
+          if (userRow) {
+            isRegisteredUser = true
+            registeredUserId = userRow.user_id || null
+            if (userRow.display_name) displayName = userRow.display_name
+          }
+        } catch (e) {
+          console.error('config lookup error (falling back to email local-part):', e)
+        }
+
+        // Only generate a RealtimeKit participant token when the caller asks for it (guest flow).
+        // Logged-in users will fetch their own token via /realtime/join-token afterwards.
+        if (!requestJoinToken) {
+          return createResponse(JSON.stringify({
+            success: true,
+            meetingId: row.meeting_id,
+            ownerEmail: row.owner_email,
+            displayName,
+            isRegisteredUser,
+          }), 200)
+        }
+
+        // Approved + guest mode — generate RealtimeKit participant token using owner's RealtimeKit config
+        const ownerCreds = await getUserCloudflareCredentials(row.owner_email, env)
+        const appId = ownerCreds.appId
+        const accountId = ownerCreds.accountId
+        const apiToken = ownerCreds.apiToken
+        if (!appId || !accountId || !apiToken) {
+          return createResponse(JSON.stringify({ success: false, error: 'RealtimeKit not configured for room owner' }), 500)
+        }
+
+        const presetName = env.REALTIMEKIT_PRESET_NAME || 'group_call_participant'
+        const participantId = registeredUserId || `slug-guest-${normalizedEmail}`
+        const payload = {
+          custom_participant_id: participantId,
+          preset_name: presetName,
+          name: displayName,
+        }
+
+        const rtResponse = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${accountId}/realtime/kit/${appId}/meetings/${encodeURIComponent(row.meeting_id)}/participants`,
+          { method: 'POST', headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
+        )
+        if (!rtResponse.ok) {
+          const errText = await rtResponse.text()
+          return createResponse(JSON.stringify({ success: false, error: 'RealtimeKit API error', details: errText }), 502)
+        }
+        const rtData = await rtResponse.json()
+        const authToken = rtData?.data?.token
+        if (!authToken) {
+          return createResponse(JSON.stringify({ success: false, error: 'No token in RealtimeKit response' }), 502)
+        }
+
+        return createResponse(JSON.stringify({
+          success: true,
+          meetingId: row.meeting_id,
+          ownerEmail: row.owner_email,
+          authToken,
+          displayName,
+          isRegisteredUser,
+        }), 200)
+      } catch (e) {
+        return createResponse(JSON.stringify({ success: false, error: e.message }), 500)
+      }
+    }
+
+    if (pathname === '/realtime/slugs/create' && request.method === 'POST') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) {
+          return createResponse(JSON.stringify({ success: false, error: auth.error || 'Unauthorized' }), 401)
+        }
+        if (auth.role !== 'Superadmin') {
+          return createResponse(JSON.stringify({ success: false, error: 'Forbidden: Superadmin role required' }), 403)
+        }
+        const user = { email: auth.email }
+        const { slug, meetingId, allowedEmails } = await request.json()
+        if (!slug || !meetingId || !allowedEmails) {
+          return createResponse(JSON.stringify({ success: false, error: 'Missing required fields' }), 400)
+        }
+        if (!/^[a-z0-9\-]{3,50}$/.test(slug) || /^-|-$|--/.test(slug)) {
+          return createResponse(JSON.stringify({ success: false, error: 'Invalid slug format' }), 400)
+        }
+        if (!Array.isArray(allowedEmails) || allowedEmails.length === 0) {
+          return createResponse(JSON.stringify({ success: false, error: 'allowedEmails must be a non-empty array' }), 400)
+        }
+        for (const email of allowedEmails) {
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return createResponse(JSON.stringify({ success: false, error: `Invalid email format: ${email}` }), 400)
+          }
+        }
+        const existing = await env.vegvisr_org.prepare('SELECT id FROM custom_room_slugs WHERE slug = ?').bind(slug).first()
+        if (existing) {
+          return createResponse(JSON.stringify({ success: false, error: 'Slug already exists' }), 409)
+        }
+        const slugId = crypto.randomUUID()
+        const now = new Date().toISOString()
+        await env.vegvisr_org
+          .prepare('INSERT INTO custom_room_slugs (id, slug, meeting_id, owner_email, allowed_emails, created_at, updated_at, active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)')
+          .bind(slugId, slug, meetingId, user.email, JSON.stringify(allowedEmails), now, now).run()
+        return createResponse(JSON.stringify({ success: true, slugId }), 201)
+      } catch (e) {
+        return createResponse(JSON.stringify({ success: false, error: e.message }), 500)
+      }
+    }
+
+    if (pathname === '/realtime/slugs' && request.method === 'GET') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) {
+          return createResponse(JSON.stringify({ success: false, error: auth.error || 'Unauthorized' }), 401)
+        }
+        if (auth.role !== 'Superadmin') {
+          return createResponse(JSON.stringify({ success: false, error: 'Forbidden: Superadmin role required' }), 403)
+        }
+        const user = { email: auth.email }
+        const result = await env.vegvisr_org
+          .prepare('SELECT id, slug, meeting_id, owner_email, allowed_emails, active, created_at FROM custom_room_slugs WHERE owner_email = ? AND active = 1 ORDER BY created_at DESC')
+          .bind(user.email).all()
+        const slugs = result.results.map(row => ({
+          id: row.id,
+          slug: row.slug,
+          meetingId: row.meeting_id,
+          ownerEmail: row.owner_email,
+          allowedEmails: JSON.parse(row.allowed_emails),
+          active: row.active === 1,
+          createdAt: row.created_at,
+        }))
+        return createResponse(JSON.stringify({ success: true, slugs }), 200)
+      } catch (e) {
+        return createResponse(JSON.stringify({ success: false, error: e.message }), 500)
+      }
+    }
+
+    {
+      const updateMatch = pathname.match(/^\/realtime\/slugs\/([^/]+)\/update$/)
+      if (updateMatch && request.method === 'POST') {
+        try {
+          const slugId = updateMatch[1]
+          const auth = await validateWorkerApiToken(request, env)
+          if (!auth.valid) {
+            return createResponse(JSON.stringify({ success: false, error: auth.error || 'Unauthorized' }), 401)
+          }
+          if (auth.role !== 'Superadmin') {
+            return createResponse(JSON.stringify({ success: false, error: 'Forbidden: Superadmin role required' }), 403)
+          }
+          const user = { email: auth.email }
+          const ownerRow = await env.vegvisr_org.prepare('SELECT owner_email FROM custom_room_slugs WHERE id = ?').bind(slugId).first()
+          if (!ownerRow) return createResponse(JSON.stringify({ success: false, error: 'Slug not found' }), 404)
+          if (ownerRow.owner_email !== user.email) return createResponse(JSON.stringify({ success: false, error: 'Forbidden: You do not own this slug' }), 403)
+          const { allowedEmails, meetingId } = await request.json()
+          const updates = []
+          const binds = []
+          if (allowedEmails !== undefined) {
+            if (!Array.isArray(allowedEmails) || allowedEmails.length === 0) {
+              return createResponse(JSON.stringify({ success: false, error: 'allowedEmails must be a non-empty array' }), 400)
+            }
+            for (const email of allowedEmails) {
+              if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                return createResponse(JSON.stringify({ success: false, error: `Invalid email format: ${email}` }), 400)
+              }
+            }
+            updates.push('allowed_emails = ?')
+            binds.push(JSON.stringify(allowedEmails))
+          }
+          if (meetingId !== undefined) {
+            updates.push('meeting_id = ?')
+            binds.push(meetingId)
+          }
+          if (updates.length === 0) {
+            return createResponse(JSON.stringify({ success: false, error: 'No fields to update' }), 400)
+          }
+          updates.push('updated_at = ?')
+          binds.push(new Date().toISOString())
+          binds.push(slugId)
+          await env.vegvisr_org.prepare(`UPDATE custom_room_slugs SET ${updates.join(', ')} WHERE id = ?`).bind(...binds).run()
+          return createResponse(JSON.stringify({ success: true }), 200)
+        } catch (e) {
+          return createResponse(JSON.stringify({ success: false, error: e.message }), 500)
+        }
+      }
+    }
+
+    {
+      const deleteMatch = pathname.match(/^\/realtime\/slugs\/([^/]+)$/)
+      if (deleteMatch && request.method === 'DELETE') {
+        try {
+          const slugId = deleteMatch[1]
+          const auth = await validateWorkerApiToken(request, env)
+          if (!auth.valid) {
+            return createResponse(JSON.stringify({ success: false, error: auth.error || 'Unauthorized' }), 401)
+          }
+          if (auth.role !== 'Superadmin') {
+            return createResponse(JSON.stringify({ success: false, error: 'Forbidden: Superadmin role required' }), 403)
+          }
+          const user = { email: auth.email }
+          const ownerRow = await env.vegvisr_org.prepare('SELECT owner_email FROM custom_room_slugs WHERE id = ?').bind(slugId).first()
+          if (!ownerRow) return createResponse(JSON.stringify({ success: false, error: 'Slug not found' }), 404)
+          if (ownerRow.owner_email !== user.email) return createResponse(JSON.stringify({ success: false, error: 'Forbidden: You do not own this slug' }), 403)
+          await env.vegvisr_org.prepare('UPDATE custom_room_slugs SET active = 0, updated_at = ? WHERE id = ?').bind(new Date().toISOString(), slugId).run()
+          return createResponse(JSON.stringify({ success: true }), 200)
+        } catch (e) {
+          return createResponse(JSON.stringify({ success: false, error: e.message }), 500)
+        }
+      }
+    }
+
+    if (pathname === '/realtime/slug-contact-owner' && request.method === 'POST') {
+      try {
+        const { slug, ownerEmail, visitorEmail, message } = await request.json()
+        if (!slug || !ownerEmail || !visitorEmail || !message) {
+          return createResponse(JSON.stringify({ success: false, error: 'Missing required fields' }), 400)
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(visitorEmail)) {
+          return createResponse(JSON.stringify({ success: false, error: 'Invalid visitor email format' }), 400)
+        }
+        if (typeof message !== 'string' || message.trim().length === 0) {
+          return createResponse(JSON.stringify({ success: false, error: 'Message cannot be empty' }), 400)
+        }
+        const messageId = crypto.randomUUID()
+        const now = new Date().toISOString()
+        await env.vegvisr_org
+          .prepare('INSERT INTO slug_contact_messages (id, slug, from_email, to_email, message, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, NULL)')
+          .bind(messageId, slug, visitorEmail, ownerEmail, message, now).run()
+        return createResponse(JSON.stringify({ success: true }), 200)
+      } catch (e) {
+        return createResponse(JSON.stringify({ success: false, error: e.message }), 500)
+      }
+    }
+
     // ── 404 ────────────────────────────────────────────────────────────────────
     return createResponse(JSON.stringify({ error: 'Not found', pathname }), 404)
   },

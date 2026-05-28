@@ -391,8 +391,8 @@ const createNewGraph = async () => {
 
   isCreating.value = true
   try {
-    // Generate unique ID for new graph
-    const newGraphId = `graph_${Date.now()}`
+    // Generate unique ID for new graph (UUID v4 required by backend)
+    const newGraphId = crypto.randomUUID()
     console.log('Creating new graph with ID:', newGraphId)
 
     // Create new graph with user-provided data

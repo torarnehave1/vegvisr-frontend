@@ -2917,7 +2917,7 @@ async function executeGraphManipulationTool(toolName, args) {
       const sourceEdges = Array.isArray(sourceData?.edges) ? sourceData.edges : []
       const sourceMetadata = sourceData?.metadata || {}
 
-      const newGraphId = `graph_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      const newGraphId = crypto.randomUUID()
       const graphTitle = String(args?.title || sourceMetadata?.title || 'Cloned Graph').trim()
       const graphDescription = String(args?.description || sourceMetadata?.description || `Cloned from ${sourceGraphId}`).trim()
       let clonedNodes = sourceNodes.map((node) => ({ ...node }))
@@ -2989,7 +2989,7 @@ async function executeGraphManipulationTool(toolName, args) {
       const graphTitle = args?.title || activeGraph?.metadata?.title || 'AI Generated Graph'
       const graphDescription = args?.description || activeGraph?.metadata?.description || 'Created by AI analysis'
 
-      const newGraphId = `graph_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      const newGraphId = crypto.randomUUID()
       let clonedNodes = Array.isArray(activeGraph?.nodes) ? activeGraph.nodes.map((node) => ({ ...node })) : []
       let clonedEdges = Array.isArray(activeGraph?.edges) ? activeGraph.edges.map((edge) => ({ ...edge })) : []
 

@@ -278,6 +278,112 @@ function compSummary(c) {
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
     version: c.version || 1,
+    // Inline meta in the list summary so portfolio clients don't need to
+    // N+1-fetch each composition just to read its tags/category/area.
+    // Pass through whatever's stored under composition.meta (may be undefined).
+    meta: c.composition?.meta && typeof c.composition.meta === 'object'
+      ? c.composition.meta
+      : undefined,
+  }
+}
+
+// ── Refit algorithm ───────────────────────────────────────────────────────────
+// Pure transform: scale every layer's geometry to fit a new canvas size.
+// Mirrors the frontend's src/lib/refit.ts exactly. The frontend's
+// docs/AGENT_BRIEF.md §12 is the canonical spec — if you tweak the math
+// here, sync the frontend copy and the brief.
+const REFIT_UNIFORM_SCALABLE_PROPS = [
+  'fontSize',
+  'strokeWidth',
+  'titleFontSize',
+  'bodyFontSize',
+  'padding',
+  'gap',
+  'borderRadius',
+]
+
+function refitComposition(composition, targetWidth, targetHeight, mode) {
+  const oldW = composition.width
+  const oldH = composition.height
+  if (oldW <= 0 || oldH <= 0 || targetWidth <= 0 || targetHeight <= 0) {
+    return composition
+  }
+
+  let sx
+  let sy
+  let offsetX
+  let offsetY
+
+  if (mode === 'stretch') {
+    sx = targetWidth / oldW
+    sy = targetHeight / oldH
+    offsetX = 0
+    offsetY = 0
+  } else {
+    const ratioX = targetWidth / oldW
+    const ratioY = targetHeight / oldH
+    const s = mode === 'fit' ? Math.min(ratioX, ratioY) : Math.max(ratioX, ratioY)
+    sx = s
+    sy = s
+    // Centre the scaled content. For 'fill' the offset goes negative on the
+    // overflow axis, which intentionally clips.
+    offsetX = (targetWidth - oldW * s) / 2
+    offsetY = (targetHeight - oldH * s) / 2
+  }
+
+  const fontScale = Math.min(sx, sy)
+  const layers = Array.isArray(composition.layers) ? composition.layers : []
+
+  return {
+    ...composition,
+    width: targetWidth,
+    height: targetHeight,
+    layers: layers.map((layer) => refitLayer(layer, sx, sy, offsetX, offsetY, fontScale)),
+  }
+}
+
+function refitLayer(layer, sx, sy, ox, oy, fontScale) {
+  const nextProperties = { ...(layer.properties || {}) }
+  for (const key of REFIT_UNIFORM_SCALABLE_PROPS) {
+    const v = nextProperties[key]
+    if (typeof v === 'number') {
+      nextProperties[key] = v * fontScale
+    }
+  }
+
+  const next = {
+    ...layer,
+    position: {
+      x: (layer.position?.x ?? 0) * sx + ox,
+      y: (layer.position?.y ?? 0) * sy + oy,
+    },
+    size: {
+      width: (layer.size?.width ?? 0) * sx,
+      height: (layer.size?.height ?? 0) * sy,
+    },
+    properties: nextProperties,
+  }
+
+  if (layer.animation) next.animation = refitAnimation(layer.animation, sx, sy)
+  if (Array.isArray(layer.animations)) next.animations = layer.animations.map((a) => refitAnimation(a, sx, sy))
+
+  return next
+}
+
+function refitAnimation(anim, sx, sy) {
+  if (!anim || typeof anim !== 'object') return anim
+  // mask-wipe drives a 0..1 progress, not pixels — untouched.
+  if (anim.kind === 'mask-wipe') return anim
+  // Only pixel-valued layer properties scale.
+  if (anim.property !== 'offsetX' && anim.property !== 'offsetY') return anim
+  const factor = anim.property === 'offsetX' ? sx : sy
+  const keyframes = Array.isArray(anim.keyframes) ? anim.keyframes : []
+  return {
+    ...anim,
+    keyframes: keyframes.map((k) => ({
+      ...k,
+      value: typeof k.value === 'number' ? k.value * factor : k.value,
+    })),
   }
 }
 
@@ -388,6 +494,86 @@ async function handleDeleteComposition(url, env, auth) {
   assertOwner(record, auth)
   await env.VEMOTION_PROJECTS.delete(getCompKey(id))
   return json({ ok: true, message: 'Composition deleted', id })
+}
+
+// Refit (reformat) a composition for a new canvas aspect.
+// Two input shapes (exactly one of compositionId / composition required):
+//   compositionId — load + owner-check + refit a saved composition.
+//   composition   — refit an inline body without touching storage.
+// Two output shapes:
+//   name omitted  → 200 with { ok, composition } (pure transform, no write).
+//   name provided → 201 with { ok, id, summary, version } (saved as NEW row;
+//                    the source row, if any, is never modified).
+async function handleRefitComposition(request, env, auth) {
+  const input = await request.json()
+  const { compositionId, composition: inlineComp, targetWidth, targetHeight, mode, name } = input
+
+  if (compositionId && inlineComp) {
+    return error('Provide exactly one of compositionId or composition, not both', 400)
+  }
+  if (!compositionId && !inlineComp) {
+    return error('Provide exactly one of compositionId or composition', 400)
+  }
+  if (!Number.isFinite(Number(targetWidth)) || Number(targetWidth) <= 0) {
+    return error('targetWidth must be a positive number', 400)
+  }
+  if (!Number.isFinite(Number(targetHeight)) || Number(targetHeight) <= 0) {
+    return error('targetHeight must be a positive number', 400)
+  }
+  if (mode !== 'fit' && mode !== 'fill' && mode !== 'stretch') {
+    return error('mode must be "fit", "fill", or "stretch"', 400)
+  }
+
+  let composition
+  if (compositionId) {
+    const record = await readComp(env, compositionId)
+    if (!record) return error('Composition not found', 404)
+    assertOwner(record, auth)
+    composition = record.composition
+  } else {
+    if (!inlineComp || typeof inlineComp !== 'object') {
+      return error('composition must be an object', 400)
+    }
+    if (!inlineComp.width || !inlineComp.height) {
+      return error('composition must include width and height', 400)
+    }
+    if (!Array.isArray(inlineComp.layers)) {
+      return error('composition.layers must be an array', 400)
+    }
+    composition = inlineComp
+  }
+
+  const refitted = refitComposition(composition, Number(targetWidth), Number(targetHeight), mode)
+
+  // No name → pure transformation, no DB write.
+  if (typeof name !== 'string' || !name.trim()) {
+    return json({ ok: true, composition: refitted })
+  }
+
+  // Save as a NEW composition (always a fresh id; the source is not touched).
+  const now = new Date().toISOString()
+  const id = `comp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
+  const trimmedName = name.trim()
+
+  const record = {
+    id,
+    userId: auth.userId,
+    userEmail: auth.email,
+    name: trimmedName,
+    composition: refitted,
+    createdAt: now,
+    updatedAt: now,
+    version: 1,
+  }
+
+  await env.VEMOTION_PROJECTS.put(getCompKey(id), JSON.stringify(record), {
+    metadata: { userId: record.userId, name: record.name, updatedAt: record.updatedAt },
+  })
+  await env.VEMOTION_PROJECTS.put(getCompVersionKey(id, record.version), JSON.stringify(record), {
+    metadata: { userId: record.userId, name: record.name, updatedAt: record.updatedAt, version: record.version },
+  })
+
+  return json({ ok: true, id, summary: compSummary(record), version: record.version }, 201)
 }
 
 // ── Render route handlers ─────────────────────────────────────────────────────
@@ -536,6 +722,13 @@ function buildOpenApiSpec(baseUrl) {
             height: { type: 'number', description: 'Canvas height in pixels' },
             fontFamily: { type: 'string', description: 'Composition-level default font (e.g. Inter, Poppins, Caveat). Individual layers may override via properties.fontFamily.' },
             layers: { type: 'array', items: { '$ref': '#/components/schemas/Layer' } },
+            meta: {
+              type: 'object',
+              description: 'Optional prose metadata. Lets an author (often an AI agent) bake intent + context into the composition so a future agent reading the JSON does not need an out-of-band explanation. Preserved round-trip through save/load.',
+              properties: {
+                description: { type: 'string', description: 'One paragraph explaining what the composition depicts and animates. See AGENT_BRIEF.md §16.' },
+              },
+            },
           },
         },
         CardProperties: {
@@ -570,6 +763,16 @@ function buildOpenApiSpec(baseUrl) {
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' },
             version: { type: 'integer' },
+            meta: {
+              type: 'object',
+              description: 'Inlined composition meta (description / tags / category / metaArea). Inlined here to save the portfolio client from N+1-fetching every composition individually. See AGENT_BRIEF.md §16.',
+              properties: {
+                description: { type: 'string' },
+                tags: { type: 'array', items: { type: 'string' } },
+                category: { type: 'string' },
+                metaArea: { type: 'string' },
+              },
+            },
           },
         },
         ProjectSummary: {
@@ -682,6 +885,73 @@ function buildOpenApiSpec(baseUrl) {
           responses: {
             200: { description: 'Updated' },
             201: { description: 'Created' },
+          },
+        },
+      },
+      '/vemotion/composition/refit': {
+        post: {
+          operationId: 'refitComposition',
+          summary: 'Refit (reformat) a composition for a new canvas size.',
+          description:
+            'Pure transformation that scales every layer to suit a new target canvas size. ' +
+            'Provide EXACTLY ONE of compositionId (refit a saved composition; owner check applies) or composition (refit an inline body). ' +
+            'If name is provided, the result is saved as a NEW composition row (HTTP 201) and the source is not modified. ' +
+            'If name is omitted, the refit composition body is returned inline (HTTP 200) with no DB write. ' +
+            'Algorithm matches the canonical spec in the Vemotion app brief (docs/AGENT_BRIEF.md §12). ' +
+            'KNOWN LIMITATION: math-shape and motionScenes formulas with hard-coded pixel constants do not auto-scale; only x0/y0/w/h references adapt.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['targetWidth', 'targetHeight', 'mode'],
+                  properties: {
+                    compositionId: { type: 'string', description: 'Refit a saved composition. Mutually exclusive with composition.' },
+                    composition: { '$ref': '#/components/schemas/Composition', description: 'Refit an inline composition body. Mutually exclusive with compositionId.' },
+                    targetWidth: { type: 'integer', minimum: 1, description: 'New canvas width in pixels.' },
+                    targetHeight: { type: 'integer', minimum: 1, description: 'New canvas height in pixels.' },
+                    mode: { type: 'string', enum: ['fit', 'fill', 'stretch'], description: 'fit = letterbox, fill = cover (default), stretch = independent xy scale.' },
+                    name: { type: 'string', description: 'Optional. If provided, the refit composition is saved as a NEW row under this name and the response includes id+summary+version. If omitted, the composition is returned inline without persisting.' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: 'Refit completed inline (no name was provided, nothing saved).',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      ok: { type: 'boolean' },
+                      composition: { '$ref': '#/components/schemas/Composition' },
+                    },
+                  },
+                },
+              },
+            },
+            201: {
+              description: 'Refit completed and saved as a new composition.',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      ok: { type: 'boolean' },
+                      id: { type: 'string' },
+                      summary: { '$ref': '#/components/schemas/CompositionSummary' },
+                      version: { type: 'integer' },
+                    },
+                  },
+                },
+              },
+            },
+            400: { description: 'Missing or invalid input', content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } } },
+            403: { description: 'Forbidden — compositionId belongs to a different user', content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } } },
+            404: { description: 'compositionId not found', content: { 'application/json': { schema: { '$ref': '#/components/schemas/Error' } } } },
           },
         },
       },
@@ -880,6 +1150,9 @@ export default {
 
       if (pathname === '/vemotion/composition/save' && method === 'POST')
         return await handleSaveComposition(request, env, auth)
+
+      if (pathname === '/vemotion/composition/refit' && method === 'POST')
+        return await handleRefitComposition(request, env, auth)
 
       if (pathname === '/vemotion/composition' && method === 'DELETE')
         return await handleDeleteComposition(url, env, auth)

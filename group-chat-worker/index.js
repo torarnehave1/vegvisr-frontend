@@ -690,6 +690,23 @@ export default {
                 },
               },
             },
+            '/groups/{groupId}/members/{userId}': {
+              delete: {
+                summary: 'Remove a member from a group (owner only)',
+                operationId: 'removeGroupMember',
+                parameters: [
+                  groupIdParam,
+                  { name: 'userId', in: 'path', required: true, schema: { type: 'string' }, description: 'user_id of the member to remove' },
+                  ...authParams,
+                ],
+                responses: {
+                  '200': { description: 'Member removed', content: { 'application/json': { schema: { type: 'object', properties: { ...successProp, group_id: { type: 'string' }, removed_user_id: { type: 'string' } } } } } },
+                  '400': { description: 'Owner cannot remove themselves', content: { 'application/json': { schema: errorSchema } } },
+                  '403': { description: 'Not the owner, or target is owner', content: { 'application/json': { schema: errorSchema } } },
+                  '404': { description: 'User is not a member of this group', content: { 'application/json': { schema: errorSchema } } },
+                },
+              },
+            },
             '/groups/{groupId}/messages': {
               get: {
                 summary: 'Get messages in a group (polling or cursor-based)',
@@ -1394,6 +1411,57 @@ export default {
           .all()
 
         return jsonResponse({ success: true, members: results })
+      }
+
+      // DELETE /groups/{groupId}/members/{userId} - Owner removes a member
+      const removeMemberMatch = pathname.match(/^\/groups\/([^/]+)\/members\/([^/]+)$/)
+      if (removeMemberMatch && request.method === 'DELETE') {
+        const groupId = removeMemberMatch[1]
+        const targetUserId = decodeURIComponent(removeMemberMatch[2])
+        const userId = searchParams.get('user_id')
+        const phone = searchParams.get('phone') || ''
+        const email = searchParams.get('email') || ''
+        if (!userId) {
+          return errorResponse('user_id required')
+        }
+        if (!phone) {
+          return errorResponse('phone required')
+        }
+
+        const auth = await validateUser(env, userId, phone, email)
+        if (!auth.ok) {
+          return errorResponse(auth.error, auth.status)
+        }
+
+        const requesterMember = await env.CHAT_DB.prepare(
+          'SELECT role FROM group_members WHERE group_id = ? AND user_id = ?'
+        ).bind(groupId, userId).first()
+
+        if (!requesterMember || requesterMember.role !== 'owner') {
+          return errorResponse('Only the group owner can remove members', 403)
+        }
+
+        if (targetUserId === userId) {
+          return errorResponse('Owner cannot remove themselves', 400)
+        }
+
+        const target = await env.CHAT_DB.prepare(
+          'SELECT role FROM group_members WHERE group_id = ? AND user_id = ?'
+        ).bind(groupId, targetUserId).first()
+
+        if (!target) {
+          return errorResponse('User is not a member of this group', 404)
+        }
+
+        if (target.role === 'owner') {
+          return errorResponse('Cannot remove an owner', 403)
+        }
+
+        await env.CHAT_DB.prepare(
+          'DELETE FROM group_members WHERE group_id = ? AND user_id = ?'
+        ).bind(groupId, targetUserId).run()
+
+        return jsonResponse({ success: true, group_id: groupId, removed_user_id: targetUserId })
       }
 
       const messagesMatch = pathname.match(/^\/groups\/([^/]+)\/messages$/)

@@ -4074,7 +4074,7 @@ const createNewGraph = async () => {
 
     console.log('Graph data prepared:', { nodeCount, title: graphTitle })
 
-    const graphId = `graph_${Date.now()}`
+    const graphId = crypto.randomUUID()
 
     // Save the graph using saveGraphWithHistory (same as Process Transcript modal)
     const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {

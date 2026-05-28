@@ -704,8 +704,8 @@ ${description ? `**Description:**\n${description.length > 500 ? description.subs
         edges: knowledgeGraphPreview.value.edges || [],
       }
 
-      // Generate unique graph ID
-      const graphId = `graph_${Date.now()}`
+      // Generate unique graph ID (UUID v4 required by backend)
+      const graphId = crypto.randomUUID()
 
       // Save to backend
       const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {

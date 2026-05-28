@@ -1837,8 +1837,8 @@ const createNewGraph = async () => {
     console.log('Sample node:', graphData.nodes[0])
     console.log('==========================')
 
-    // Generate unique graph ID
-    const graphId = `graph_${Date.now()}`
+    // Generate unique graph ID (UUID v4 required by backend)
+    const graphId = crypto.randomUUID()
 
     // Save the new graph using saveGraphWithHistory for proper versioning
     const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {

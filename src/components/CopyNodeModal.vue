@@ -436,8 +436,8 @@ const copyToNewGraph = async () => {
     console.log('New graph title:', newGraphTitle.value)
     console.log('New graph description:', newGraphDescription.value)
 
-    // Generate unique ID for new graph (same as GnewAdmin)
-    const newGraphId = `graph_${Date.now()}`
+    // Generate unique ID for new graph (UUID v4 required by backend)
+    const newGraphId = crypto.randomUUID()
     console.log('Creating new graph with ID:', newGraphId)
 
     // Create a new graph with the copied node (using same structure as GnewAdmin)

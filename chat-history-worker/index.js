@@ -42,6 +42,29 @@ export default {
         return await handleListSessions(url, env, user)
       }
 
+      // New agent sessions endpoint - accepts x-user-id directly
+      if (pathname === '/agent-sessions' && request.method === 'GET') {
+        const userId = request.headers.get('x-user-id')
+        if (!userId) {
+          throw new Error('x-user-id header required')
+        }
+        const graphId = url.searchParams.get('graphId') || null
+        const limitParam = url.searchParams.get('limit')
+        let query = 'SELECT * FROM chat_sessions WHERE user_id = ? AND provider = ?'
+        const bindings = [userId, 'agent']
+        if (graphId) {
+          query += ' AND graph_id = ?'
+          bindings.push(graphId)
+        }
+        query += ' ORDER BY updated_at DESC'
+        if (limitParam !== 'all') {
+          const limit = parseInt(limitParam || '100', 10)
+          query += ` LIMIT ${Number.isFinite(limit) && limit > 0 ? limit : 100}`
+        }
+        const { results } = await env.DB.prepare(query).bind(...bindings).all()
+        return jsonResponse({ sessions: results.map(normalizeSession) })
+      }
+
       if (pathname.startsWith('/sessions/') && request.method === 'GET') {
         const sessionId = pathname.split('/sessions/')[1]
         return await handleGetSession(sessionId, env, user)
@@ -202,8 +225,18 @@ async function handleUpsertSession(request, env, user, ctx) {
 async function handleListSessions(url, env, user) {
   requireUser(user)
   const graphId = url.searchParams.get('graphId') || null
+
+  let userId = user.userId
+  // If no userId but email exists, resolve it
+  if (!userId && user.email) {
+    userId = await resolveUserIdFromEmail(user.email, env)
+  }
+  if (!userId) {
+    throw new Error('Unable to determine user ID')
+  }
+
   let query = 'SELECT * FROM chat_sessions WHERE user_id = ?'
-  const bindings = [user.userId]
+  let bindings = [userId]
 
   if (graphId) {
     query += ' AND graph_id = ?'
@@ -222,8 +255,16 @@ async function handleGetSession(sessionId, env, user) {
     throw new Error('Session id required')
   }
 
+  let userId = user.userId
+  if (!userId && user.email) {
+    userId = await resolveUserIdFromEmail(user.email, env)
+  }
+  if (!userId) {
+    throw new Error('Unable to determine user ID')
+  }
+
   const session = await env.DB.prepare('SELECT * FROM chat_sessions WHERE id = ? AND user_id = ?')
-    .bind(sessionId, user.userId)
+    .bind(sessionId, userId)
     .first()
 
   if (!session) {
@@ -240,8 +281,16 @@ async function handleRenameSession(request, sessionId, env, user) {
   const title = (body.title || '').trim()
   if (!title) return jsonResponse({ error: 'title is required' }, 400)
 
+  let userId = user.userId
+  if (!userId && user.email) {
+    userId = await resolveUserIdFromEmail(user.email, env)
+  }
+  if (!userId) {
+    throw new Error('Unable to determine user ID')
+  }
+
   await env.DB.prepare('UPDATE chat_sessions SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?')
-    .bind(title, sessionId, user.userId)
+    .bind(title, sessionId, userId)
     .run()
 
   return jsonResponse({ success: true, sessionId, title })
@@ -255,9 +304,17 @@ async function handleDeleteSession(sessionId, env, user, ctx) {
 
   const imageKeys = await getSessionImageKeys(sessionId, env)
 
+  let userId = user.userId
+  if (!userId && user.email) {
+    userId = await resolveUserIdFromEmail(user.email, env)
+  }
+  if (!userId) {
+    throw new Error('Unable to determine user ID')
+  }
+
   // Get the session to find its graph_id before deleting
   const session = await env.DB.prepare('SELECT id, graph_id FROM chat_sessions WHERE id = ? AND user_id = ?')
-    .bind(sessionId, user.userId)
+    .bind(sessionId, userId)
     .first()
 
   if (!session) {
@@ -388,11 +445,19 @@ async function handleCreateMessage(request, env, user) {
     throw new Error('sessionId is required')
   }
 
+  let userId = user.userId
+  if (!userId && user.email) {
+    userId = await resolveUserIdFromEmail(user.email, env)
+  }
+  if (!userId) {
+    throw new Error('Unable to determine user ID')
+  }
+
   const session = await env.DB.prepare('SELECT id, user_id FROM chat_sessions WHERE id = ?')
     .bind(sessionId)
     .first()
 
-  if (!session || session.user_id !== user.userId) {
+  if (!session || session.user_id !== userId) {
     return jsonResponse({ error: 'Session not found' }, 404)
   }
 
@@ -420,7 +485,7 @@ async function handleCreateMessage(request, env, user) {
     .bind(
       messageId,
       sessionId,
-      user.userId,
+      session.user_id,
       role,
       encrypted.ciphertext,
       encrypted.iv,
@@ -458,11 +523,19 @@ async function handleListMessages(url, env, user) {
   const decryptFlag = url.searchParams.get('decrypt') === '1'
   const limit = clampLimit(parseInt(url.searchParams.get('limit') || '50', 10))
 
+  let userId = user.userId
+  if (!userId && user.email) {
+    userId = await resolveUserIdFromEmail(user.email, env)
+  }
+  if (!userId) {
+    throw new Error('Unable to determine user ID')
+  }
+
   const session = await env.DB.prepare('SELECT id, user_id FROM chat_sessions WHERE id = ?')
     .bind(sessionId)
     .first()
 
-  if (!session || session.user_id !== user.userId) {
+  if (!session || session.user_id !== userId) {
     return jsonResponse({ error: 'Session not found' }, 404)
   }
 
@@ -776,9 +849,17 @@ function getUserContext(request) {
   }
 }
 
+async function resolveUserIdFromEmail(email, env) {
+  if (!email) return null
+  const config = await env.DB.prepare('SELECT user_id FROM config WHERE email = ? LIMIT 1')
+    .bind(email)
+    .first()
+  return config?.user_id || null
+}
+
 function requireUser(user) {
-  if (!user.userId) {
-    throw new Error('x-user-id header required')
+  if (!user.userId && !user.email) {
+    throw new Error('x-user-id or x-user-email header required')
   }
 }
 
