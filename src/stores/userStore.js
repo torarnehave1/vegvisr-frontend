@@ -10,6 +10,7 @@ export const useUserStore = defineStore('user', {
     emailVerificationToken: null,
     phone: null,
     phoneVerifiedAt: null,
+    publishSubdomain: null,
     profileimage: null,
     loggedIn: false,
     mystmkraUserId: null,
@@ -50,6 +51,7 @@ export const useUserStore = defineStore('user', {
       this.emailVerificationToken = user.emailVerificationToken
       this.phone = user.phone || null
       this.phoneVerifiedAt = user.phoneVerifiedAt || null
+      this.publishSubdomain = user.publishSubdomain || null
       this.profileimage = user.profileimage || null
       this.mystmkraUserId = user.mystmkraUserId || null
       this.branding = user.branding || { mySite: null, myLogo: null }
@@ -66,6 +68,7 @@ export const useUserStore = defineStore('user', {
         emailVerificationToken: user.emailVerificationToken,
         phone: user.phone || null,
         phoneVerifiedAt: user.phoneVerifiedAt || null,
+        publishSubdomain: user.publishSubdomain || null,
         profileimage: user.profileimage || null,
         mystmkraUserId: user.mystmkraUserId || null,
         branding: user.branding || { mySite: null, myLogo: null },
@@ -594,11 +597,14 @@ export const useUserStore = defineStore('user', {
         if (userData?.emailVerificationToken || payload?.emailVerificationToken) {
           this.emailVerificationToken = userData?.emailVerificationToken || payload?.emailVerificationToken
         }
+        // Challenge: the subdomain this user may publish HTML nodes to (config.data.publishSubdomain)
+        this.publishSubdomain = payload?.publishSubdomain ?? userData?.publishSubdomain ?? null
 
         // Update localStorage
         const storedUser = JSON.parse(localStorage.getItem('user') || '{}')
         storedUser.phone = this.phone
         storedUser.phoneVerifiedAt = this.phoneVerifiedAt
+        storedUser.publishSubdomain = this.publishSubdomain
         storedUser.role = this.role
         storedUser.user_id = this.user_id
         storedUser.emailVerificationToken = this.emailVerificationToken

@@ -18,7 +18,7 @@
         <button v-if="!isPreview" @click="editNode" class="btn-control" title="Edit HTML Node">
           ✏️ Edit
         </button>
-        <button v-if="isSuperadmin" @click="publishHtml" class="btn-control" title="Publish HTML">
+        <button v-if="isSuperadmin || hasPublishSubdomain" @click="publishHtml" class="btn-control" title="Publish HTML">
           🚀 Publish
         </button>
         <button @click="toggleFullscreen" class="btn-control" title="Toggle Fullscreen">
@@ -172,6 +172,11 @@ const GRAPH_ID_QUERY_PARAM_REGEX = /([?&]id=)(graph_[A-Za-z0-9_:-]+)/g
 
 const isSuperadmin = computed(() => {
   return userStore.role === 'Superadmin'
+})
+
+// Challenge participants (non-Superadmin) may publish to their one assigned subdomain.
+const hasPublishSubdomain = computed(() => {
+  return Boolean(userStore.publishSubdomain && String(userStore.publishSubdomain).trim())
 })
 
 const applyGraphIdBindings = (rawHtml, graphId) => {
@@ -604,18 +609,28 @@ const publishHtml = async () => {
     return
   }
 
-  const savedDomain = localStorage.getItem('gnew-html-publish-domain') || ''
-  const hostname = prompt('Publish to domain (e.g., test.slowyou.training):', savedDomain)
-  if (!hostname || !hostname.trim()) return
-
-  const cleanHostname = hostname.trim().toLowerCase().replace(/\/+$/, '')
-  localStorage.setItem('gnew-html-publish-domain', cleanHostname)
+  let cleanHostname
+  if (isSuperadmin.value) {
+    const savedDomain = localStorage.getItem('gnew-html-publish-domain') || ''
+    const hostname = prompt('Publish to domain (e.g., test.slowyou.training):', savedDomain)
+    if (!hostname || !hostname.trim()) return
+    cleanHostname = hostname.trim().toLowerCase().replace(/\/+$/, '')
+    localStorage.setItem('gnew-html-publish-domain', cleanHostname)
+  } else {
+    // Participant: locked to the subdomain assigned on their profile.
+    cleanHostname = String(userStore.publishSubdomain || '').trim().toLowerCase()
+    if (!cleanHostname) {
+      alert('No publish subdomain is assigned to your account.')
+      return
+    }
+    if (!confirm(`Publish this page to https://${cleanHostname}/ ?`)) return
+  }
 
   try {
     let overwrite = false
     try {
       const checkRes = await fetch(
-        `https://test.slowyou.training/__html/check?hostname=${encodeURIComponent(cleanHostname)}`,
+        `https://${cleanHostname}/__html/check?hostname=${encodeURIComponent(cleanHostname)}`,
       )
       if (checkRes.ok) {
         const checkData = await checkRes.json()
@@ -651,6 +666,7 @@ const publishHtml = async () => {
       },
       body: JSON.stringify({
         appId: props.node.id,
+        hostname: cleanHostname,
         ttlDays: 30
       })
     })
@@ -665,9 +681,9 @@ const publishHtml = async () => {
     }
 
     const htmlContent = injectStorageHelpers(htmlWithCss, props.node.id, tokenData.token)
-    const response = await fetch('https://test.slowyou.training/__html/publish', {
+    const response = await fetch(`https://${cleanHostname}/__html/publish`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Publish-Token': tokenData.token },
       body: JSON.stringify({
         hostname: cleanHostname,
         html: htmlContent,
@@ -683,9 +699,9 @@ const publishHtml = async () => {
           `"${cleanHostname}" already has published content. Overwrite it?`,
         )
         if (!confirmOverwrite) return
-        const retry = await fetch('https://test.slowyou.training/__html/publish', {
+        const retry = await fetch(`https://${cleanHostname}/__html/publish`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Publish-Token': tokenData.token },
           body: JSON.stringify({
             hostname: cleanHostname,
             html: htmlContent,
