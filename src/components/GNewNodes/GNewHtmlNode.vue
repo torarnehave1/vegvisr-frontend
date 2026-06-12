@@ -603,6 +603,17 @@ const extractCss = () => {
   })
 }
 
+// Build the overwrite-confirmation message, surfacing who currently owns the page.
+// `metadata` comes from /__html/check or the worker's 409 response: { uid, publishedAt, ... }.
+const overwriteWarning = (hostname, metadata) => {
+  const uid = metadata && metadata.uid ? String(metadata.uid) : ''
+  const when = metadata && metadata.publishedAt ? String(metadata.publishedAt) : ''
+  const ownerLine = uid
+    ? `\n\nThis page belongs to: ${uid}${when ? `\nPublished: ${when}` : ''}.`
+    : ''
+  return `"${hostname}" already has published content.${ownerLine}\n\nAre you sure you want to overwrite the content?`
+}
+
 const publishHtml = async () => {
   if (!props.node.info) {
     alert('No HTML content to publish.')
@@ -635,9 +646,7 @@ const publishHtml = async () => {
       if (checkRes.ok) {
         const checkData = await checkRes.json()
         if (checkData?.exists) {
-          const confirmOverwrite = confirm(
-            `"${cleanHostname}" already has published content. Overwrite it?`,
-          )
+          const confirmOverwrite = confirm(overwriteWarning(cleanHostname, checkData?.metadata))
           if (!confirmOverwrite) return
           overwrite = true
         }
@@ -695,9 +704,8 @@ const publishHtml = async () => {
 
     if (!response.ok) {
       if (response.status === 409) {
-        const confirmOverwrite = confirm(
-          `"${cleanHostname}" already has published content. Overwrite it?`,
-        )
+        const errData = await response.json().catch(() => ({}))
+        const confirmOverwrite = confirm(overwriteWarning(cleanHostname, errData?.metadata))
         if (!confirmOverwrite) return
         const retry = await fetch(`https://${cleanHostname}/__html/publish`, {
           method: 'POST',
