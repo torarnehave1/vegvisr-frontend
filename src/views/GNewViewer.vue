@@ -1161,6 +1161,25 @@
                   </small>
                 </div>
               </div>
+
+              <div class="form-group">
+                <label class="form-label">📋 Capabilities summary <small class="text-muted">(metadata)</small></label>
+                <textarea
+                  v-model="editingNode.metadata.capabilities_summary"
+                  class="form-control"
+                  rows="4"
+                  placeholder="What this node/app does — shown in the app detail view"
+                ></textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-label">🏷️ Highlights <small class="text-muted">(comma-separated chips)</small></label>
+                <input
+                  v-model="nodeHighlightsText"
+                  type="text"
+                  class="form-control"
+                  placeholder="Knowledge graphs, Video, Email"
+                />
+              </div>
             </div>
 
             <div class="modal-footer">
@@ -2857,6 +2876,7 @@ const createCleanGraphData = () => {
       color: node.color || null,
       imageWidth: node.imageWidth || null,
       imageHeight: node.imageHeight || null,
+      metadata: node.metadata || undefined,
     })),
     edges: (graphData.value.edges || []).map(edge => ({
       id: `${edge.source}_${edge.target}`,
@@ -3550,7 +3570,7 @@ const inlineChatInput = ref('')
 const inlineChatMessages = ref([])
 const inlineChatLoading = ref(false)
 const inlineChatError = ref('')
-const INLINE_CHAT_MODEL = 'claude-sonnet-4-5-20250929'
+const INLINE_CHAT_MODEL = 'claude-sonnet-4-6'
 
 // AI Challenge functionality
 const showAIChallengeModal = ref(false)
@@ -7031,6 +7051,8 @@ const openNodeEditModal = (node) => {
     // Preserve any additional properties (like _emailTemplate, _emailField for virtual nodes)
     ...node
   }
+  // Clone metadata so editing it in the modal doesn't mutate the original node until saved.
+  editingNode.value.metadata = { ...(node.metadata || {}) }
   nodeFindText.value = ''
   nodeReplaceText.value = ''
   nodeReplaceStatus.value = ''
@@ -7042,6 +7064,19 @@ const openNodeEditModal = (node) => {
   inlineChatLoading.value = false
   showNodeEditModal.value = true
 }
+
+// Highlights metadata round-trips through a comma-separated string for the edit input.
+const nodeHighlightsText = computed({
+  get: () =>
+    Array.isArray(editingNode.value?.metadata?.highlights) ? editingNode.value.metadata.highlights.join(', ') : '',
+  set: (v) => {
+    if (!editingNode.value.metadata) editingNode.value.metadata = {}
+    editingNode.value.metadata.highlights = String(v)
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  },
+})
 
 const closeNodeEditModal = () => {
   showNodeEditModal.value = false
@@ -8711,6 +8746,7 @@ const saveNodeChanges = async () => {
         label: editingNode.value.label,
         info: editingNode.value.info,
         superadminOnly: !!editingNode.value.superadminOnly,
+        metadata: editingNode.value.metadata,
         updatedAt: new Date().toISOString(),
       }
 

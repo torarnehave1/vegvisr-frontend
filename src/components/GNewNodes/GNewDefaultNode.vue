@@ -184,6 +184,26 @@
         Add Content
       </button>
     </div>
+
+    <!-- Capabilities metadata (node.metadata.capabilities_summary + highlights) -->
+    <div
+      v-if="node.metadata && (node.metadata.capabilities_summary || (node.metadata.highlights && node.metadata.highlights.length))"
+      class="node-capabilities-meta"
+      style="border-top: 1px solid #e5e7eb; margin-top: 14px; padding-top: 14px"
+    >
+      <div v-if="node.metadata.capabilities_summary" style="margin-bottom: 12px">
+        <div style="font-size: 12px; font-weight: 600; color: #6b7280; margin-bottom: 6px">What it does</div>
+        <p style="font-size: 14px; line-height: 1.6; color: #374151; margin: 0">{{ node.metadata.capabilities_summary }}</p>
+      </div>
+      <div v-if="node.metadata.highlights && node.metadata.highlights.length" style="display: flex; flex-wrap: wrap; gap: 6px">
+        <span
+          v-for="(h, i) in node.metadata.highlights"
+          :key="i"
+          style="font-size: 12px; background: #f1f4f8; color: #3a4658; padding: 4px 10px; border-radius: 8px"
+          >{{ h }}</span
+        >
+      </div>
+    </div>
   </div>
 </template>
 
