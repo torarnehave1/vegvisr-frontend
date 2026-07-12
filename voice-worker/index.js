@@ -288,6 +288,59 @@ const handleTranscribe = async (request, env) => {
   })
 }
 
+const OPENAPI_SPEC = {
+  openapi: '3.0.3',
+  info: {
+    title: 'Voice Worker API',
+    version: '1.0.0',
+    description:
+      'Upload, serve, and transcribe short voice/audio notes. Bytes are stored in R2 (bucket hallo-vegvisr-voice) at key voice/<chatId>/<messageId>.<ext>. This worker holds the BYTES; recording metadata/index lives in audio-portfolio-worker.',
+  },
+  servers: [{ url: 'https://voice.vegvisr.org' }],
+  paths: {
+    '/upload': {
+      post: {
+        summary: 'Upload an audio file (raw bytes)',
+        description:
+          'Request body is the raw audio bytes. Supported: WAV, MP3, M4A, FLAC, OGG, WebM (validated by Content-Type or X-File-Name extension). Stored in R2 at voice/<chatId>/<messageId>.<ext>.',
+        parameters: [
+          { name: 'X-File-Name', in: 'header', schema: { type: 'string' }, description: 'Original file name (default voice-note.m4a)' },
+          { name: 'X-Chat-Id', in: 'header', schema: { type: 'string' }, description: 'Chat id — becomes the object-key prefix' },
+          { name: 'X-Message-Id', in: 'header', schema: { type: 'string' }, description: 'Message id (default: random uuid)' },
+        ],
+        requestBody: { required: true, content: { 'audio/*': { schema: { type: 'string', format: 'binary' } } } },
+        responses: {
+          '200': {
+            description: 'Stored',
+            content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, objectKey: { type: 'string' }, audioUrl: { type: 'string' }, size: { type: 'integer' }, contentType: { type: 'string' } } } } },
+          },
+          '400': { description: 'Invalid audio format or empty file' },
+        },
+      },
+    },
+    '/audio': {
+      get: {
+        summary: 'Fetch / stream an audio file by key',
+        description: 'Returns the stored bytes. Supports HTTP Range requests (206 partial content).',
+        parameters: [{ name: 'key', in: 'query', required: true, schema: { type: 'string' }, description: 'objectKey returned by /upload' }],
+        responses: { '200': { description: 'Audio bytes' }, '206': { description: 'Partial content (range)' }, '404': { description: 'Not found' } },
+      },
+    },
+    '/transcribe': {
+      post: {
+        summary: 'Transcribe a stored audio file (OpenAI Whisper)',
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'object', properties: { objectKey: { type: 'string' }, audioUrl: { type: 'string', description: 'Alternative to objectKey — the /audio URL' }, model: { type: 'string', default: 'whisper-1' }, language: { type: 'string', nullable: true } } } } },
+        },
+        responses: { '200': { description: 'Transcription', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, text: { type: 'string' }, language: { type: 'string', nullable: true }, model: { type: 'string' } } } } } } },
+      },
+    },
+    '/health': { get: { summary: 'Health check', responses: { '200': { description: 'OK' } } } },
+    '/openapi.json': { get: { summary: 'This OpenAPI specification', responses: { '200': { description: 'OpenAPI spec' } } } },
+  },
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
@@ -311,6 +364,10 @@ export default {
 
     if (pathname === '/health' && request.method === 'GET') {
       return jsonResponse({ ok: true, service: 'voice-worker' })
+    }
+
+    if (pathname === '/openapi.json' && request.method === 'GET') {
+      return jsonResponse(OPENAPI_SPEC)
     }
 
     return errorResponse('Not found', 404)
