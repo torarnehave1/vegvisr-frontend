@@ -4,7 +4,7 @@
     <div v-if="showControls && !isPreview" class="node-header">
       <div class="node-title">
         <span class="node-icon">📧</span>
-        <span class="node-label">{{ nodeData.templateName || 'Email Template' }}</span>
+        <span class="node-label">{{ 'Email — ' + (nodeData.purpose || 'template') + ' (' + (nodeData.language || '') + ')' }}</span>
       </div>
       <div class="node-controls">
         <button
@@ -105,105 +105,61 @@
       <!-- Template Configuration -->
       <div class="template-config-section">
         <div class="config-row">
-          <label class="config-label">Template Name:</label>
+          <label class="config-label">Purpose:</label>
           <input
-            v-model="nodeData.templateName"
+            v-model="nodeData.purpose"
             @input="updateNode"
             class="form-control form-control-sm"
-            placeholder="e.g., Chat Invitation Template"
+            placeholder="login | meeting | welcome"
           />
         </div>
 
         <div class="config-row">
-          <label class="config-label">Subject Line:</label>
+          <label class="config-label">Language:</label>
+          <input
+            v-model="nodeData.language"
+            @input="updateNode"
+            class="form-control form-control-sm"
+            placeholder="no | en"
+          />
+        </div>
+
+        <div class="config-row">
+          <label class="config-label">Subject:</label>
           <input
             v-model="nodeData.subject"
             @input="updateNode"
             class="form-control form-control-sm"
-            placeholder="e.g., You're invited to join {roomName}"
-          />
-        </div>
-
-        <div class="config-row">
-          <label class="config-label">Recipients:</label>
-          <input
-            v-model="nodeData.recipients"
-            @input="updateNode"
-            class="form-control form-control-sm"
-            placeholder="e.g., {inviteeEmail} or specific@email.com"
+            placeholder="Logg inn hos {brandName}"
           />
         </div>
       </div>
 
-      <!-- Email Body Editor -->
+      <!-- Email Body Editor (HTML) -->
       <div class="email-body-section">
-        <label class="config-label">Email Body:</label>
+        <label class="config-label">Email Body (HTML):</label>
         <textarea
           v-model="nodeData.body"
           @input="updateNode"
           class="form-control email-body-textarea"
-          rows="8"
-          placeholder="Write your email template here. Use {variableName} for dynamic content."
+          rows="12"
+          placeholder="<div> … {magicLink} … </div>"
         ></textarea>
+        <p class="var-help">
+          System: {magicLink} {expiryMinutes} {meetingId} · Brand: {brandName} {brandLogo}
+          {brandAccent} {brandFromName} {brandFooter}
+        </p>
       </div>
 
-      <!-- Variables Manager -->
-      <div class="variables-section">
-        <div class="variables-header">
-          <label class="config-label">Template Variables:</label>
-          <button @click="addVariable" class="btn btn-sm btn-success">+ Add Variable</button>
-        </div>
-
-        <div class="variables-list">
-          <div v-for="(variable, index) in variablesList" :key="index" class="variable-item">
-            <input
-              v-model="variable.key"
-              @input="updateVariables"
-              placeholder="variableName"
-              class="form-control form-control-sm variable-key"
-            />
-            <span class="variable-separator">=</span>
-            <input
-              v-model="variable.value"
-              @input="updateVariables"
-              placeholder="Default value"
-              class="form-control form-control-sm variable-value"
-            />
-            <button @click="removeVariable(index)" class="btn btn-sm btn-outline-danger">×</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Preview Panel -->
+      <!-- Preview Panel (sample values) -->
       <div class="preview-section">
-        <h5 class="preview-title">📧 Email Preview</h5>
+        <h5 class="preview-title">📧 Preview (sample values)</h5>
         <div class="email-preview">
           <div class="preview-header">
-            <div class="preview-field"><strong>To:</strong> {{ renderedRecipients }}</div>
             <div class="preview-field"><strong>Subject:</strong> {{ renderedSubject }}</div>
           </div>
           <div class="preview-body" v-html="renderedBody"></div>
         </div>
-      </div>
-
-      <!-- Actions -->
-      <div class="email-actions">
-        <button
-          @click="sendTestEmail"
-          :disabled="isSending || !isValidTemplate"
-          class="btn btn-primary"
-        >
-          <span v-if="isSending">⏳ Sending...</span>
-          <span v-else>📤 Send Test Email</span>
-        </button>
-
-        <button @click="saveAsTemplate" :disabled="!isValidTemplate" class="btn btn-success">
-          💾 Save as Template
-        </button>
-
-        <button @click="copyToClipboard" class="btn btn-outline-secondary">
-          📋 Copy Template JSON
-        </button>
       </div>
 
       <!-- Status Messages -->
@@ -215,12 +171,9 @@
     <!-- Collapsed View -->
     <div v-else class="email-template-summary">
       <div class="summary-content">
-        <div class="summary-title">{{ nodeData.templateName || 'Email Template' }}</div>
+        <div class="summary-title">Email — {{ nodeData.purpose || 'template' }} ({{ nodeData.language || '' }})</div>
         <div class="summary-details">
           <span class="summary-item">📧 {{ nodeData.subject || 'No subject' }}</span>
-          <span class="summary-item"
-            >👥 {{ Object.keys(nodeData.variables || {}).length }} variables</span
-          >
         </div>
       </div>
     </div>
@@ -272,15 +225,37 @@ const aiVariables = ref('')
 const aiStatusMessage = ref('')
 const aiStatusType = ref('info')
 
-// Parse node data
+// Canonical email-template schema (shared with the agent tool + email-worker):
+//   node.info      = the HTML body (with {placeholders})
+//   node.metadata  = { purpose, language, subject }
+// Legacy JSON-in-info nodes (deprecated model) are still read for back-compat.
+const legacyInfo = (() => {
+  try {
+    const p = typeof props.node.info === 'string' ? JSON.parse(props.node.info) : null
+    return p && typeof p === 'object' && (p.body || p.subject) ? p : null
+  } catch {
+    return null
+  }
+})()
+const _meta = props.node.metadata || {}
 const nodeData = ref({
-  templateName: '',
-  subject: '',
-  body: '',
-  recipients: '',
-  variables: {},
-  ...parseNodeInfo(props.node.info),
+  purpose: _meta.purpose || legacyInfo?.purpose || 'login',
+  language: _meta.language || legacyInfo?.language || 'no',
+  subject: _meta.subject || legacyInfo?.subject || '',
+  body: legacyInfo ? legacyInfo.body || '' : props.node.info || '',
 })
+
+// Sample values for the live preview — the system + brand variables the send path fills.
+const SAMPLE_VARS = {
+  magicLink: 'https://me.example.no/?magic=demo-token',
+  expiryMinutes: '30',
+  meetingId: 'DEMO-123',
+  brandName: 'Universi',
+  brandLogo: 'https://vegvisr.imgix.net/1784046811189-1.png',
+  brandAccent: '#0f2a43',
+  brandFromName: 'Universi',
+  brandFooter: 'Universi AS · universi.no',
+}
 
 // Variables as list for easier editing
 const variablesList = ref([])
@@ -289,26 +264,16 @@ const variablesList = ref([])
 const nodeTypeClass = computed(() => `gnew-node-${props.node.type}`)
 
 const isValidTemplate = computed(() => {
-  return (
-    nodeData.value.templateName &&
-    nodeData.value.subject &&
-    nodeData.value.body &&
-    nodeData.value.recipients
-  )
+  return !!(nodeData.value.subject && nodeData.value.body)
 })
 
 const renderedSubject = computed(() => {
-  return renderTemplate(nodeData.value.subject, nodeData.value.variables)
+  return renderTemplate(nodeData.value.subject, SAMPLE_VARS)
 })
 
+// Body is raw HTML — render {vars} but do NOT convert newlines (would corrupt the markup).
 const renderedBody = computed(() => {
-  const rendered = renderTemplate(nodeData.value.body, nodeData.value.variables)
-  // Convert line breaks to HTML
-  return rendered.replace(/\n/g, '<br>')
-})
-
-const renderedRecipients = computed(() => {
-  return renderTemplate(nodeData.value.recipients, nodeData.value.variables)
+  return renderTemplate(nodeData.value.body, SAMPLE_VARS)
 })
 
 // Methods
@@ -336,10 +301,17 @@ function renderTemplate(template, variables) {
 }
 
 function updateNode() {
+  // Persist the canonical schema: HTML body in info, structured fields in metadata.
   const updatedNode = {
     ...props.node,
-    info: JSON.stringify(nodeData.value),
-    label: nodeData.value.templateName || 'Email Template',
+    info: nodeData.value.body,
+    label: `Email — ${nodeData.value.purpose || 'template'} (${nodeData.value.language || ''})`,
+    metadata: {
+      ...(props.node.metadata || {}),
+      purpose: nodeData.value.purpose,
+      language: nodeData.value.language,
+      subject: nodeData.value.subject,
+    },
   }
   emit('node-updated', updatedNode)
 }
@@ -395,7 +367,7 @@ async function sendTestEmail() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        email: renderedRecipients.value,
+        email: '',
         subject: renderedSubject.value,
         template: renderedBody.value,
         callbackUrl: window.location.origin,
@@ -616,21 +588,28 @@ onMounted(() => {
   initializeVariablesList()
 })
 
-// Watch for changes in node prop
+// Watch for changes in node prop — re-read the canonical schema (info = HTML body,
+// metadata = {purpose,language,subject}); tolerate legacy JSON-in-info nodes.
 watch(
-  () => props.node.info,
-  (newInfo) => {
+  () => [props.node.info, props.node.metadata],
+  () => {
+    const legacy = (() => {
+      try {
+        const p = typeof props.node.info === 'string' ? JSON.parse(props.node.info) : null
+        return p && typeof p === 'object' && (p.body || p.subject) ? p : null
+      } catch {
+        return null
+      }
+    })()
+    const m = props.node.metadata || {}
     nodeData.value = {
-      templateName: '',
-      subject: '',
-      body: '',
-      recipients: '',
-      variables: {},
-      ...parseNodeInfo(newInfo),
+      purpose: m.purpose || legacy?.purpose || 'login',
+      language: m.language || legacy?.language || 'no',
+      subject: m.subject || legacy?.subject || '',
+      body: legacy ? legacy.body || '' : props.node.info || '',
     }
-    initializeVariablesList()
   },
-  { immediate: true },
+  { immediate: true, deep: true },
 )
 </script>
 
