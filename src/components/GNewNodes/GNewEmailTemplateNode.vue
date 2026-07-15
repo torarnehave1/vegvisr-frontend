@@ -108,7 +108,7 @@
           <label class="config-label">Purpose:</label>
           <input
             v-model="nodeData.purpose"
-            @input="updateNode"
+            @input="markDirty"
             class="form-control form-control-sm"
             placeholder="login | meeting | welcome"
           />
@@ -118,7 +118,7 @@
           <label class="config-label">Language:</label>
           <input
             v-model="nodeData.language"
-            @input="updateNode"
+            @input="markDirty"
             class="form-control form-control-sm"
             placeholder="no | en"
           />
@@ -128,7 +128,7 @@
           <label class="config-label">Subject:</label>
           <input
             v-model="nodeData.subject"
-            @input="updateNode"
+            @input="markDirty"
             class="form-control form-control-sm"
             placeholder="Logg inn hos {brandName}"
           />
@@ -140,7 +140,7 @@
         <label class="config-label">Email Body (HTML):</label>
         <textarea
           v-model="nodeData.body"
-          @input="updateNode"
+          @input="markDirty"
           class="form-control email-body-textarea"
           rows="12"
           placeholder="<div> … {magicLink} … </div>"
@@ -149,6 +149,14 @@
           System: {magicLink} {expiryMinutes} {meetingId} · Brand: {brandName} {brandLogo}
           {brandAccent} {brandFromName} {brandFooter}
         </p>
+      </div>
+
+      <!-- Save (edit locally; persist on click — no save-on-keystroke) -->
+      <div class="email-actions">
+        <button @click="saveTemplate" :disabled="!isDirty" class="btn btn-success">
+          💾 {{ isDirty ? 'Lagre endringer' : 'Lagret' }}
+        </button>
+        <span v-if="isDirty" class="unsaved-hint">Ulagrede endringer</span>
       </div>
 
       <!-- Preview Panel (sample values) -->
@@ -314,6 +322,23 @@ function updateNode() {
     },
   }
   emit('node-updated', updatedNode)
+}
+
+// Local editing: fields only mutate nodeData + flag dirty. Persist happens on the Save button,
+// NOT on every keystroke — save-on-input re-emits node-updated, which re-renders the node and
+// yanks the cursor to the end of the field mid-typing.
+const isDirty = ref(false)
+function markDirty() {
+  isDirty.value = true
+}
+function saveTemplate() {
+  updateNode()
+  isDirty.value = false
+  statusMessage.value = 'Lagret ✓'
+  statusType.value = 'success'
+  setTimeout(() => {
+    if (statusMessage.value === 'Lagret ✓') statusMessage.value = ''
+  }, 2500)
 }
 
 function updateVariables() {
