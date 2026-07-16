@@ -84,6 +84,7 @@ import GNewMenuCreatorNode from './GNewNodes/GNewMenuCreatorNode.vue'
 import GNewLearnScriptNode from './GNewNodes/GNewLearnScriptNode.vue'
 import GNewSubscriptionNode from './GNewNodes/GNewSubscriptionNode.vue'
 import GNewEmailTemplateNode from './GNewNodes/GNewEmailTemplateNode.vue'
+import GNewEmailBrandNode from './GNewNodes/GNewEmailBrandNode.vue'
 import GNewMapNode from './GNewNodes/GNewMapNode.vue'
 import GNewSlideshowNode from './GNewNodes/GNewSlideshowNode.vue'
 import GNewAdvertisementManagerNode from './GNewNodes/GNewAdManagerNode.vue'
@@ -213,6 +214,7 @@ const nodeComponents = {
   subscription: GNewSubscriptionNode,
   // Email template node
   'email-template': GNewEmailTemplateNode,
+  'email-brand': GNewEmailBrandNode,
   // Email manager node
   'email-manager': GNewEmailManagerNode,
   // Map node
