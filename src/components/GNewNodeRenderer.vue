@@ -58,6 +58,7 @@ import GNewNodeControlBar from './GNewNodeControlBar.vue'
 
 // Import all node components
 import GNewDefaultNode from './GNewNodes/GNewDefaultNode.vue'
+import GNewComponentNode from './GNewNodes/GNewComponentNode.vue'
 import GNewImageNode from './GNewNodes/GNewImageNode.vue'
 import GNewVideoNode from './GNewNodes/GNewVideoNode.vue'
 import GNewYoutubeLiveNode from './GNewNodes/GNewYoutubeLiveNode.vue'
@@ -175,6 +176,10 @@ const totalNodes = computed(() => {
 // Dynamic component mapping
 const nodeComponents = {
   default: GNewDefaultNode,
+  // Component Registry nodes carry their definition (schema/impl/verify) in metadata —
+  // render that instead of falling through to the text-only default.
+  component: GNewComponentNode,
+  layout: GNewComponentNode,
   'markdown-image': GNewImageNode,
   background: GNewImageNode,
   'portfolio-image': GNewImageNode,
