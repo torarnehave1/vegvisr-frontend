@@ -188,6 +188,30 @@ const applyGraphIdBindings = (rawHtml, graphId) => {
   return html
 }
 
+// Published pages need the same graph-save bridge as Agent Builder previews.
+// It is injected into the served copy only, leaving the html-node source clean.
+const injectPublishedAuthBridge = (htmlContent, graphId) => {
+  if (!htmlContent || htmlContent.includes('components/vegvisr-auth.js')) return htmlContent
+
+  const graphIdValue = JSON.stringify(String(graphId || '')).replace(/</g, '\\u003c')
+  const bridge = `<scr` + `ipt>window.__VEGVISR_GRAPH_ID=${graphIdValue};</scr` + `ipt>` +
+    '<scr' + 'ipt src="https://api.vegvisr.org/components/vegvisr-auth.js" defer></scr' + 'ipt>'
+  const headMatch = htmlContent.match(/<head\b[^>]*>/i)
+
+  if (headMatch && headMatch.index != null) {
+    const insertAt = headMatch.index + headMatch[0].length
+    return htmlContent.slice(0, insertAt) + bridge + htmlContent.slice(insertAt)
+  }
+
+  const htmlMatch = htmlContent.match(/<html\b[^>]*>/i)
+  if (htmlMatch && htmlMatch.index != null) {
+    const insertAt = htmlMatch.index + htmlMatch[0].length
+    return htmlContent.slice(0, insertAt) + `<head>${bridge}</head>` + htmlContent.slice(insertAt)
+  }
+
+  return bridge + htmlContent
+}
+
 // Storage helper script to inject into HTML content
 const getStorageHelperScript = (nodeId) => `
 <script>
@@ -666,6 +690,7 @@ const publishHtml = async () => {
 
     // Inject CSS nodes before publishing (Phase 5)
     let htmlWithCss = injectCssNodes(rawHtml, props.node.id, props.graphData)
+    htmlWithCss = injectPublishedAuthBridge(htmlWithCss, graphId)
 
     const tokenResponse = await fetch('https://api.vegvisr.org/api/html/publish-token', {
       method: 'POST',
