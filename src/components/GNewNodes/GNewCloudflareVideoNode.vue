@@ -154,6 +154,8 @@ const videoId = computed(() => {
 })
 
 const directVideoUrl = computed(() => {
+  if (props.node.publicUrl) return props.node.publicUrl
+
   const rawPath = String(props.node.path || '').trim()
   if (!rawPath) return null
 
