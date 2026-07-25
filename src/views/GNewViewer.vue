@@ -7117,6 +7117,9 @@ const handleRealtimeVideoSelected = async (recording) => {
 
   if (realtimeVideoModalMode.value === 'edit' && (editingNode.value?.type === 'realtime-video' || editingNode.value?.type === 'cloudflare-video')) {
     editingNode.value.path = recording.path
+    if (recording.url) {
+      editingNode.value.publicUrl = recording.url
+    }
     if (!editingNode.value.label || editingNode.value.label === 'Realtime Video' || editingNode.value.label === 'Cloudflare Video') {
       editingNode.value.label = recording.meetingTitle || recording.title || (editingNode.value.type === 'cloudflare-video' ? 'Cloudflare Video' : 'Realtime Video')
     }
@@ -7141,6 +7144,7 @@ const handleRealtimeVideoSelected = async (recording) => {
     imageHeight: '100%',
     visible: true,
     path: recording.path,
+    publicUrl: recording.url || null,
     position: { x: 0, y: 0 },
   }
 
