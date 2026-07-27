@@ -1148,6 +1148,18 @@ const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 
+// Maps a recorded blob's actual MIME type to a matching file extension,
+// so saved filenames never lie about the container format (was hardcoded .wav
+// while MediaRecorder actually produces webm/ogg — broke playback downstream).
+const extensionForMimeType = (mimeType) => {
+  if (!mimeType) return 'webm'
+  if (mimeType.includes('webm')) return 'webm'
+  if (mimeType.includes('ogg')) return 'ogg'
+  if (mimeType.includes('mp4')) return 'mp4'
+  if (mimeType.includes('wav')) return 'wav'
+  return 'webm'
+}
+
 // Reactive data
 const selectedFile = ref(null)
 const recordedBlob = ref(null)
@@ -1707,7 +1719,12 @@ const extractAudioFromVideo = async () => {
 const startRecording = async () => {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    mediaRecorder.value = new MediaRecorder(stream)
+    const preferredMimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'].find(
+      (type) => MediaRecorder.isTypeSupported(type),
+    )
+    mediaRecorder.value = preferredMimeType
+      ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+      : new MediaRecorder(stream)
 
     const chunks = []
     mediaRecorder.value.ondataavailable = (event) => {
@@ -1715,7 +1732,8 @@ const startRecording = async () => {
     }
 
     mediaRecorder.value.onstop = () => {
-      recordedBlob.value = new Blob(chunks, { type: 'audio/wav' })
+      const actualMimeType = mediaRecorder.value.mimeType || preferredMimeType || 'audio/webm'
+      recordedBlob.value = new Blob(chunks, { type: actualMimeType })
       selectedFile.value = null // Clear any selected file
       error.value = null
       transcriptionResult.value = null
@@ -2945,7 +2963,9 @@ const transcribeAudio = async () => {
   resetChunkedState()
 
   const audioBlob = selectedFile.value || recordedBlob.value
-  const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
+  const fileName = selectedFile.value
+    ? selectedFile.value.name
+    : `recording_${Date.now()}.${extensionForMimeType(audioBlob?.type)}`
 
   try {
     console.log('🇳🇴 Starting Norwegian transcription analysis:', {
@@ -3307,7 +3327,9 @@ const transcribeWithWhisper = async () => {
   resetChunkedState()
 
   const audioBlob = selectedFile.value || recordedBlob.value
-  const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
+  const fileName = selectedFile.value
+    ? selectedFile.value.name
+    : `recording_${Date.now()}.${extensionForMimeType(audioBlob?.type)}`
 
   try {
     console.log('🤖 Starting Whisper-1 transcription:', {
@@ -3604,7 +3626,9 @@ const saveToPortfolio = async () => {
 
   try {
     const audioBlob = selectedFile.value || recordedBlob.value
-    const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
+    const fileName = selectedFile.value
+    ? selectedFile.value.name
+    : `recording_${Date.now()}.${extensionForMimeType(audioBlob?.type)}`
 
     console.log('=== UPLOADING AUDIO TO R2 ===')
     console.log('Audio file details:', { fileName, size: audioBlob.size, type: audioBlob.type })
@@ -3720,7 +3744,9 @@ const saveAudioOnly = async () => {
 
   try {
     const audioBlob = selectedFile.value || recordedBlob.value
-    const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
+    const fileName = selectedFile.value
+    ? selectedFile.value.name
+    : `recording_${Date.now()}.${extensionForMimeType(audioBlob?.type)}`
 
     console.log('=== SAVING AUDIO ONLY (NO TRANSCRIPTION) ===')
     console.log('Audio details:', { fileName, size: audioBlob.size, type: audioBlob.type })
@@ -3860,7 +3886,9 @@ const saveChunkedToPortfolio = async () => {
 
   try {
     const audioBlob = selectedFile.value || recordedBlob.value
-    const fileName = selectedFile.value ? selectedFile.value.name : `recording_${Date.now()}.wav`
+    const fileName = selectedFile.value
+    ? selectedFile.value.name
+    : `recording_${Date.now()}.${extensionForMimeType(audioBlob?.type)}`
 
     console.log('=== UPLOADING CHUNKED AUDIO TO R2 ===')
     console.log('Audio file details:', { fileName, size: audioBlob.size, type: audioBlob.type })
