@@ -238,6 +238,27 @@ async function handleGraphPage(request, env, url, corsHeaders) {
     return new Response('Page not found', { status: 404, headers: corsHeaders })
   }
 
+  const wantsJson = (url.searchParams.get('format') || '').toLowerCase() === 'json'
+  if (wantsJson) {
+    return new Response(
+      JSON.stringify({
+        graphId: pageData.graphId,
+        slug: pageData.slug || slug,
+        title: pageData.title,
+        description: pageData.description,
+        ogImage: pageData.ogImage || null,
+      }),
+      {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=3600',
+        },
+      }
+    )
+  }
+
   const userAgent = request.headers.get('User-Agent') || ''
   console.log('User-Agent:', userAgent)
 
