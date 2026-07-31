@@ -41,6 +41,15 @@ export default {
       return handleGraphPage(request, env, url, corsHeaders)
     }
 
+    // Route: Look up SEO metadata by graphId (GET /meta-by-graph?graphId=...)
+    // Used by clients that only have the raw graphId (e.g. gnew-viewer share
+    // links, which carry ?graphId= not a slug) and want the same
+    // title/description/ogImage a slug-based /graph/{slug}?format=json call
+    // would return, without knowing the slug.
+    if (pathname === '/meta-by-graph' && request.method === 'GET') {
+      return handleMetaByGraphId(request, env, url, corsHeaders)
+    }
+
     // Route: Album share page (GET /album/{name} or /album?name=)
     if (pathname.startsWith('/album')) {
       return handleAlbumPage(request, env, url, corsHeaders)
@@ -354,6 +363,63 @@ async function handleGraphPage(request, env, url, corsHeaders) {
     console.log('Redirect URL:', redirectUrl)
     return Response.redirect(redirectUrl, 302)
   }
+}
+
+/**
+ * Look up SEO metadata for a graph by its graphId, using the graphId->slug
+ * mapping written by handleGenerate. Returns 404 if no SEO page was ever
+ * generated for this graph (caller should fall back to raw graph data).
+ */
+async function handleMetaByGraphId(request, env, url, corsHeaders) {
+  const graphId = url.searchParams.get('graphId')
+  if (!graphId) {
+    return new Response(JSON.stringify({ error: 'graphId required' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  if (!env.SEO_PAGES) {
+    return new Response(JSON.stringify({ error: 'Not found' }), {
+      status: 404,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  const slug = await env.SEO_PAGES.get(`mapping:${graphId}`)
+  if (!slug) {
+    return new Response(JSON.stringify({ error: 'Not found' }), {
+      status: 404,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  const stored = await env.SEO_PAGES.get(`graph:${slug}`)
+  if (!stored) {
+    return new Response(JSON.stringify({ error: 'Not found' }), {
+      status: 404,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  const pageData = JSON.parse(stored)
+  return new Response(
+    JSON.stringify({
+      graphId: pageData.graphId,
+      slug: pageData.slug || slug,
+      title: pageData.title,
+      description: pageData.description,
+      ogImage: pageData.ogImage || null,
+    }),
+    {
+      status: 200,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json',
+        'Cache-Control': 'public, max-age=3600',
+      },
+    }
+  )
 }
 
 async function fetchLiveGraphData(graphId) {
