@@ -71,6 +71,7 @@ email-worker/
 sms-worker/
 auth-worker/
 aff-worker/
+vemotion-worker/
 
 # Test HTML files
 test*.html
@@ -89,3 +90,39 @@ README.md
 # Ignore HalloVegvisr asset folders (media, screenshots, etc)
 src/assets/HalloVegvisr/
 scr/assets/HalloVegvisr/
+
+# Worker directories normalized to wrangler-deploy (VEGR prep) 2026-08-02
+albums-worker/
+audio-portfolio-worker/
+blotato-worker/
+brand-worker/
+chat-history-worker/
+chat-worker/
+client-gateway/
+dash-worker/
+drizzle-worker/
+gemini-worker/
+group-chat-worker/
+image-analysis-worker/
+image-proxy-worker/
+linkedin-worker/
+mobile-apps-worker/
+momentum-config-worker/
+norwegian-transcription-worker/
+omr-worker/
+onboarding-worker/
+password-worker/
+photos-worker/
+proff-worker/
+realtime-worker/
+sanskrit-worker/
+seo-worker/
+simple-name-app-worker/
+sources-worker/
+subscription-worker/
+teacher-worker/
+vector-search-worker/
+videostream-worker/
+voice-worker/
+whisper-worker/
+youtube-worker/
