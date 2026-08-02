@@ -1789,6 +1789,18 @@ const initializeCytoscape = (graphData) => {
         },
       },
       {
+        selector: 'node[type="html-node"]',
+        style: {
+          shape: 'round-rectangle',
+          'background-color': (ele) => ele.data('color') || '#f0f4f8',
+          'border-width': 2,
+          'border-color': '#4a90d9',
+          label: '',
+          width: (ele) => ele.data('customWidth') || '800px',
+          height: (ele) => ele.data('customHeight') || '600px',
+        },
+      },
+      {
         selector: 'edge',
         style: {
           label: (ele) => (ele.data('type') === 'info' ? 'ℹ️' : ''),
