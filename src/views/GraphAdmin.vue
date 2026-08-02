@@ -1267,6 +1267,10 @@ const loadSelectedGraph = async () => {
           imageHeight: node.imageHeight || '100%',
           visible: node.visible !== false,
           path: node.path || null,
+          publicUrl: node.publicUrl || null,
+          metadata: node.metadata || null,
+          superadminOnly: !!node.superadminOnly,
+          order: node.order,
         },
         position: node.position || { x: 0, y: 0 },
       }))
@@ -3182,6 +3186,10 @@ const handleNewGraphCreated = async (result) => {
           imageHeight: node.imageHeight || '100%',
           visible: node.visible !== false,
           path: node.path || null,
+          publicUrl: node.publicUrl || null,
+          metadata: node.metadata || null,
+          superadminOnly: !!node.superadminOnly,
+          order: node.order,
         },
         position: node.position || { x: 100, y: 100 },
       }))
