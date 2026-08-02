@@ -8752,6 +8752,7 @@ const saveNodeChanges = async () => {
         superadminOnly: !!editingNode.value.superadminOnly,
         metadata: editingNode.value.metadata,
         updatedAt: new Date().toISOString(),
+        updatedBy: userStore.email || null,
       }
 
       // Persist path for node types that use URL/file paths from edit modal
