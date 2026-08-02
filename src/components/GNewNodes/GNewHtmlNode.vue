@@ -505,6 +505,17 @@ const injectStorageHelpers = (htmlContent, nodeId, publishToken = '') => {
   return htmlContent + payload
 }
 
+// If the html-node is (or contains) a contact-form marker, inject the SSOT
+// component script (served from the Component Registry graph) so the real form
+// mounts — in the viewer iframe here and, when baked in at publish, on any
+// serving host. Idempotent; no-op without the marker.
+const injectContactFormScript = (html) => {
+  if (!html || html.indexOf('data-vegvisr-contact') === -1) return html
+  if (html.indexOf('/components/contact-form.js') !== -1) return html
+  const tag = '<script src="https://api.vegvisr.org/components/contact-form.js" defer><\/script>'
+  return html.indexOf('</body>') !== -1 ? html.replace('</body>', tag + '</body>') : html + tag
+}
+
 const createHtmlUrl = () => {
   if (!props.node.info) {
     htmlUrl.value = ''
@@ -523,7 +534,7 @@ const createHtmlUrl = () => {
   // Inject CSS nodes before storage helpers
   let htmlWithCss = injectCssNodes(rawHtml, props.node.id, props.graphData)
 
-  const htmlContent = injectStorageHelpers(htmlWithCss, props.node.id)
+  const htmlContent = injectContactFormScript(injectStorageHelpers(htmlWithCss, props.node.id))
   const blob = new Blob([htmlContent], { type: 'text/html' })
   htmlUrl.value = URL.createObjectURL(blob)
 }
@@ -691,6 +702,7 @@ const publishHtml = async () => {
     // Inject CSS nodes before publishing (Phase 5)
     let htmlWithCss = injectCssNodes(rawHtml, props.node.id, props.graphData)
     htmlWithCss = injectPublishedAuthBridge(htmlWithCss, graphId)
+    htmlWithCss = injectContactFormScript(htmlWithCss)
 
     const tokenResponse = await fetch('https://api.vegvisr.org/api/html/publish-token', {
       method: 'POST',
