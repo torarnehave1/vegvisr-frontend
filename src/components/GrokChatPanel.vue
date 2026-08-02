@@ -2213,10 +2213,10 @@ const isImageMode = computed(() => {
   // This should be set by your UI logic; for now, check if userInput contains 'image'
   return userInput.value?.toLowerCase().includes('image') || false
 })
-const claudeModel = ref('claude-opus-4-5-20251101')
+const claudeModel = ref('claude-opus-4-8')
 const claudeModelOptions = [
-  { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
-  { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
+  { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
   { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' }
 ]
 const messages = ref([])
@@ -9510,9 +9510,9 @@ Do not call graph tools. Provide the direct replacement text/JSON in your respon
     } else if (currentProvider === 'claude') {
       endpoint = 'https://anthropic.vegvisr.org/chat'
       model = claudeModel.value
-      if (model === 'claude-opus-4-5-20251101') {
+      if (model === 'claude-opus-4-8') {
         maxTokens = 16384
-      } else if (model === 'claude-sonnet-4-5-20250929') {
+      } else if (model === 'claude-sonnet-4-6') {
         maxTokens = 64000
       } else if (model === 'claude-haiku-4-5-20251001') {
         maxTokens = 8192

@@ -359,15 +359,15 @@ const openaiModelOptions = [
 ]
 
 const claudeModelOptions = [
-  { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
-  { value: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
+  { value: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
   { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' }
 ]
 
 // State
 const provider = ref('grok')
 const openaiModel = ref('gpt-5.2')
-const claudeModel = ref('claude-opus-4-5-20251101')
+const claudeModel = ref('claude-opus-4-8')
 const showCurrentCode = ref(false)
 const showGraphContext = ref(false)
 const conversationHistory = ref([])
@@ -795,8 +795,8 @@ const getModelConfig = () => {
   } else if (currentProvider === 'claude') {
     const model = claudeModel.value
     let maxTokens = 8192
-    if (model === 'claude-opus-4-5-20251101') maxTokens = 16384
-    else if (model === 'claude-sonnet-4-5-20250929') maxTokens = 64000
+    if (model === 'claude-opus-4-8') maxTokens = 16384
+    else if (model === 'claude-sonnet-4-6') maxTokens = 64000
     else if (model === 'claude-haiku-4-5-20251001') maxTokens = 8192
     return { model, maxTokens, useMaxCompletionTokens: false }
   } else if (currentProvider === 'grok') {

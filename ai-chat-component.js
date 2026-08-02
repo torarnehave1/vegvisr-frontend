@@ -32,7 +32,7 @@ class AIChatComponent extends HTMLElement {
     // Provider configurations for user API keys
     this.providers = {
       openai: { name: 'OpenAI', icon: '🧠', models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'] },
-      anthropic: { name: 'Anthropic', icon: '🎭', models: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307'] },
+      anthropic: { name: 'Anthropic', icon: '🎭', models: ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'] },
       google: { name: 'Google', icon: '🔮', models: ['gemini-2.0-flash-exp', 'gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-1.5-flash-8b'] },
       grok: { name: 'Grok (X.AI)', icon: '🤖', models: ['grok-beta', 'grok-vision-beta'] }
     }
