@@ -126,3 +126,9 @@ videostream-worker/
 voice-worker/
 whisper-worker/
 youtube-worker/
+
+# Worker dirs never tracked (0 files in git) — ignore so status stays clean
+billing-worker/
+coaching-report-worker/
+deployment-status-worker/
+openapi-worker/
