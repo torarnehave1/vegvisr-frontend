@@ -56,22 +56,11 @@ DIARIZATION_*.md
 # SQL files - all migrations and schemas handled locally
 *.sql
 
-# Worker directories - deployed via wrangler, not git
-mystmkra-worker/
-api-worker/
-main-worker/
-dev-worker/
-knowledge-graph-worker/
-anthropic-worker/
-openai-worker/
-grok-worker/
-perplexity-worker/
-user-keys-worker/
-email-worker/
-sms-worker/
-auth-worker/
-aff-worker/
-vemotion-worker/
+# Worker SOURCE is TRACKED in git (policy 2026-08-03).
+# Rationale: worker source lived only locally + gitignored, and a clean wiped it. Source in git =
+# source that cannot be lost irreversibly. Secrets/build/config stay OUT via the global rules above:
+#   .env · .dev.vars · node_modules · dist · .wrangler/ · *.toml (all wrangler.toml) · *.sql
+# Do NOT re-add whole worker-dir ignores here.
 
 # Test HTML files
 test*.html
@@ -91,44 +80,7 @@ README.md
 src/assets/HalloVegvisr/
 scr/assets/HalloVegvisr/
 
-# Worker directories normalized to wrangler-deploy (VEGR prep) 2026-08-02
-albums-worker/
-audio-portfolio-worker/
-blotato-worker/
-brand-worker/
-chat-history-worker/
-chat-worker/
-client-gateway/
-dash-worker/
-drizzle-worker/
-gemini-worker/
-group-chat-worker/
-image-analysis-worker/
-image-proxy-worker/
-linkedin-worker/
-mobile-apps-worker/
-momentum-config-worker/
-norwegian-transcription-worker/
-omr-worker/
-onboarding-worker/
-password-worker/
-photos-worker/
-proff-worker/
-realtime-worker/
-sanskrit-worker/
-seo-worker/
-simple-name-app-worker/
-sources-worker/
-subscription-worker/
-teacher-worker/
-vector-search-worker/
-videostream-worker/
-voice-worker/
-whisper-worker/
-youtube-worker/
+# (Worker-dir blanket ignores removed 2026-08-03 — worker source is now tracked; see policy note above.)
 
-# Worker dirs never tracked (0 files in git) — ignore so status stays clean
-billing-worker/
-coaching-report-worker/
-deployment-status-worker/
-openapi-worker/
+# (All worker-dir blanket ignores removed 2026-08-03 — ALL worker source is tracked, no exceptions.
+#  billing/coaching-report/deployment-status/openapi included per architect directive.)
