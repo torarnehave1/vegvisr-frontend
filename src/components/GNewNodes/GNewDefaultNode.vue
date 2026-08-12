@@ -808,6 +808,34 @@ ${safeTitle ? `<div class="youtube-embed-title" style="padding:8px 12px;font-siz
     },
   )
 
+  // 2c. Process inline INSTAGRAM elements: ![INSTAGRAM src=URL height=640]Caption[END INSTAGRAM]
+  // No fixed aspect-ratio (unlike YOUTUBE above): Instagram embeds reflow, and their
+  // height tracks caption length and chrome rather than the media's own ratio.
+  processedText = processedText.replace(
+    /!\[INSTAGRAM\s+([^\]]*)\]([\s\S]*?)\[END\s+INSTAGRAM\]/g,
+    (match, attrs, title) => {
+      const srcMatch = /src=(\S+)/.exec(attrs)
+      // Leave a malformed element visible as text rather than swallowing it
+      if (!srcMatch) return match
+
+      // Normalise any permalink to its /embed/ endpoint. Share params such as
+      // ?igsi=... break that route, so the query string is dropped.
+      const base = srcMatch[1].trim().split('?')[0].replace(/\/+$/, '')
+      const embedUrl = base.endsWith('/embed') ? `${base}/` : `${base}/embed/`
+      const safeSrc = embedUrl.replace(/"/g, '&quot;')
+
+      const heightMatch = /height=(\d+)/.exec(attrs)
+      const height = heightMatch ? parseInt(heightMatch[1], 10) : 640
+
+      const safeTitle = String(title).trim().replace(/"/g, '&quot;')
+
+      return `<div class="instagram-embed" style="width:100%;max-width:540px;margin:15px auto;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.15);background:#fff;">
+<iframe src="${safeSrc}" title="${safeTitle}" frameborder="0" scrolling="no" allowtransparency="true" allow="encrypted-media; picture-in-picture; web-share" allowfullscreen style="width:100%;height:${height}px;border:0;display:block;"></iframe>
+${safeTitle ? `<div class="instagram-embed-title" style="padding:8px 12px;font-size:0.9em;color:#555;background:#f8f9fa;">${safeTitle}</div>` : ''}
+</div>\n\n`
+    },
+  )
+
   // 3. Process leftside/rightside images FIRST (before sections and quotes)
   processedText = processLeftRightImages(processedText)
 
