@@ -60,6 +60,18 @@ const router = createRouter({
       component: () => import('../views/NotFoundView.vue'),
     },
     {
+      // Stripe Checkout return targets — billing-worker's CHECKOUT_SUCCESS_URL /
+      // CHECKOUT_CANCEL_URL point here. Public: a buyer needs no account.
+      path: '/billing/success',
+      name: 'BillingSuccess',
+      component: () => import('../views/BillingSuccessView.vue'),
+    },
+    {
+      path: '/billing/cancel',
+      name: 'BillingCancel',
+      component: () => import('../views/BillingCancelView.vue'),
+    },
+    {
       path: '/book',
       name: 'Book',
       component: () => import('../views/BookView.vue'),
