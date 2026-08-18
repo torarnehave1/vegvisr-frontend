@@ -44,60 +44,35 @@ for line in own.split('\n'):
     kept.append(line)
 body = '\n'.join(kept)
 
-# 2. inline form — paren scan, skipping strings; ignore hits inside comments/strings
-def spans_to_skip(src):
-    out, i, n = [], 0, len(src)
-    while i < n:
-        c = src[i]
-        if c == '/' and i+1 < n and src[i+1] == '/':
-            j = src.find('\n', i); j = n if j == -1 else j; out.append((i, j)); i = j
-        elif c == '/' and i+1 < n and src[i+1] == '*':
-            j = src.find('*/', i+2); j = n if j == -1 else j+2; out.append((i, j)); i = j
-        elif c in '"\'`':
-            q, j, esc = c, i+1, False
-            while j < n:
-                d = src[j]
-                if esc: esc = False
-                elif d == '\\': esc = True
-                elif d == q: break
-                j += 1
-            out.append((i, min(j+1, n))); i = j+1
-        else: i += 1
-    return out
+# 2. inline form:  const NAME = /* @__PURE__ */ __name(EXPR, "NAME")
+#
+# Do NOT try to find the closing paren by counting brackets. JavaScript regex literals break it:
+# `text.match(/\[/g)` contributes an unmatched `[`, the depth never returns to zero, and the
+# occurrence is silently skipped (norwegian-transcription-worker, 12 of 13 missed). Telling a regex
+# from a division needs real parsing.
+#
+# Instead use the fact that esbuild always terminates the wrapper with the SAME identifier it is
+# naming: `, "NAME")`. That string is unique to the pair, so it locates the end without parsing.
+WRAPPER = re.compile(
+    r'((?:const|var|let)\s+([A-Za-z_$][\w$]*)\s*=\s*)(?:/\*\s*@__PURE__\s*\*/\s*)?__name\('
+)
+n_inline, guard = 0, 0
+while guard < 10000:
+    guard += 1
+    m = WRAPPER.search(body)
+    if not m:
+        break
+    name = m.group(2)
+    term = f', "{name}")'
+    e = body.find(term, m.end())
+    if e == -1:
+        print(f'  WARNING: no terminator {term!r} for {name} — left as is', file=sys.stderr)
+        body = body[:m.start()] + m.group(1) + '__NAMEKEEP__(' + body[m.end():]
+        continue
+    body = body[:m.start()] + m.group(1) + body[m.end():e] + body[e + len(term):]
+    n_inline += 1
+body = body.replace('__NAMEKEEP__(', '__name(')
 
-def unwrap(src):
-    skip = spans_to_skip(src)
-    def inside(pos): return any(a <= pos < b for a, b in skip)
-    out, i, n, cnt = [], 0, len(src), 0
-    while True:
-        j = src.find('__name(', i)
-        while j != -1 and inside(j):
-            j = src.find('__name(', j+1)
-        if j == -1:
-            out.append(src[i:]); break
-        out.append(re.sub(r'/\*\s*@__PURE__\s*\*/\s*$', '', src[i:j]))
-        k, depth, in_s, q, esc, commas = j+len('__name('), 1, False, '', False, []
-        while k < n and depth > 0:
-            c = src[k]
-            if in_s:
-                if esc: esc = False
-                elif c == '\\': esc = True
-                elif c == q: in_s = False
-            else:
-                if c in '"\'`': in_s, q = True, c
-                elif c in '([{': depth += 1
-                elif c in ')]}':
-                    depth -= 1
-                    if depth == 0: break
-                elif c == ',' and depth == 1: commas.append(k)
-            k += 1
-        if depth != 0 or not commas:
-            out.append(src[j:k+1]); i = k+1; continue
-        out.append(src[j+len('__name('):commas[-1]]); cnt += 1
-        i = k+1
-    return ''.join(out), cnt
-
-body, n_inline = unwrap(body)
 body = body.strip('\n')
 
 header = [
