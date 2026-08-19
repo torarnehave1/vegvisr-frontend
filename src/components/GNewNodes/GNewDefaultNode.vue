@@ -893,6 +893,30 @@ ${safeTitle ? `<div class="instagram-embed-title" style="padding:8px 12px;font-s
     },
   )
 
+  // 7b. Handle centre images: ![Center|width: …; height: …; margin: …; display: …](url)
+  // Registered in graphTemplates (category='Fulltext Elements', trigger '![Center') with
+  // parameters width/height/margin/display, but it had no renderer here: it fell through to
+  // marked and produced a bare <img> with the whole style string stranded in the alt attribute.
+  processedText = processedText.replace(
+    /!\[Center(?:-(\d+))?\|(.+?)\]\((.+?)\)/g,
+    (match, paragraphCount, styles, url) => {
+      const getStyleValue = (styleString, key, fallback) => {
+        const regex = new RegExp(key + ': *[\'"]?([^;\'"]+)[\'"]?', 'i')
+        const found = styleString.match(regex)
+        return found ? found[1].trim() : fallback
+      }
+      let width = getStyleValue(styles, 'width', '300px')
+      if (/^\d+$/.test(width)) width = width + 'px'
+      let height = getStyleValue(styles, 'height', 'auto')
+      if (/^\d+$/.test(height)) height = height + 'px'
+      const margin = getStyleValue(styles, 'margin', '20px auto')
+      const display = getStyleValue(styles, 'display', 'block')
+      return `<div class="center-image-container">
+<img src="${url}" alt="Center Image" class="center-image" style="width: ${width}; height: ${height}; margin: ${margin}; display: ${display}; max-width: 100%; border-radius: 8px;" />
+</div>\n\n`
+    },
+  )
+
   // Note: IMAGEQUOTE elements are now handled separately in parsedContent to create structured objects
   // Note: FLEXBOX elements (GRID, CARDS, GALLERY) are now handled as structured components in parsedContent
 
@@ -1043,6 +1067,12 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
     } else if (imageAlt.toLowerCase().includes('rightside')) {
       imageType = 'Rightside'
       imageContext = 'Right-aligned contextual image'
+    } else if (imageAlt.toLowerCase().includes('center')) {
+      imageType = 'Center'
+      imageContext = 'Centred image'
+    } else if (img.classList.contains('center-image')) {
+      imageType = 'Center'
+      imageContext = 'Centred image'
     } else if (img.classList.contains('header-image')) {
       imageType = 'Header'
       imageContext = 'Header image for visual impact'
@@ -1263,6 +1293,7 @@ const addChangeImageButtons = (html, nodeId, originalContent) => {
       // If wrapper is in a container, add button container to container
       if (
         imageWrapper.parentNode.classList.contains('header-image-container') ||
+        imageWrapper.parentNode.classList.contains('center-image-container') ||
         imageWrapper.parentNode.classList.contains('rightside-image') ||
         imageWrapper.parentNode.classList.contains('leftside-image')
       ) {
@@ -2109,7 +2140,12 @@ const convertStylesToString = (styleObj) => {
 }
 
 /* Specific positioning for image containers */
+.node-content :deep(.center-image-container) {
+  text-align: center;
+}
+
 .node-content :deep(.header-image-container .image-button-container),
+.node-content :deep(.center-image-container .image-button-container),
 .node-content :deep(.rightside-image .image-button-container),
 .node-content :deep(.leftside-image .image-button-container) {
   justify-content: center;
