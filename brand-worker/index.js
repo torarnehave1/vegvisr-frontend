@@ -10,6 +10,55 @@ var injectContactFormScript = (html) => {
   if (html.indexOf("</body>") !== -1) return html.replace("</body>", tag + "</body>");
   return html + tag;
 };
+// A published page is a public snapshot read from KV — identical bytes for every caller, no
+// cookies or auth consulted — so any origin may READ it. Without these headers a component on
+// another origin cannot fetch a site's page to discover its <link rel="icon">: the browser
+// blocks the response even though the page is public to anyone with the URL (2026-08-21).
+var CORS_READ_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Max-Age": "86400"
+};
+
+// www.<host> falls back to the apex key, matching how pages are published.
+var htmlKeysFor = (hostname) => {
+  const keys = [`html:${hostname}`];
+  if (hostname.startsWith("www.")) keys.push(`html:${hostname.replace(/^www\./, "")}`);
+  return keys;
+};
+
+// These hosts have no /favicon.ico — the icon is declared ONLY in <link rel="...icon"> tags in
+// the head, at an arbitrary URL (favicons.vegvisr.org/...). Parsed with HTMLRewriter, which is
+// native to Workers, rather than a regex, so attribute order and quoting can't break it.
+var extractIcons = async (html, hostname) => {
+  const icons = [];
+  const rewriter = new HTMLRewriter().on("link", {
+    element(el) {
+      const rel = String(el.getAttribute("rel") || "").toLowerCase();
+      if (!/(^|[\s-])icon(\s|$)/.test(rel)) return;
+      const href = String(el.getAttribute("href") || "").trim();
+      if (!href) return;
+      let abs = href;
+      try {
+        abs = new URL(href, `https://${hostname}/`).href;
+      } catch {}
+      const sizes = el.getAttribute("sizes") || null;
+      const px = sizes ? Math.max(0, ...String(sizes).toLowerCase().split(/\s+/).map((s) => parseInt(s, 10) || 0)) : 0;
+      icons.push({ rel, href: abs, sizes, type: el.getAttribute("type") || null, px });
+    }
+  });
+  await rewriter.transform(new Response(html)).arrayBuffer();
+  return icons;
+};
+
+// A raster icon beats apple-touch beats mask-icon (mask-icon is a monochrome SVG silhouette and
+// renders as a black blob in a nav bar); within a tier the largest declared size wins.
+var pickBestIcon = (icons) => {
+  const rank = (i) => (i.rel.includes("mask") ? 0 : i.rel.includes("apple") ? 1 : 2);
+  return [...icons].sort((a, b) => rank(b) - rank(a) || b.px - a.px)[0] || null;
+};
+
 var index_default = {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -204,17 +253,40 @@ var index_default = {
       if (!botId || !groupId) {
         return jsonResponse({ ok: false, error: "Kontaktmottak er ikke konfigurert enn\xE5." }, 503);
       }
-      const bodyText = `\u{1F4E9} Ny henvendelse \u2014 ${url.hostname}
+      // The submitting PAGE, not this worker. The contact component posts to the absolute
+      // endpoint, so url.hostname is always brand-worker.torarnehave.workers.dev and every
+      // domain's enquiries looked identical — useless once several sites share one group.
+      // Origin is set by the browser on a cross-origin POST and cannot be spoofed by page JS;
+      // Referer is the fallback, url.hostname the last resort. Treated as untrusted input:
+      // hostname only, charset-restricted, length-capped.
+      const senderHost = (() => {
+        for (const h of [request.headers.get("Origin"), request.headers.get("Referer")]) {
+          if (!h) continue;
+          try {
+            const n = new URL(h).hostname;
+            if (/^[a-z0-9.-]{1,80}$/i.test(n)) return n;
+          } catch {}
+        }
+        return url.hostname;
+      })();
+      const bodyText = `\u{1F4E9} Ny henvendelse \u2014 ${senderHost}
 Navn: ${name}
 E-post: ${email}
 Telefon: ${phone} (verifisert)
 
 ${message}`;
-      const post = await fetch("https://group-chat-worker.torarnehave.workers.dev/bot-message", {
+      const botReq = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bot_id: botId, group_id: groupId, body: bodyText })
-      });
+      };
+      // MUST go through the binding, exactly like the SMS gateway above. A plain fetch to
+      // our own workers.dev hostname from inside a Worker gets an edge error rather than the
+      // app's response, so post.ok is false and this returned 502 while the same call from
+      // curl returned 201 (L37).
+      const post = env.CHAT_WORKER
+        ? await env.CHAT_WORKER.fetch("https://group-chat-worker/bot-message", botReq)
+        : await fetch("https://group-chat-worker.torarnehave.workers.dev/bot-message", botReq);
       if (!post.ok) return jsonResponse({ ok: false, error: "Kunne ikke levere meldingen. Pr\xF8v igjen." }, 502);
       return jsonResponse({ ok: true });
     }
@@ -357,18 +429,46 @@ ${message}`;
         metadata: metadata || null
       });
     }
-    if (env.HTML_PAGES && url.pathname !== "/branding.json") {
-      const htmlKeys = [`html:${url.hostname}`];
-      if (url.hostname.startsWith("www.")) {
-        htmlKeys.push(`html:${url.hostname.replace(/^www\./, "")}`);
+    // Reading the icon without downloading and parsing the whole page: the caller asks this
+    // worker, which already holds the published HTML, and gets back JSON. Must sit ABOVE the
+    // page-serving block below, which answers every other path with the page itself.
+    if (url.pathname === "/__favicon") {
+      if (request.method === "OPTIONS") return jsonResponse({ ok: true });
+      if (request.method !== "GET") return jsonResponse({ ok: false, error: "Method not allowed" }, 405);
+      if (!env.HTML_PAGES) return jsonResponse({ ok: false, error: "HTML_PAGES binding missing" }, 500);
+      const host = String(url.searchParams.get("hostname") || url.hostname).trim().toLowerCase();
+      if (!/^[a-z0-9.-]{1,253}$/.test(host)) {
+        return jsonResponse({ ok: false, error: "Invalid hostname" }, 400);
       }
-      for (const key of htmlKeys) {
+      let page = null;
+      for (const key of htmlKeysFor(host)) {
+        page = await env.HTML_PAGES.get(key);
+        if (page) break;
+      }
+      if (!page) {
+        return jsonResponse({ ok: false, error: "No published page for this hostname", hostname: host }, 404);
+      }
+      const icons = await extractIcons(page, host);
+      const best = pickBestIcon(icons);
+      return jsonResponse({
+        ok: true,
+        hostname: host,
+        favicon: best ? best.href : null,
+        icons: icons.map(({ px, ...rest }) => rest)
+      });
+    }
+    if (env.HTML_PAGES && url.pathname !== "/branding.json") {
+      for (const key of htmlKeysFor(url.hostname)) {
         const html = await env.HTML_PAGES.get(key);
         if (html) {
+          if (request.method === "OPTIONS") {
+            return new Response(null, { status: 204, headers: CORS_READ_HEADERS });
+          }
           return new Response(injectContactFormScript(html), {
             headers: {
               "Content-Type": "text/html; charset=utf-8",
-              "Cache-Control": "public, max-age=300, stale-while-revalidate=3600"
+              "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
+              ...CORS_READ_HEADERS
             }
           });
         }
