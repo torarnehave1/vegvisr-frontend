@@ -3,7 +3,9 @@
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-role, X-API-Token, x-user-email, x-user-id, X-Email',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-role, X-API-Token, x-user-email, x-user-id, X-Email, Range',
+  // Range responses are useless to a cross-origin caller that cannot read these.
+  'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges, Content-Disposition',
 }
 
 function createResponse(body, status = 200, headers = {}) {
@@ -414,8 +416,10 @@ async function r2Head(bucket, key, accessKeyId, secretKey, accountId) {
   })
 }
 
-async function r2Get(bucket, key, accessKeyId, secretKey, accountId) {
-  const { url, headers } = await signR2Request('GET', bucket, key, accessKeyId, secretKey, accountId)
+// `range` is a raw HTTP Range header value (e.g. "bytes=0-1023"). Signed like any
+// other header so R2 answers 206 and the caller can resume or seek a large file.
+async function r2Get(bucket, key, accessKeyId, secretKey, accountId, range = null) {
+  const { url, headers } = await signR2Request('GET', bucket, key, accessKeyId, secretKey, accountId, null, range ? { range } : null)
   return fetch(url, {
     method: 'GET',
     headers,
@@ -482,7 +486,10 @@ async function r2PutStream(bucket, key, stream, contentLength, contentType, meta
 
 // Presign a GET URL for an R2 object using S3 SigV4 query-string signing.
 // Returns a fully-formed https URL the browser can use directly (range/seek supported).
-async function r2PresignGet(bucket, key, accessKeyId, secretKey, accountId, expiresSec = 3600) {
+// `extraQuery` adds signed query parameters — used for the S3 response-header
+// overrides (`response-content-disposition`) that let a browser download straight
+// from R2 with an attachment filename instead of streaming through the worker.
+async function r2PresignGet(bucket, key, accessKeyId, secretKey, accountId, expiresSec = 3600, extraQuery = null) {
   const host = `${accountId}.r2.cloudflarestorage.com`
   const now = new Date()
   const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '')
@@ -503,6 +510,7 @@ async function r2PresignGet(bucket, key, accessKeyId, secretKey, accountId, expi
     'X-Amz-Date': timeStr,
     'X-Amz-Expires': String(expiresSec),
     'X-Amz-SignedHeaders': signedHeaders,
+    ...(extraQuery || {}),
   }
   const canonicalQuery = Object.keys(queryParams).sort()
     .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(queryParams[k])}`)
@@ -1607,6 +1615,9 @@ export default {
                   source: isStream ? 'stream' : 'r2-own',
                   type: isStream ? 'stream' : 'realtime',
                   playUrl,
+                  // With a public base the URL never expires, so the UI can share it
+                  // directly; without one it is a 1 h presign and needs a share token.
+                  playUrlPermanent: !!creds.r2PublicBase,
                   title: metadata.title,
                   labels: metadata.labels,
                   thumbnailUrl: metadata.thumbnailUrl,
@@ -1630,6 +1641,7 @@ export default {
                 customMetadata: obj.customMetadata || {},
                 source: 'r2',
                 playUrl: `https://realtimevideos.vegvisr.org/recordings/${encodeURIComponent(name)}`,
+                playUrlPermanent: true,
                 title: meta.title,
                 labels: meta.labels,
                 thumbnailUrl: meta.thumbnailUrl,
@@ -1654,6 +1666,7 @@ export default {
                 playUrl: isStream
                   ? `https://realtimevideos.vegvisr.org/stream-recordings/${encodeURIComponent(name)}`
                   : `https://realtimevideos.vegvisr.org/${encodeURIComponent(obj.key)}`,
+                playUrlPermanent: true,
                 title: meta.title,
                 labels: meta.labels,
                 thumbnailUrl: meta.thumbnailUrl,
@@ -2781,6 +2794,9 @@ export default {
         if (!key) return createResponse(JSON.stringify({ error: 'key query parameter is required' }), 400)
 
         const fileName = key.split('/').pop() || 'recording'
+        // Forwarded to R2 so a browser can resume or seek a multi-hundred-MB
+        // recording instead of restarting the whole transfer.
+        const rangeHeader = request.headers.get('range')
 
         // A World Founder's recordings live in their OWN R2 bucket, not the
         // shared binding — resolve that first (asUser honoured for Superadmin),
@@ -2788,14 +2804,37 @@ export default {
         const eff = await resolveEffectiveEmail(request, auth)
         if (!eff.ok) return createResponse(JSON.stringify({ error: eff.error }), eff.status)
         const creds = await getUserCloudflareCredentials(eff.email, env)
-        if (creds.r2AccessKeyId && creds.r2Secret && creds.r2Bucket && creds.r2AccountId) {
-          const getResp = await r2Get(creds.r2Bucket, key, creds.r2AccessKeyId, creds.r2Secret, creds.r2AccountId)
+        const useOwnR2 = !!(creds.r2AccessKeyId && creds.r2Secret && creds.r2Bucket && creds.r2AccountId)
+
+        // `redirect=1` — a browser navigation (the Download button), not a fetch.
+        // Hand the browser a presigned R2 URL and let it pull the bytes directly:
+        // no worker egress, no 128 MB memory ceiling, native resume. Only for
+        // navigations: a cross-origin *fetch* could not read the redirected
+        // response without a bucket CORS policy, so the callers that decode the
+        // bytes in JS (transcribe, audio extract) deliberately omit the flag.
+        if (useOwnR2 && url.searchParams.get('redirect') === '1') {
+          try {
+            const signed = await r2PresignGet(
+              creds.r2Bucket, key, creds.r2AccessKeyId, creds.r2Secret, creds.r2AccountId, 3600,
+              { 'response-content-disposition': `attachment; filename="${fileName}"` }
+            )
+            return new Response(null, { status: 302, headers: { ...corsHeaders, Location: signed } })
+          } catch (presignErr) {
+            console.error('download presign failed, streaming instead:', presignErr)
+          }
+        }
+
+        if (useOwnR2) {
+          const getResp = await r2Get(creds.r2Bucket, key, creds.r2AccessKeyId, creds.r2Secret, creds.r2AccountId, rangeHeader)
           if (getResp.ok) {
             return new Response(getResp.body, {
+              status: getResp.status, // 206 when a Range was satisfied
               headers: {
                 ...corsHeaders,
                 'Content-Type': getResp.headers.get('content-type') || 'video/mp4',
                 'Content-Disposition': `attachment; filename="${fileName}"`,
+                'Accept-Ranges': 'bytes',
+                ...(getResp.headers.get('content-range') ? { 'Content-Range': getResp.headers.get('content-range') } : {}),
                 ...(getResp.headers.get('content-length') ? { 'Content-Length': getResp.headers.get('content-length') } : {}),
               },
             })
@@ -2803,17 +2842,28 @@ export default {
         }
 
         if (!env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: 'Recordings bucket not configured' }), 500)
-        const obj = await env.MEETING_RECORDINGS.get(key)
+        // The R2 binding parses the Range header itself when handed the Headers object.
+        const obj = await env.MEETING_RECORDINGS.get(key, rangeHeader ? { range: request.headers } : undefined)
         if (!obj) return createResponse(JSON.stringify({ error: 'Recording not found' }), 404)
 
-        return new Response(obj.body, {
-          headers: {
-            ...corsHeaders,
-            'Content-Type': obj.httpMetadata?.contentType || 'video/mp4',
-            'Content-Disposition': `attachment; filename="${fileName}"`,
-            'Content-Length': obj.size,
-          },
-        })
+        const outHeaders = {
+          ...corsHeaders,
+          'Content-Type': obj.httpMetadata?.contentType || 'video/mp4',
+          'Content-Disposition': `attachment; filename="${fileName}"`,
+          'Accept-Ranges': 'bytes',
+        }
+        let status = 200
+        if (rangeHeader && obj.range) {
+          // `suffix` ranges ("bytes=-500") resolve from the end of the object.
+          const start = obj.range.suffix != null ? obj.size - obj.range.suffix : (obj.range.offset || 0)
+          const length = obj.range.suffix != null ? obj.range.suffix : (obj.range.length ?? obj.size - start)
+          outHeaders['Content-Range'] = `bytes ${start}-${start + length - 1}/${obj.size}`
+          outHeaders['Content-Length'] = String(length)
+          status = 206
+        } else {
+          outHeaders['Content-Length'] = String(obj.size)
+        }
+        return new Response(obj.body, { status, headers: outHeaders })
       } catch (e) {
         console.error('Error in /realtime/recordings/download:', e)
         return createResponse(JSON.stringify({ error: e.message }), 500)
@@ -2913,20 +2963,37 @@ export default {
       try {
         const auth = await validateWorkerApiToken(request, env)
         if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
-        if (!env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: 'MEETING_RECORDINGS R2 bucket not configured' }), 500)
         if (!env.WHISPER_WORKER) return createResponse(JSON.stringify({ error: 'WHISPER_WORKER service binding not configured' }), 500)
 
         const body = await request.json()
         const { key } = body
         if (!key) return createResponse(JSON.stringify({ error: 'key is required (R2 key of the recording)' }), 400)
 
-        const obj = await env.MEETING_RECORDINGS.get(key)
-        if (!obj) return createResponse(JSON.stringify({ error: `Recording not found: ${key}` }), 404)
+        // Own bucket first, shared binding as fallback — same resolution as
+        // /realtime/recordings/download. Without it every own-bucket owner 404s.
+        const eff = await resolveEffectiveEmail(request, auth, body.asUser)
+        if (!eff.ok) return createResponse(JSON.stringify({ error: eff.error }), eff.status)
+        const creds = await getUserCloudflareCredentials(eff.email, env)
 
-        const audioBuffer = await obj.arrayBuffer()
-        const sizeMB = (audioBuffer.byteLength / 1024 / 1024).toFixed(2)
+        let audioBuffer = null
+        let contentType = null
         const ext = key.split('.').pop()?.toLowerCase() || 'mp4'
-        const contentType = obj.httpMetadata?.contentType || (ext === 'webm' ? 'audio/webm' : 'audio/mp4')
+        if (creds.r2AccessKeyId && creds.r2Secret && creds.r2Bucket && creds.r2AccountId) {
+          const getResp = await r2Get(creds.r2Bucket, key, creds.r2AccessKeyId, creds.r2Secret, creds.r2AccountId)
+          if (getResp.ok) {
+            audioBuffer = await getResp.arrayBuffer()
+            contentType = getResp.headers.get('content-type') || null
+          }
+        }
+        if (!audioBuffer) {
+          if (!env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: `Recording not found: ${key}` }), 404)
+          const obj = await env.MEETING_RECORDINGS.get(key)
+          if (!obj) return createResponse(JSON.stringify({ error: `Recording not found: ${key}` }), 404)
+          audioBuffer = await obj.arrayBuffer()
+          contentType = obj.httpMetadata?.contentType || null
+        }
+        contentType = contentType || (ext === 'webm' ? 'audio/webm' : 'audio/mp4')
+        const sizeMB = (audioBuffer.byteLength / 1024 / 1024).toFixed(2)
 
         const whisperResponse = await env.WHISPER_WORKER.fetch(
           new Request('https://whisper.vegvisr.org/transcribe', {
