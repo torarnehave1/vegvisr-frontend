@@ -788,6 +788,42 @@ async function resolveEffectiveEmail(request, auth, asUserOverride) {
   return { ok: true, email: asUser, isImpersonating: true }
 }
 
+// ── Ownership gate for the LEGACY shared bucket ─────────────────────────────
+// Objects in the shared MEETING_RECORDINGS bucket are commingled from the era
+// when the whole system ran in one central account. Neither the listing nor the
+// download checked who was asking, so any account holding an API token could
+// enumerate and fetch every file in it. Recording keys are
+// `<prefix>/<meetingId>_<timestamp>.<ext>`, so meeting_ownership resolves the
+// real owner. Keys carrying no meeting id (manual uploads, named legacy files)
+// have no owner to check against and stay Superadmin-only — which is also the
+// only way they can have got into that bucket.
+//
+// The rule deliberately mirrors the RealtimeKit branch's `filterByOwnership`:
+// a Superadmin viewing their own (non-impersonated) account keeps the full
+// legacy view; everyone else, impersonation included, sees only what they own.
+const SHARED_KEY_MEETING_ID = /(?:^|\/)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})_\d+\./i
+
+function meetingIdFromSharedKey(key) {
+  const m = SHARED_KEY_MEETING_ID.exec(String(key || ''))
+  return m ? m[1].toLowerCase() : null
+}
+
+async function canReadSharedRecording(key, auth, eff, env) {
+  if (auth.role === 'Superadmin' && !eff.isImpersonating) return true
+  const meetingId = meetingIdFromSharedKey(key)
+  if (!meetingId) return false
+  try {
+    const row = await env.vegvisr_org
+      .prepare('SELECT 1 AS ok FROM meeting_ownership WHERE meeting_id = ? AND lower(owner_email) = lower(?) LIMIT 1')
+      .bind(meetingId, eff.email || '').first()
+    return !!row
+  } catch (e) {
+    // Fail closed — an unavailable ownership table must not open the bucket.
+    console.error('meeting_ownership check failed:', e)
+    return false
+  }
+}
+
 // Recording-management actions (rename, edit metadata, delete) operate ONLY on
 // the caller's own bucket (asUser stays Superadmin-only) and are allowed for
 // both Admin and Superadmin. Manual multipart upload stays Superadmin-only
@@ -1569,6 +1605,18 @@ export default {
         const recordings = []
         const creds = await getUserCloudflareCredentials(effectiveEmail, env)
 
+        // Hoisted so the shared-bucket branch below and the RealtimeKit branch
+        // further down apply one and the same ownership rule. A Superadmin's own
+        // (non-impersonated) view stays unfiltered over the legacy central store.
+        const filterByOwnership = eff.isImpersonating || auth.role !== 'Superadmin'
+        const ownedMeetingIds = new Set()
+        if (filterByOwnership) {
+          try {
+            const ownedRows = await env.vegvisr_org.prepare('SELECT meeting_id FROM meeting_ownership WHERE lower(owner_email) = lower(?)').bind(effectiveEmail || '').all()
+            for (const r of ownedRows.results || []) ownedMeetingIds.add(String(r.meeting_id).toLowerCase())
+          } catch (e) { console.error('meeting_ownership lookup failed:', e) }
+        }
+
         if (creds.r2AccessKeyId && creds.r2Secret && creds.r2Bucket && creds.r2AccountId) {
           // User has their own R2 bucket — list via S3 API
           try {
@@ -1630,6 +1678,12 @@ export default {
           try {
             const listed = await env.MEETING_RECORDINGS.list({ prefix: 'recordings/', limit: 200 })
             for (const obj of listed.objects || []) {
+              // Same gate as the download endpoint — never enumerate another
+              // person's legacy recordings to a non-Superadmin caller.
+              if (filterByOwnership) {
+                const mid = meetingIdFromSharedKey(obj.key)
+                if (!mid || !ownedMeetingIds.has(mid)) continue
+              }
               const name = obj.key.replace('recordings/', '')
               const meta = normalizeRecordingMetadata(obj.customMetadata || {})
               recordings.push({
@@ -1650,6 +1704,10 @@ export default {
             const rootListed = await env.MEETING_RECORDINGS.list({ limit: 200, include: ['customMetadata'] })
             for (const obj of rootListed.objects || []) {
               if (obj.key.startsWith('recordings/') || obj.key.endsWith('/')) continue
+              if (filterByOwnership) {
+                const mid = meetingIdFromSharedKey(obj.key)
+                if (!mid || !ownedMeetingIds.has(mid)) continue
+              }
               const isStream = obj.key.startsWith('stream-recordings/')
               const name = isStream ? obj.key.replace('stream-recordings/', '') : obj.key
               const meta = normalizeRecordingMetadata(obj.customMetadata || {})
@@ -1688,20 +1746,11 @@ export default {
               const r2Keys = new Set(recordings.map((r) => r.name))
               const userHasOwnR2 = !!(creds.r2AccessKeyId && creds.r2Secret && creds.r2Bucket && creds.r2AccountId)
 
-              // Restrict the RealtimeKit listing to meetings the effective user
-              // owns — for impersonation AND for any non-Superadmin viewing their
-              // own recordings. Only a Superadmin's own (non-impersonated) view
-              // sees the full shared account. Without this, a non-Superadmin (e.g.
-              // an Admin) would see EVERY recording in the shared RealtimeKit
-              // account, not just their own.
-              const filterByOwnership = eff.isImpersonating || auth.role !== 'Superadmin'
-              const ownedMeetingIds = new Set()
-              if (filterByOwnership) {
-                try {
-                  const ownedRows = await env.vegvisr_org.prepare('SELECT meeting_id FROM meeting_ownership WHERE owner_email = ?').bind(effectiveEmail).all()
-                  for (const r of ownedRows.results || []) ownedMeetingIds.add(r.meeting_id)
-                } catch (e) { console.error('meeting_ownership lookup failed:', e) }
-              }
+              // `filterByOwnership` / `ownedMeetingIds` are computed once above and
+              // shared with the R2 branches: restrict this listing to meetings the
+              // effective user owns, for impersonation AND for any non-Superadmin.
+              // Only a Superadmin's own (non-impersonated) view sees the full
+              // shared account.
 
               // Lookup meeting owners for all meetings in this batch
               let meetingOwners = {};
@@ -1723,7 +1772,7 @@ export default {
                 }
                 // Show only recordings from owned meetings (except a Superadmin's
                 // own unfiltered view — see filterByOwnership above).
-                if (filterByOwnership && !ownedMeetingIds.has(rec.meeting_id)) {
+                if (filterByOwnership && !ownedMeetingIds.has(String(rec.meeting_id).toLowerCase())) {
                   console.error(`[DEBUG] Skipping recording ${rec.id} for meeting ${rec.meeting_id}: not owned by ${effectiveEmail}`)
                   continue
                 }
@@ -2842,6 +2891,12 @@ export default {
         }
 
         if (!env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: 'Recordings bucket not configured' }), 500)
+        // The shared bucket is commingled — prove ownership before reading a key
+        // out of it. (The own-bucket path above needs no such check: that bucket
+        // belongs to the effective user by definition.)
+        if (!(await canReadSharedRecording(key, auth, eff, env))) {
+          return createResponse(JSON.stringify({ error: 'You do not have access to this recording' }), 403)
+        }
         // The R2 binding parses the Range header itself when handed the Headers object.
         const obj = await env.MEETING_RECORDINGS.get(key, rangeHeader ? { range: request.headers } : undefined)
         if (!obj) return createResponse(JSON.stringify({ error: 'Recording not found' }), 404)
@@ -2987,6 +3042,9 @@ export default {
         }
         if (!audioBuffer) {
           if (!env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: `Recording not found: ${key}` }), 404)
+          if (!(await canReadSharedRecording(key, auth, eff, env))) {
+            return createResponse(JSON.stringify({ error: 'You do not have access to this recording' }), 403)
+          }
           const obj = await env.MEETING_RECORDINGS.get(key)
           if (!obj) return createResponse(JSON.stringify({ error: `Recording not found: ${key}` }), 404)
           audioBuffer = await obj.arrayBuffer()
