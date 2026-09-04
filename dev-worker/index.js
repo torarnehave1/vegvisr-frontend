@@ -3720,6 +3720,57 @@ export default {
                 }
               }
             },
+            '/removeEdge': {
+              post: {
+                summary: 'Remove an edge from a graph',
+                description: 'Removes an edge from an existing graph without requiring download of the entire graph. Requires graph:write scope.\n\nAddress the edge EITHER by edgeId OR by the source+target pair. Removal by id deletes every edge carrying that id — deliberate, because edges corrupted by an older bug all share the single id "undefined_undefined" within a graph and have no source or target left to address them by.',
+                operationId: 'removeEdge',
+                security: [{ ApiTokenAuth: [] }],
+                requestBody: {
+                  required: true,
+                  content: {
+                    'application/json': {
+                      schema: {
+                        type: 'object',
+                        required: ['graphId'],
+                        properties: {
+                          graphId: { type: 'string', description: 'The graph ID to remove the edge from' },
+                          edgeId: { type: 'string', description: 'Edge id to remove. Removes ALL edges with this id. Use this OR source+target.' },
+                          source: { type: 'string', description: 'Source node ID (use together with target, when not addressing by edgeId)' },
+                          target: { type: 'string', description: 'Target node ID (use together with source, when not addressing by edgeId)' }
+                        }
+                      },
+                      example: {
+                        graphId: 'graph_1234567890',
+                        source: 'node-a',
+                        target: 'node-b'
+                      }
+                    }
+                  }
+                },
+                responses: {
+                  '200': {
+                    description: 'Edge removed successfully',
+                    content: {
+                      'application/json': {
+                        schema: {
+                          type: 'object',
+                          properties: {
+                            ok: { type: 'boolean' },
+                            graphId: { type: 'string' },
+                            removedCount: { type: 'integer', description: 'How many edges were removed' },
+                            removedEdges: { type: 'array', items: { $ref: '#/components/schemas/Edge' } },
+                            newVersion: { type: 'integer' }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  '400': { description: 'Missing graphId, or neither edgeId nor a source+target pair given' },
+                  '404': { description: 'Graph not found, or no edge matched (the response lists the edge ids present)' }
+                }
+              }
+            },
             '/removeNode': {
               post: {
                 summary: 'Remove a node from a graph',
@@ -7907,6 +7958,122 @@ export default {
           )
         } catch (error) {
           console.error('[Worker] Error processing /addEdge:', error)
+          return new Response(
+            JSON.stringify({ error: 'Server error', details: error.message }),
+            { status: 500, headers: corsHeaders }
+          )
+        }
+      }
+
+      // REMOVE an edge from a graph (without sending the entire graph).
+      // Until this existed there was NO way to delete an edge: only removeNode (which drops a
+      // node too) or a whole-graph overwrite. Dead edges therefore accumulated — a 2026-09-04
+      // sweep of all 1174 graphs found 101 unremovable ones across 31 graphs.
+      // Address an edge either by edgeId or by the source+target pair. Removal by id deletes
+      // EVERY edge carrying that id, which is deliberate: the 45 edges corrupted by the old
+      // destructuring bug all share the single id "undefined_undefined" within a graph and
+      // have no source or target left to address them by.
+      if (pathname === '/removeEdge' && request.method === 'POST') {
+        const tokenValidation = await validateAuth(request, env)
+        if (!tokenValidation.valid) {
+          return new Response(
+            JSON.stringify({ error: tokenValidation.error }),
+            { status: tokenValidation.status, headers: corsHeaders }
+          )
+        }
+        if (!hasScope(tokenValidation.scopes, 'graph:write')) {
+          return new Response(
+            JSON.stringify({ error: 'Insufficient permissions. Required scope: graph:write' }),
+            { status: 403, headers: corsHeaders }
+          )
+        }
+
+        try {
+          const { graphId, edgeId, source, target } = await request.json()
+
+          const byId = edgeId !== undefined && edgeId !== null && String(edgeId) !== ''
+          const byPair = !!source && !!target
+          if (!graphId || (!byId && !byPair)) {
+            return new Response(
+              JSON.stringify({ error: 'graphId and either edgeId or both source and target are required.' }),
+              { status: 400, headers: corsHeaders }
+            )
+          }
+
+          console.log(`[Worker] removeEdge: graph=${graphId} edgeId=${edgeId} source=${source} target=${target}`)
+
+          const result = await env.vegvisr_org
+            .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
+            .bind(graphId)
+            .first()
+
+          if (!result) {
+            return new Response(
+              JSON.stringify({ error: 'Graph not found.' }),
+              { status: 404, headers: corsHeaders }
+            )
+          }
+
+          const graphData = JSON.parse(result.data)
+          if (!Array.isArray(graphData.edges)) graphData.edges = []
+
+          const matches = (e) => byId
+            ? String(e?.id) === String(edgeId)
+            : String(e?.source) === String(source) && String(e?.target) === String(target)
+
+          const removedEdges = graphData.edges.filter(matches)
+          if (removedEdges.length === 0) {
+            const present = graphData.edges.map(e => e?.id ?? `${e?.source}_${e?.target}`)
+            return new Response(
+              JSON.stringify({
+                error: byId
+                  ? `No edge with id "${edgeId}" in graph ${graphId}.`
+                  : `No edge ${source} -> ${target} in graph ${graphId}.`,
+                edgeIdsInGraph: present,
+              }),
+              { status: 404, headers: corsHeaders }
+            )
+          }
+          graphData.edges = graphData.edges.filter(e => !matches(e))
+
+          const currentVersionResult = await env.vegvisr_org
+            .prepare('SELECT MAX(version) AS version FROM knowledge_graph_history WHERE graph_id = ?')
+            .bind(graphId)
+            .first()
+          const currentVersion = currentVersionResult?.version || 0
+          const newVersion = currentVersion + 1
+          if (!graphData.metadata) graphData.metadata = {}
+          graphData.metadata.version = newVersion
+
+          const now = new Date().toISOString()
+          await env.vegvisr_org
+            .prepare('UPDATE knowledge_graphs SET data = ?, updated_at = ? WHERE id = ?')
+            .bind(JSON.stringify(graphData), now, graphId)
+            .run()
+
+          await env.vegvisr_org
+            .prepare('INSERT INTO knowledge_graph_history (id, graph_id, version, data) VALUES (?, ?, ?, ?)')
+            .bind(crypto.randomUUID(), graphId, newVersion, JSON.stringify(graphData))
+            .run()
+
+          const countResult = await env.vegvisr_org
+            .prepare('SELECT COUNT(*) AS count FROM knowledge_graph_history WHERE graph_id = ?')
+            .bind(graphId)
+            .first()
+          if (countResult?.count > 20) {
+            await env.vegvisr_org
+              .prepare('DELETE FROM knowledge_graph_history WHERE graph_id = ? AND version = (SELECT MIN(version) FROM knowledge_graph_history WHERE graph_id = ?)')
+              .bind(graphId, graphId)
+              .run()
+          }
+
+          console.log(`[Worker] removeEdge: removed ${removedEdges.length}, version ${currentVersion} → ${newVersion}`)
+          return new Response(
+            JSON.stringify({ ok: true, graphId, removedCount: removedEdges.length, removedEdges, newVersion }),
+            { status: 200, headers: corsHeaders }
+          )
+        } catch (error) {
+          console.error('[Worker] Error processing /removeEdge:', error)
           return new Response(
             JSON.stringify({ error: 'Server error', details: error.message }),
             { status: 500, headers: corsHeaders }
