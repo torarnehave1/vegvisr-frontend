@@ -1,0 +1,27 @@
+{
+  "name": "seo-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker for SEO-optimized static page generation",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "wrangler deploy --env production",
+    "dev": "wrangler dev --env production",
+    "tail": "wrangler tail --env production",
+    "kv:create": "wrangler kv namespace create SEO_PAGES --env production",
+    "kv:list": "wrangler kv key list --binding SEO_PAGES --env production",
+    "kv:get": "wrangler kv key get --binding SEO_PAGES --env production",
+    "kv:delete": "wrangler kv key delete --binding SEO_PAGES --env production"
+  },
+  "keywords": [
+    "cloudflare",
+    "worker",
+    "seo",
+    "static-site-generator",
+    "open-graph"
+  ],
+  "author": "Vegvisr",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
