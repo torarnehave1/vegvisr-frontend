@@ -1058,8 +1058,10 @@ function renderImageQuote(params, content) {
   ].join('; ')
 
   const alt = text ? text.substring(0, 120) : 'Quote background image'
+  // No loading="lazy": this page exists for crawlers, and a hero image that
+  // only loads on scroll is an image a crawler may never fetch.
   const img = image
-    ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(alt)}" loading="lazy">`
+    ? `<img src="${escapeHtml(image)}" alt="${escapeHtml(alt)}">`
     : ''
   const cite = p.cited
     ? `<cite class="image-quote-cite">&mdash; ${escapeHtml(p.cited)}</cite>`
