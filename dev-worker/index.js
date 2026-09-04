@@ -7126,10 +7126,11 @@ export default {
             imageHeight: node.imageHeight || null, // Ensure imageHeight is included
             path: node.path || null, // Ensure path is included
           }))
-          graphData.edges = graphData.edges.map(({ source, target }) => ({
-            id: `${source}_${target}`, // Ensure edge ID is set
-            source,
-            target,
+          graphData.edges = graphData.edges.map((edge) => ({
+            ...edge, // Keep label/type/info — destructuring to {source,target} discarded them
+            id: `${edge.source}_${edge.target}`, // Ensure edge ID is set
+            source: edge.source,
+            target: edge.target,
           }))
 
           const nodeId = url.searchParams.get('nodeId')
@@ -7319,10 +7320,11 @@ export default {
               visible: node.visible !== false, // Default to true if not set
               path: node.path || null, // Ensure path is included
             })),
-            edges: graphData.edges.map(({ source, target }) => ({
-              id: `${source}_${target}`, // Ensure edge ID is set
-              source,
-              target,
+            edges: graphData.edges.map((edge) => ({
+              ...edge, // Keep label/type/info — destructuring to {source,target} discarded them
+              id: `${edge.source}_${edge.target}`, // Ensure edge ID is set
+              source: edge.source,
+              target: edge.target,
             })),
           }
 
@@ -8238,10 +8240,11 @@ export default {
             imageHeight: node.imageHeight || null, // Ensure imageHeight is included
             path: node.path || null, // Ensure path is included
           }))
-          graphData.edges = graphData.edges.map(({ source, target }) => ({
-            id: `${source}_${target}`, // Ensure edge ID is set
-            source,
-            target,
+          graphData.edges = graphData.edges.map((edge) => ({
+            ...edge, // Keep label/type/info — destructuring to {source,target} discarded them
+            id: `${edge.source}_${edge.target}`, // Ensure edge ID is set
+            source: edge.source,
+            target: edge.target,
           }))
 
           // Decrypt data-node info fields before returning
