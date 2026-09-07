@@ -56,10 +56,14 @@ DIARIZATION_*.md
 # SQL files - all migrations and schemas handled locally
 *.sql
 
-# Editor/rollback backups — kept on disk, never in git. Without these rules the
-# worker-source guard would flag them as untracked source (2026-09-07).
+# Editor/rollback backups and IDE workspace files — kept on disk, never in git.
+# Without these rules the worker-source guard would flag them as untracked
+# source (2026-09-07).
 *.old
 *.bak
+*.backup.js
+*.backup-*
+*.code-workspace
 
 # Worker SOURCE is TRACKED in git (policy 2026-08-03).
 # Rationale: worker source lived only locally + gitignored, and a clean wiped it. Source in git =
