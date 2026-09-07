@@ -7319,7 +7319,12 @@ const sendInlineChat = async () => {
 
     const response = await fetch('https://anthropic.vegvisr.org/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // Public route on anthropic-worker is token-gated; without this the
+        // request is refused with 401 before it reaches the model.
+        'X-API-Token': userStore.emailVerificationToken || ''
+      },
       body: JSON.stringify(requestBody)
     })
 

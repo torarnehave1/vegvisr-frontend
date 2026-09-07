@@ -1669,6 +1669,16 @@ const emit = defineEmits([
 
 const router = useRouter()
 const userStore = useUserStore()
+
+// anthropic.vegvisr.org now requires the caller's X-API-Token on its PUBLIC
+// route (a service binding is a separate, trusted door). Attach the token only
+// for that host — the other provider workers validate their own auth, and an
+// unrecognised token can be worse than none (lessons_learned L36).
+const anthropicAuthHeaders = (endpoint, token) =>
+  endpoint && endpoint.includes('anthropic.vegvisr.org') && token
+    ? { 'X-API-Token': token }
+    : {}
+
 const knowledgeGraphStore = useKnowledgeGraphStore()
 
 const props = defineProps({
@@ -3895,7 +3905,7 @@ async function processToolCalls(data, grokMessages, endpoint, requestBody) {
 
     const nextResponse = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...anthropicAuthHeaders(endpoint, userStore.emailVerificationToken) },
       body: JSON.stringify(nextBody)
     })
 
@@ -5648,7 +5658,7 @@ Generer formatert innhold for dette elementet. Start direkte med innholdet (f.ek
   const activeUserId = getActiveUserId()
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...anthropicAuthHeaders(endpoint, userStore.emailVerificationToken) },
     body: JSON.stringify({
       ...(activeUserId ? { userId: activeUserId } : {}),
       model: 'grok-3',
@@ -8905,6 +8915,7 @@ const handleImageGeneration = async (imagePrompt, originalMessage) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...anthropicAuthHeaders(endpoint, userStore.emailVerificationToken),
       },
       body: JSON.stringify(requestPayload),
     })
@@ -9628,6 +9639,7 @@ Do not call graph tools. Provide the direct replacement text/JSON in your respon
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...anthropicAuthHeaders(endpoint, userStore.emailVerificationToken),
       },
       body: JSON.stringify(requestBody),
     })
@@ -9784,7 +9796,7 @@ Do not call graph tools. Provide the direct replacement text/JSON in your respon
 
           const nextResponse = await fetch(endpoint, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...anthropicAuthHeaders(endpoint, userStore.emailVerificationToken) },
             body: JSON.stringify(nextBody)
           })
 

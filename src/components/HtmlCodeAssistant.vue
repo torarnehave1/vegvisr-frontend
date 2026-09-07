@@ -1248,10 +1248,22 @@ const sendMessage = async () => {
     const endpoint = getEndpoint()
     const requestBody = buildPayload(message)
 
+    // anthropic.vegvisr.org's public route is token-gated. This component has
+    // no user store, so read the stored user the rest of the app writes.
+    let vegvisrToken = ''
+    try {
+      vegvisrToken = JSON.parse(window.localStorage.getItem('user') || '{}').emailVerificationToken || ''
+    } catch {
+      vegvisrToken = ''
+    }
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        ...(endpoint.includes('anthropic.vegvisr.org') && vegvisrToken
+          ? { 'X-API-Token': vegvisrToken }
+          : {})
       },
       body: JSON.stringify(requestBody)
     })
