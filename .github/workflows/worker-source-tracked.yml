@@ -1,0 +1,17 @@
+# The local hook is opt-in per clone (git config core.hooksPath .githooks), so
+# a fresh clone can silently lose it. This runs on every push and PR, where it
+# cannot be forgotten.
+name: Worker source tracked
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail if any worker source file is untracked
+        run: ./scripts/check-worker-source-tracked.sh

@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# Blocks a commit while worker source is untracked. See the script for why.
+# Enable once per clone:  git config core.hooksPath .githooks
+set -eu
+[ "${SKIP_WORKER_GUARD:-}" = "1" ] && exit 0
+exec ./scripts/check-worker-source-tracked.sh
