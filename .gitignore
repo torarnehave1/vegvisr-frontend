@@ -61,6 +61,7 @@ DIARIZATION_*.md
 # source (2026-09-07).
 *.old
 *.bak
+*.backup
 *.backup.js
 *.backup-*
 *.code-workspace
