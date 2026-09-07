@@ -1,0 +1,10 @@
+{
+  "name": "drizzle-worker",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.44.0"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "billing-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Stripe payment tiers for the Vegr.ai ECO system (World Founder / World Member / Reader).",
+  "dependencies": {
+    "stripe": "^17.5.0"
+  }
+}

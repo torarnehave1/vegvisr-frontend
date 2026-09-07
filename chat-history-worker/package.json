@@ -1,0 +1,25 @@
+{
+  "name": "chat-history-worker",
+  "version": "0.1.0",
+  "description": "Encrypted chat history storage worker for Vegvisr",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "logs": "wrangler tail --format pretty"
+  },
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "chat",
+    "encryption",
+    "storage"
+  ],
+  "author": "Vegvisr",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

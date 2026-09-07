@@ -1,0 +1,15 @@
+{
+  "name": "mobile-apps-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker for serving mobile app downloads from R2",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "deploy:production": "wrangler deploy --env production",
+    "dev": "wrangler dev",
+    "tail": "wrangler tail"
+  },
+  "keywords": ["cloudflare", "worker", "r2", "mobile", "apk"],
+  "author": "",
+  "license": "ISC"
+}
