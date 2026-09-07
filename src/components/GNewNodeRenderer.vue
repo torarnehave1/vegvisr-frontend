@@ -38,8 +38,17 @@
       />
     </div>
 
-    <!-- Collapsed State Indicator -->
-    <div v-if="isContentCollapsed" class="collapsed-indicator">
+    <!-- Collapsed State Indicator (click anywhere on it to expand again) -->
+    <div
+      v-if="isContentCollapsed"
+      class="collapsed-indicator"
+      role="button"
+      tabindex="0"
+      title="Click to expand this node"
+      @click="toggleNodeContent"
+      @keydown.enter="toggleNodeContent"
+      @keydown.space.prevent="toggleNodeContent"
+    >
       <div class="indicator-content">
         <span class="indicator-icon">📄</span>
         <span class="indicator-text">{{ getCollapsedPreview() }}</span>
@@ -343,19 +352,59 @@ const handleNodeCreated = (newNode) => {
 // Node content collapse state management
 const isContentCollapsed = ref(false)
 
+// Collapse state is per graph AND per node. The old key was the node id alone, which
+// collided across graphs: node ids like `node-intro`, `overview` or `section-about` are
+// reused in many graphs, so hiding one of them in graph A silently hid it in every other
+// graph that happened to use the same id.
+const LEGACY_COLLAPSE_PREFIX = 'gnew-node-collapsed-'
+const LEGACY_PURGE_FLAG = 'gnew-node-collapsed-legacy-purged'
+
+const collapseKey = computed(
+  () => `gnew-node-collapsed:${props.graphId || 'no-graph'}:${props.node.id}`,
+)
+
+// Drop the unscoped keys once — they are pure UI state and are the reason nodes stayed
+// hidden in graphs the user never collapsed anything in.
+const purgeLegacyCollapseKeys = () => {
+  try {
+    if (localStorage.getItem(LEGACY_PURGE_FLAG)) return
+    const stale = Object.keys(localStorage).filter(
+      (k) => k.startsWith(LEGACY_COLLAPSE_PREFIX) && k !== LEGACY_PURGE_FLAG,
+    )
+    stale.forEach((k) => localStorage.removeItem(k))
+    localStorage.setItem(LEGACY_PURGE_FLAG, '1')
+  } catch (error) {
+    console.warn('Could not purge legacy node-collapse keys', error)
+  }
+}
+
 // Load collapse state from localStorage on mount
 onMounted(() => {
-  const savedState = localStorage.getItem(`gnew-node-collapsed-${props.node.id}`)
-  if (savedState !== null) {
-    isContentCollapsed.value = JSON.parse(savedState)
+  purgeLegacyCollapseKeys()
+
+  // Collapsing is an editor convenience. Readers never get the control bar, so a stored
+  // collapsed flag would hide content with no way to bring it back — never apply it there.
+  if (!props.showControls) return
+
+  try {
+    const savedState = localStorage.getItem(collapseKey.value)
+    if (savedState !== null) {
+      isContentCollapsed.value = JSON.parse(savedState)
+    }
+  } catch (error) {
+    console.warn('Could not read node-collapse state', error)
   }
 })
 
 // Toggle node content visibility
 const toggleNodeContent = () => {
   isContentCollapsed.value = !isContentCollapsed.value
-  // Save state to localStorage per node
-  localStorage.setItem(`gnew-node-collapsed-${props.node.id}`, JSON.stringify(isContentCollapsed.value))
+  // Save state to localStorage per graph + node
+  try {
+    localStorage.setItem(collapseKey.value, JSON.stringify(isContentCollapsed.value))
+  } catch (error) {
+    console.warn('Could not persist node-collapse state', error)
+  }
 }
 
 // Get collapsed preview text
@@ -379,6 +428,7 @@ const getCollapsedPreview = () => {
 }
 
 .collapsed-indicator {
+  cursor: pointer;
   padding: 12px 16px;
   background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
   border: 1px solid #dee2e6;
