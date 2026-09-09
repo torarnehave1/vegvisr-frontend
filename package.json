@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "postinstall": "sh scripts/install-git-hooks.sh",
     "dev:vue": "vite",
     "dev:m-worker": "wrangler dev --config main-worker/wrangler.toml --port=8787 --remote",
     "dev:d-worker": "wrangler dev --config dev-worker/wrangler.toml --port=8788",

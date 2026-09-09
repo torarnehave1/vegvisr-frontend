@@ -13,8 +13,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # CI runs on a clean checkout, so only the untracked bucket can fire here.
-      # The modified-but-uncommitted bucket is enforced by the pre-commit hook,
-      # which is the only place a working-tree delta exists.
-      - name: Fail if worker source is untracked
+      - name: Fail if any worker source file is untracked
         run: ./scripts/check-worker-source-tracked.sh
