@@ -8,6 +8,32 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 }
 
+// Shared YouTube URL helper — mirrors src/utils/youtube.js in the frontend.
+// Handles watch, youtu.be, embed, shorts and live permalinks, plus pasted
+// <iframe> snippets. Returns null when no video id can be extracted.
+const YOUTUBE_ID_PATTERNS = [
+  /(?:youtube\.com\/watch\?v=)([^&\n?#/]+)/,
+  /(?:youtube\.com\/embed\/)([^&\n?#/]+)/,
+  /(?:youtube\.com\/shorts\/)([^&\n?#/]+)/,
+  /(?:youtube\.com\/live\/)([^&\n?#/]+)/,
+  /(?:youtu\.be\/)([^&\n?#/]+)/,
+  /youtube\.com\/watch\?.*[?&]v=([^&\n?#/]+)/,
+]
+
+const extractYoutubeVideoId = (raw) => {
+  if (!raw) return null
+  let url = String(raw).trim()
+  const srcMatch = url.match(/src=["']([^"']+)["']/)
+  if (srcMatch) url = srcMatch[1]
+  url = url.replace(/&amp;/g, '&')
+
+  for (const pattern of YOUTUBE_ID_PATTERNS) {
+    const match = url.match(pattern)
+    if (match && match[1]) return match[1]
+  }
+  return null
+}
+
 const createResponse = (body, status = 200, headers = {}) => {
   return new Response(body, {
     status,
@@ -523,10 +549,8 @@ export default {
         // Extract video ID from URL if provided
         let videoId = video_id
         if (!videoId && video_url) {
-          const urlMatch = video_url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]+)/)
-          if (urlMatch) {
-            videoId = urlMatch[1]
-          }
+          // watch, youtu.be, embed, shorts and live permalinks
+          videoId = extractYoutubeVideoId(video_url) || videoId
         }
 
         if (!videoId) {

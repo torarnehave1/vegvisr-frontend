@@ -1798,6 +1798,32 @@ async function writeThemeCatalog(kv, themes, meta) {
   await kv.put(THEME_CATALOG_META_KEY, JSON.stringify(meta || {}))
 }
 
+// Shared YouTube URL helper — mirrors src/utils/youtube.js in the frontend.
+// Handles watch, youtu.be, embed, shorts and live permalinks, plus pasted
+// <iframe> snippets. Returns null when no video id can be extracted.
+const YOUTUBE_ID_PATTERNS = [
+  /(?:youtube\.com\/watch\?v=)([^&\n?#/]+)/,
+  /(?:youtube\.com\/embed\/)([^&\n?#/]+)/,
+  /(?:youtube\.com\/shorts\/)([^&\n?#/]+)/,
+  /(?:youtube\.com\/live\/)([^&\n?#/]+)/,
+  /(?:youtu\.be\/)([^&\n?#/]+)/,
+  /youtube\.com\/watch\?.*[?&]v=([^&\n?#/]+)/,
+]
+
+const extractYoutubeVideoId = (raw) => {
+  if (!raw) return null
+  let url = String(raw).trim()
+  const srcMatch = url.match(/src=["']([^"']+)["']/)
+  if (srcMatch) url = srcMatch[1]
+  url = url.replace(/&amp;/g, '&')
+
+  for (const pattern of YOUTUBE_ID_PATTERNS) {
+    const match = url.match(pattern)
+    if (match && match[1]) return match[1]
+  }
+  return null
+}
+
 export default {
   async fetch(request, env, ctx) {
     const corsHeaders = {
@@ -10210,14 +10236,8 @@ Return ONLY the social media summary text, no explanations or metadata.`
             )
           }
 
-          // Extract YouTube video ID from URL
-          let videoId = ''
-          if (youtubeUrl) {
-            const urlMatch = youtubeUrl.match(
-              /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
-            )
-            videoId = urlMatch ? urlMatch[1] : ''
-          }
+          // Extract YouTube video ID from URL (watch, youtu.be, embed, shorts, live)
+          const videoId = extractYoutubeVideoId(youtubeUrl) || ''
 
           // Create language-specific prompt
           const isNorwegian = language === 'norwegian'
