@@ -1,0 +1,11 @@
+# Workers under deliberate long-running local development.
+#
+# A path listed here may sit modified-but-uncommitted without failing the
+# pre-commit guard; it is reported as a notice instead. This exists so work in
+# flight in a dedicated session does not block every unrelated commit in the
+# repo. It does NOT exempt a file from the untracked check.
+#
+# One path or glob per line. Remove a line the moment that work lands.
+
+group-chat-worker/index.js
+vemotion-worker/index.js
