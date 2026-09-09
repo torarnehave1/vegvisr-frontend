@@ -921,6 +921,7 @@
 </template>
 
 <script setup>
+import { toYoutubeEmbedUrl } from '@/utils/youtube'
 import { ref, onMounted, watch, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
@@ -1711,16 +1712,9 @@ const parseYoutubeVideo = (markdown) => {
   const match = markdown.match(regex)
 
   if (match) {
-    let videoUrl = match[1].trim()
-    if (videoUrl.includes('youtube.com/embed/')) {
-      return videoUrl.split('?')[0]
-    } else if (videoUrl.includes('youtu.be/')) {
-      const videoId = videoUrl.split('youtu.be/')[1].split('?')[0]
-      return `https://www.youtube.com/embed/${videoId}`
-    } else if (videoUrl.includes('youtube.com/watch?v=')) {
-      const videoId = videoUrl.split('watch?v=')[1].split('&')[0]
-      return `https://www.youtube.com/embed/${videoId}`
-    }
+    const videoUrl = match[1].trim()
+    const embedUrl = toYoutubeEmbedUrl(videoUrl)
+    if (embedUrl) return embedUrl
     console.warn('Invalid YouTube URL:', videoUrl)
     return null
   }

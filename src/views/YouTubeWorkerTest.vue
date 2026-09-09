@@ -635,6 +635,7 @@
 </template>
 
 <script setup>
+import { extractYoutubeVideoId } from '@/utils/youtube'
 import { ref, reactive, onMounted } from 'vue'
 
 // Reactive state
@@ -1106,9 +1107,9 @@ const updateVideo = async () => {
 
   // Extract video ID from URL if provided
   let videoId = updateForm.videoId
-  const urlMatch = updateForm.videoId.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]+)/)
-  if (urlMatch) {
-    videoId = urlMatch[1]
+  const extractedId = extractYoutubeVideoId(updateForm.videoId)
+  if (extractedId) {
+    videoId = extractedId
   }
 
   loading.update = true
@@ -1319,16 +1320,10 @@ const extractVideoId = (input) => {
     return input
   }
 
-  // Extract from various YouTube URL formats
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
-    /^([a-zA-Z0-9_-]{11})$/
-  ]
-
-  for (const pattern of patterns) {
-    const match = input.match(pattern)
-    if (match) return match[1]
-  }
+  // Extract from various YouTube URL formats (watch, youtu.be, embed, shorts, live)
+  const extractedId = extractYoutubeVideoId(input)
+  if (extractedId) return extractedId
+  if (/^[a-zA-Z0-9_-]{11}$/.test(input)) return input
 
   return input // Return original if no pattern matches
 }

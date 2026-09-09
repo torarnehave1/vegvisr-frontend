@@ -102,6 +102,11 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue'
 import { marked } from 'marked'
+import {
+  extractYoutubeVideoId,
+  normalizeVideoUrl,
+  toYoutubeEmbedUrl,
+} from '@/utils/youtube'
 
 // Props
 const props = defineProps({
@@ -281,20 +286,6 @@ const parseFormattedElements = (text) => {
   return finalHtml
 }
 
-// Normalize a URL or iframe embed code into a clean URL
-const normalizeVideoUrl = (raw) => {
-  if (!raw) return ''
-  let url = raw.trim()
-  // If user pasted a full <iframe> tag, extract the src attribute
-  const srcMatch = url.match(/src=["']([^"']+)["']/)
-  if (srcMatch) {
-    url = srcMatch[1]
-  }
-  // Decode HTML entities (&amp; → &)
-  url = url.replace(/&amp;/g, '&')
-  return url
-}
-
 // YouTube URL helper function
 const extractVideoId = (url) => {
   if (!url) return null
@@ -302,27 +293,13 @@ const extractVideoId = (url) => {
   const trimmedUrl = normalizeVideoUrl(url)
   console.log('🎬 Extracting video ID from:', trimmedUrl)
 
-  const patterns = [
-    // Regular YouTube URLs
-    /(?:youtube\.com\/watch\?v=)([^&\n?#]+)/,
-    // YouTube shorts and embed URLs
-    /(?:youtube\.com\/embed\/)([^&\n?#]+)/,
-    // YouTube short URLs
-    /(?:youtu\.be\/)([^&\n?#]+)/,
-    // YouTube URLs with additional parameters
-    /youtube\.com\/watch\?.*v=([^&\n?#]+)/,
-  ]
-
-  for (const pattern of patterns) {
-    const match = trimmedUrl.match(pattern)
-    if (match && match[1]) {
-      console.log('🎬 Video ID extracted:', match[1])
-      return match[1]
-    }
+  const id = extractYoutubeVideoId(trimmedUrl)
+  if (id) {
+    console.log('🎬 Video ID extracted:', id)
+  } else {
+    console.log('🎬 No video ID found for URL:', trimmedUrl)
   }
-
-  console.log('🎬 No video ID found for URL:', trimmedUrl)
-  return null
+  return id
 }
 
 // YouTube parsing functions (compatible with GraphViewer)
@@ -332,16 +309,7 @@ const parseYoutubeVideo = (markdown) => {
   const match = markdown.match(regex)
 
   if (match) {
-    let videoUrl = match[1].trim()
-    if (videoUrl.includes('youtube.com/embed/')) {
-      return videoUrl.split('?')[0]
-    } else if (videoUrl.includes('youtu.be/')) {
-      const videoId = videoUrl.split('youtu.be/')[1].split('?')[0]
-      return `https://www.youtube.com/embed/${videoId}`
-    } else if (videoUrl.includes('youtube.com/watch?v=')) {
-      const videoId = videoUrl.split('watch?v=')[1].split('&')[0]
-      return `https://www.youtube.com/embed/${videoId}`
-    }
+    return toYoutubeEmbedUrl(match[1].trim())
   }
   return null
 }

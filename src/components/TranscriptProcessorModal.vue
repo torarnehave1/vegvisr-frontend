@@ -417,6 +417,7 @@
 </template>
 
 <script setup>
+import { extractYoutubeVideoId } from '@/utils/youtube'
 import { ref } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
@@ -458,20 +459,7 @@ const videoMetadata = ref(null)
 const keepOriginalLanguage = ref(false)
 
 // Helper function to extract video ID from any YouTube URL
-const extractVideoIdFromUrl = (url) => {
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
-    /youtube\.com\/watch\?.*v=([a-zA-Z0-9_-]{11})/,
-  ]
-
-  for (const pattern of patterns) {
-    const match = url.match(pattern)
-    if (match) {
-      return match[1]
-    }
-  }
-  return null
-}
+const extractVideoIdFromUrl = (url) => extractYoutubeVideoId(url)
 
 // YouTube functions
 const extractVideoId = () => {
@@ -487,21 +475,8 @@ const extractVideoId = () => {
     return
   }
 
-  // Extract from YouTube URLs
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
-    /youtube\.com\/watch\?.*v=([a-zA-Z0-9_-]{11})/,
-  ]
-
-  for (const pattern of patterns) {
-    const match = url.match(pattern)
-    if (match) {
-      videoId.value = match[1]
-      return
-    }
-  }
-
-  videoId.value = ''
+  // Extract from YouTube URLs (watch, youtu.be, embed, shorts, live)
+  videoId.value = extractYoutubeVideoId(url) || ''
 }
 
 const searchYouTubeVideos = async () => {

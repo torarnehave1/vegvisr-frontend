@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+import { extractYoutubeVideoId } from '@/utils/youtube'
 
 /**
  * Composable for transcript processing functionality
@@ -41,18 +42,11 @@ export function useTranscriptProcessor() {
     }
   })
 
-  // Helper function to extract video ID from any YouTube URL
+  // Helper function to extract video ID from any YouTube URL, or a bare ID
   const extractVideoIdFromUrl = (url) => {
-    const patterns = [
-      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([^&\n?#]+)/,
-      /^([a-zA-Z0-9_-]{11})$/
-    ]
-
-    for (const pattern of patterns) {
-      const match = url.match(pattern)
-      if (match) return match[1]
-    }
-    return null
+    const id = extractYoutubeVideoId(url)
+    if (id) return id
+    return /^[a-zA-Z0-9_-]{11}$/.test(url) ? url : null
   }
 
   const extractVideoId = () => {

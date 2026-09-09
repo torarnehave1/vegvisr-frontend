@@ -15,6 +15,7 @@
 </template>
 
 <script setup>
+import { toYoutubeEmbedUrl } from '@/utils/youtube'
 import { computed } from 'vue'
 
 const props = defineProps({
@@ -29,19 +30,9 @@ const props = defineProps({
 })
 
 const embedUrl = computed(() => {
-  let url = props.src.trim()
-
-  if (url.includes('youtube.com/embed/')) {
-    return url.split('?')[0]
-  } else if (url.includes('youtu.be/')) {
-    const videoId = url.split('youtu.be/')[1].split('?')[0]
-    return `https://www.youtube.com/embed/${videoId}`
-  } else if (url.includes('youtube.com/watch?v=')) {
-    const videoId = url.split('watch?v=')[1].split('&')[0]
-    return `https://www.youtube.com/embed/${videoId}`
-  }
-
-  return url
+  const url = props.src.trim()
+  // Falls back to the raw URL so non-YouTube sources still render.
+  return toYoutubeEmbedUrl(url) || url
 })
 </script>
 

@@ -79,6 +79,7 @@
 </template>
 
 <script setup>
+import { extractYoutubeVideoId } from '@/utils/youtube'
 import { ref, computed, nextTick } from 'vue'
 
 const props = defineProps({
@@ -190,11 +191,7 @@ const insertFancyMarkdown = () => {
 const insertYoutubeVideoMarkdown = () => {
   const videoUrl = prompt('Please enter the YouTube video URL:')
   if (videoUrl) {
-    const videoIdMatch =
-      videoUrl.match(/(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)/) ||
-      videoUrl.match(/(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]+)/) ||
-      videoUrl.match(/(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]+)/)
-    const videoId = videoIdMatch ? videoIdMatch[1] : null
+    const videoId = extractYoutubeVideoId(videoUrl)
 
     if (videoId) {
       const youtubeMarkdown = `![YOUTUBE src=https://www.youtube.com/embed/${videoId}][END YOUTUBE]`
