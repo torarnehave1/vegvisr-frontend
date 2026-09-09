@@ -6,6 +6,61 @@ import { generateText } from 'ai'
  * @property {Ai} AI
  */
 
+// ── Workers AI text model ────────────────────────────────────────────
+// Single source of truth for the text model this worker calls. When a model is
+// deprecated (as @cf/meta/llama-3.1-8b-instruct was on 2026-05-30), change it
+// here — every call site and every response payload reads this constant.
+const AI_MODEL = '@cf/openai/gpt-oss-120b'
+
+// env.AI.run wraps the generated text differently per model family:
+//   llama / mistral   → { response: '…' }
+//   openai gpt-oss    → { choices: [{ message: { content: '…' } }] }   (chat)
+//                     → { choices: [{ text: '…' }] }                   (completion)
+//                     → { output: [{ content: [{ text: '…' }] }] }     (responses)
+// Normalize so call sites never depend on which family AI_MODEL points at.
+const extractAiText = (result) => {
+  if (!result) return ''
+  if (typeof result === 'string') return result
+  if (typeof result.response === 'string') return result.response
+
+  const choice = Array.isArray(result.choices) ? result.choices[0] : null
+  if (choice) {
+    if (typeof choice.message?.content === 'string') return choice.message.content
+    if (typeof choice.text === 'string') return choice.text
+  }
+
+  if (Array.isArray(result.output)) {
+    // Responses-API envelope: concatenate the text parts of message outputs.
+    const parts = []
+    for (const item of result.output) {
+      if (item?.type === 'reasoning') continue
+      for (const part of item?.content || []) {
+        if (typeof part?.text === 'string') parts.push(part.text)
+      }
+    }
+    if (parts.length) return parts.join('')
+  }
+
+  return ''
+}
+
+// Run AI_MODEL (or an explicit override) and return the generated text plus the
+// raw envelope, so callers can log the latter without parsing it themselves.
+//
+// gpt-oss models spend max_tokens on internal reasoning BEFORE emitting content:
+// at max_tokens 100 the classify prompt burned the whole budget on reasoning and
+// returned an empty string (finish_reason 'length'). Default those models to low
+// reasoning effort — measured to cut reasoning ~4x — unless the caller sets it.
+// Gated on the openai prefix so a future non-reasoning AI_MODEL never sees it.
+const runAiText = async (env, payload, model = AI_MODEL) => {
+  const body =
+    model.startsWith('@cf/openai/') && payload.reasoning_effort === undefined
+      ? { ...payload, reasoning_effort: 'low' }
+      : payload
+  const raw = await env.AI.run(model, body)
+  return { text: extractAiText(raw), raw }
+}
+
 // ── Semantic classification (auto-taxonomy) ──────────────────────────
 
 const SEMANTIC_CATEGORIES = [
@@ -43,11 +98,9 @@ Return ONLY a JSON object with:
 Example: {"primary":"TECHNOLOGY","secondary":["EDUCATION"],"confidence":0.9}
 JSON:`
 
-    const workersai = createWorkersAI({ binding: env.AI })
-    const result = await generateText({
-      model: workersai('@cf/meta/llama-3.1-8b-instruct'),
-      prompt,
-      maxTokens: 100,
+    const result = await runAiText(env, {
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 512,
       temperature: 0.1,
     })
 
@@ -9875,7 +9928,7 @@ Provide a comprehensive analysis including:
 
 Focus on classic Cloudflare Workers patterns and requirements. Do NOT recommend ESM or export default syntax.`
 
-          const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+          const aiResponse = await runAiText(env, {
             messages: [
               {
                 role: 'system',
@@ -9891,7 +9944,7 @@ Focus on classic Cloudflare Workers patterns and requirements. Do NOT recommend 
             temperature: 0.3,
           })
 
-          const analysisText = aiResponse.response || 'Analysis completed'
+          const analysisText = aiResponse.text || 'Analysis completed'
 
           // Parse analysis into structured format
           const analysis = {
@@ -9921,7 +9974,7 @@ CRITICAL: Generate the corrected code using CLASSIC Cloudflare Worker syntax (ad
 DO NOT use ESM or export default syntax. Return ONLY the corrected JavaScript code in classic format.`
 
             try {
-              const improvementResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+              const improvementResponse = await runAiText(env, {
                 messages: [
                   {
                     role: 'system',
@@ -9937,7 +9990,7 @@ DO NOT use ESM or export default syntax. Return ONLY the corrected JavaScript co
                 temperature: 0.2,
               })
 
-              improvedCode = improvementResponse.response || code
+              improvedCode = improvementResponse.text || code
 
               // Reject improved code if it contains ESM syntax or import statements
               if (improvedCode.includes('export default') || improvedCode.includes('import ')) {
@@ -10084,22 +10137,22 @@ Return ONLY the social media summary text, no explanations or metadata.`
 
             console.log('[Worker] Sending prompt to AI for share summary generation')
 
-            const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+            const aiResponse = await runAiText(env, {
               messages: [
                 {
                   role: 'user',
                   content: aiPrompt,
                 },
               ],
-              max_tokens: 512,
+              max_tokens: 1024,
               temperature: 0.7,
             })
 
             console.log('[Worker] AI response:', JSON.stringify(aiResponse, null, 2))
 
             let summary = ''
-            if (aiResponse && aiResponse.response) {
-              summary = aiResponse.response.trim()
+            if (aiResponse && aiResponse.text) {
+              summary = aiResponse.text.trim()
               console.log('[Worker] Generated summary length:', summary.length)
               console.log('[Worker] Generated summary:', summary)
             } else {
@@ -10125,7 +10178,7 @@ Return ONLY the social media summary text, no explanations or metadata.`
             const response = {
               success: true,
               summary: summary,
-              model: '@cf/meta/llama-3.1-8b-instruct',
+              model: AI_MODEL,
               nodeCount: graphData.nodes.length,
               edgeCount: graphData.edges.length,
               timestamp: new Date().toISOString(),
@@ -10301,7 +10354,7 @@ Generate a complete, ready-to-use YouTube script that would work well for educat
 
           console.log('[Worker] Sending prompt to AI:', finalPrompt.substring(0, 200) + '...')
 
-          const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+          const aiResponse = await runAiText(env, {
             messages: [
               {
                 role: 'system',
@@ -10314,15 +10367,15 @@ Generate a complete, ready-to-use YouTube script that would work well for educat
                 content: finalPrompt,
               },
             ],
-            max_tokens: 2048,
+            max_tokens: 4096,
             temperature: 0.7,
           })
 
           console.log('[Worker] AI response:', JSON.stringify(aiResponse, null, 2))
 
           let generatedScript = ''
-          if (aiResponse && aiResponse.response) {
-            generatedScript = aiResponse.response.trim()
+          if (aiResponse && aiResponse.text) {
+            generatedScript = aiResponse.text.trim()
             console.log('[Worker] Generated script length:', generatedScript.length)
           } else {
             throw new Error('AI did not return valid response')
@@ -10433,7 +10486,7 @@ Return the complete worker code as plain JavaScript:`
 
             console.log('[Worker] Sending prompt to AI:', aiPrompt.substring(0, 200) + '...')
 
-            const aiResponse = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+            const aiResponse = await runAiText(env, {
               messages: [
                 {
                   role: 'user',
@@ -10446,8 +10499,8 @@ Return the complete worker code as plain JavaScript:`
 
             console.log('[Worker] AI response:', JSON.stringify(aiResponse, null, 2))
 
-            if (aiResponse && aiResponse.response) {
-              generatedCode = aiResponse.response.trim()
+            if (aiResponse && aiResponse.text) {
+              generatedCode = aiResponse.text.trim()
 
               // Clean up any markdown formatting that might have slipped through
               generatedCode = generatedCode.replace(/```javascript\n?/g, '')
@@ -10493,7 +10546,7 @@ Return the complete worker code as plain JavaScript:`
               type: 'action_test',
               info: generatedCode,
               color: '#ffe6cc',
-              model: '@cf/meta/llama-3.1-8b-instruct',
+              model: AI_MODEL,
               prompt: finalPrompt,
             }
 
@@ -10512,19 +10565,19 @@ Generated code summary: Worker that handles "${finalPrompt}"
 
 Question:`
 
-              const followUpAI = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+              const followUpAI = await runAiText(env, {
                 messages: [
                   {
                     role: 'user',
                     content: followUpPrompt,
                   },
                 ],
-                max_tokens: 100,
+                max_tokens: 512,
                 temperature: 0.7,
               })
 
-              if (followUpAI && followUpAI.response) {
-                followUpQuestion = followUpAI.response.trim()
+              if (followUpAI && followUpAI.text) {
+                followUpQuestion = followUpAI.text.trim()
               }
             } catch (error) {
               console.log('[Worker] Follow-up generation failed, using default')
@@ -10539,7 +10592,7 @@ Question:`
                 type: 'fulltext',
                 info: generatedCode,
                 color: '#e8f4fd',
-                model: '@cf/meta/llama-3.1-8b-instruct',
+                model: AI_MODEL,
                 prompt: finalPrompt,
               },
               action: {
@@ -10563,7 +10616,7 @@ Question:`
               type: 'fulltext',
               info: generatedCode,
               color: '#e8f4fd',
-              model: '@cf/meta/llama-3.1-8b-instruct',
+              model: AI_MODEL,
               prompt: finalPrompt,
             }
 
