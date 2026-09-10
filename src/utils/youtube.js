@@ -67,5 +67,11 @@ export const toYoutubeEmbedUrl = (url) => {
       ? `https://www.youtube.com/embed/${videoId}?list=${playlistId}`
       : `https://www.youtube.com/embed/${videoId}`
   }
-  return playlistId ? `https://www.youtube.com/embed/videoseries?list=${playlistId}` : null
+  // The documented form for a playlist is /embed?listType=playlist&list=... —
+  // https://developers.google.com/youtube/player_parameters says listType is
+  // required in conjunction with list. The /embed/videoseries?list= variant also
+  // plays, but appears nowhere in the docs, so it can be withdrawn without notice.
+  return playlistId
+    ? `https://www.youtube.com/embed?listType=playlist&list=${playlistId}`
+    : null
 }

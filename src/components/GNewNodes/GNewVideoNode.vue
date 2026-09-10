@@ -448,10 +448,11 @@ const hasInvalidUrl = computed(() => {
 })
 
 const embedUrl = computed(() => {
-  // A playlist with no video plays as a videoseries
+  // Documented playlist form: /embed?listType=playlist&list=... (listType is
+  // required alongside list per developers.google.com/youtube/player_parameters)
   if (!videoId.value) {
     return playlistId.value
-      ? `https://www.youtube.com/embed/videoseries?list=${playlistId.value}&rel=0&modestbranding=1`
+      ? `https://www.youtube.com/embed?listType=playlist&list=${playlistId.value}&rel=0&modestbranding=1`
       : null
   }
 
