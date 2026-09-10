@@ -43,9 +43,29 @@ export const extractYoutubeVideoId = (url) => {
   return null
 }
 
+// Extract the playlist id from a `list=` parameter. Covers youtube.com and
+// music.youtube.com alike — YouTube Music has no embeddable player of its own,
+// so a music playlist is played through the ordinary YouTube iframe.
+export const extractYoutubePlaylistId = (url) => {
+  const trimmedUrl = normalizeVideoUrl(url)
+  if (!trimmedUrl) return null
+
+  const match = trimmedUrl.match(/[?&]list=([^&\n#]+)/)
+  return match ? match[1] : null
+}
+
 // Turn any supported YouTube URL into a plain embed URL (no extra params).
-// Returns null when no video id can be extracted.
+// A URL carrying both a video and a playlist embeds the video within the
+// playlist; a playlist on its own embeds as a videoseries. Returns null when
+// neither can be extracted.
 export const toYoutubeEmbedUrl = (url) => {
   const videoId = extractYoutubeVideoId(url)
-  return videoId ? `https://www.youtube.com/embed/${videoId}` : null
+  const playlistId = extractYoutubePlaylistId(url)
+
+  if (videoId) {
+    return playlistId
+      ? `https://www.youtube.com/embed/${videoId}?list=${playlistId}`
+      : `https://www.youtube.com/embed/${videoId}`
+  }
+  return playlistId ? `https://www.youtube.com/embed/videoseries?list=${playlistId}` : null
 }

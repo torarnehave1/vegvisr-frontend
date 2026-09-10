@@ -27,7 +27,7 @@
     <!-- Video Container -->
     <div class="video-container">
       <!-- YouTube Embed -->
-      <div v-if="videoId" class="video-embed-wrapper">
+      <div v-if="videoId || playlistId" class="video-embed-wrapper">
         <iframe
           :src="embedUrl"
           :title="videoTitle"
@@ -91,7 +91,7 @@
       <small class="text-muted">
         <span v-if="videoMetadata.duration">{{ videoMetadata.duration }}</span>
         <span v-if="videoMetadata.channel"> • {{ videoMetadata.channel }}</span>
-        <a v-if="videoId" :href="youtubeUrl" target="_blank" class="text-decoration-none">
+        <a v-if="youtubeUrl" :href="youtubeUrl" target="_blank" class="text-decoration-none">
           • Watch on YouTube ↗
         </a>
       </small>
@@ -104,6 +104,7 @@ import { computed, ref, onMounted } from 'vue'
 import { marked } from 'marked'
 import {
   extractYoutubeVideoId,
+  extractYoutubePlaylistId,
   normalizeVideoUrl,
   toYoutubeEmbedUrl,
 } from '@/utils/youtube'
@@ -398,6 +399,13 @@ const videoId = computed(() => {
   return id
 })
 
+// A `list=` playlist, from youtube.com or music.youtube.com. YouTube Music has
+// no embeddable player of its own, so a music playlist plays through the
+// ordinary YouTube iframe.
+const playlistId = computed(
+  () => extractYoutubePlaylistId(props.node.path || props.node.label || '') || null,
+)
+
 // Detect clip parameters from embed URLs (clip= and clipt= query params)
 const clipParams = computed(() => {
   const url = normalizeVideoUrl(props.node.path || props.node.label || '')
@@ -419,6 +427,9 @@ const hasInvalidUrl = computed(() => {
   // Clip share URLs are not invalid — they just need special handling
   if (isClipShareUrl.value && !videoId.value) return false
 
+  // A playlist URL carries no video id and is still perfectly playable
+  if (playlistId.value) return false
+
   // Check if path contains YouTube URL but couldn't extract video ID
   if (props.node.path) {
     const url = props.node.path.trim()
@@ -437,7 +448,17 @@ const hasInvalidUrl = computed(() => {
 })
 
 const embedUrl = computed(() => {
-  if (!videoId.value) return null
+  // A playlist with no video plays as a videoseries
+  if (!videoId.value) {
+    return playlistId.value
+      ? `https://www.youtube.com/embed/videoseries?list=${playlistId.value}&rel=0&modestbranding=1`
+      : null
+  }
+
+  // A video that came with a playlist plays inside it
+  if (playlistId.value && !clipParams.value) {
+    return `https://www.youtube.com/embed/${videoId.value}?list=${playlistId.value}&rel=0&modestbranding=1`
+  }
 
   // If clip params exist, include them in the embed URL
   if (clipParams.value) {
@@ -459,12 +480,18 @@ const embedUrl = computed(() => {
 })
 
 const youtubeUrl = computed(() => {
-  if (!videoId.value) return null
+  if (!videoId.value) {
+    return playlistId.value
+      ? `https://www.youtube.com/playlist?list=${playlistId.value}`
+      : null
+  }
   // If it's a clip with a share URL in path, link to that
   if (isClipShareUrl.value) {
     return props.node.path || props.node.label
   }
-  return `https://www.youtube.com/watch?v=${videoId.value}`
+  return playlistId.value
+    ? `https://www.youtube.com/watch?v=${videoId.value}&list=${playlistId.value}`
+    : `https://www.youtube.com/watch?v=${videoId.value}`
 })
 
 const nodeTypeClass = computed(() => {
