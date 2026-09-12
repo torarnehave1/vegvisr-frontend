@@ -6363,9 +6363,20 @@ export default {
             console.error(`[Worker] Error fetching site config from KV for ${hostname}:`, error)
           }
 
-          // 2. Fetch all graphs
+          // 2. Fetch all graphs.
+          // Project only the fields this endpoint needs — never the whole `data` blob.
+          // The table holds ~50 MB of graph JSON; selecting `data` shipped all of it to the
+          // worker on every call, which is what made this route time out / 503.
+          const safeJsonDataSql = `CASE WHEN json_valid(data) THEN data ELSE '{}' END`
           const query = `
-            SELECT id, title, data, created_date, updated_at
+            SELECT
+              id,
+              title,
+              created_date,
+              updated_at,
+              json_extract(${safeJsonDataSql}, '$.metadata.metaArea') AS meta_area,
+              json_extract(${safeJsonDataSql}, '$.metadata.publicationState') AS publication_state,
+              json_extract(${safeJsonDataSql}, '$.metadata.seoSlug') AS seo_slug
             FROM knowledge_graphs
             ORDER BY COALESCE(updated_at, created_date) DESC
           `
@@ -6382,12 +6393,13 @@ export default {
             const _graphsPrivileged = _graphsPluginAuth || _graphsUserRole || (_graphsOrigin && _graphsTrustedOrigins.includes(_graphsOrigin))
             if (!_graphsPrivileged) {
               console.log('[Worker] /getknowgraphs: unauthenticated — restricting to published graphs')
-              allGraphs.splice(0, allGraphs.length, ...allGraphs.filter((row) => {
-                try {
-                  const g = JSON.parse(row.data)
-                  return g.metadata?.publicationState === 'published' || g.metadata?.seoSlug
-                } catch { return false }
-              }))
+              allGraphs.splice(
+                0,
+                allGraphs.length,
+                ...allGraphs.filter(
+                  (row) => row.publication_state === 'published' || Boolean(row.seo_slug),
+                ),
+              )
             }
           }
 
@@ -6396,25 +6408,11 @@ export default {
           if (!tokenBypassFilter && allowedMetaAreas) {
             console.log('[Worker] Applying meta area filter...')
             filteredGraphs = allGraphs.filter((row) => {
-              try {
-                const graphData = JSON.parse(row.data)
-                const metaAreaString = graphData.metadata?.metaArea || ''
-                const metaAreas = metaAreaString
-                  .split('#')
-                  .map((a) => a.trim().toUpperCase())
-                  .filter(Boolean)
-                const match = metaAreas.some((area) => allowedMetaAreas.includes(area))
-                console.log(
-                  `[Worker] Graph ${row.id} (${row.title}) - metaAreas:`,
-                  metaAreas,
-                  '- Match:',
-                  match,
-                )
-                return match
-              } catch (e) {
-                console.log(`[Worker] Error parsing graph ${row.id}:`, e)
-                return false
-              }
+              const metaAreas = (row.meta_area || '')
+                .split('#')
+                .map((a) => a.trim().toUpperCase())
+                .filter(Boolean)
+              return metaAreas.some((area) => allowedMetaAreas.includes(area))
             })
             console.log(
               '[Worker] Graphs after filtering:',
@@ -6435,10 +6433,6 @@ export default {
           }))
 
           console.log('[Worker] Final response will contain', responseGraphs.length, 'graphs')
-          console.log(
-            '[Worker] Graph IDs being returned:',
-            responseGraphs.map((g) => g.id),
-          )
           return new Response(JSON.stringify({ results: responseGraphs }), {
             status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
