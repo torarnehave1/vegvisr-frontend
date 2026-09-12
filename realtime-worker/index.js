@@ -788,6 +788,39 @@ async function resolveEffectiveEmail(request, auth, asUserOverride) {
   return { ok: true, email: asUser, isImpersonating: true }
 }
 
+// ── Transcript sidecars ─────────────────────────────────────────────────────
+// A transcript is stored as its own small object NEXT TO the recording:
+//   recordings/<name>.mp4  ->  recordings/<name>.mp4.transcript.json
+// Why a sidecar and not metadata on the recording: R2 custom metadata is capped around 2 KB (a
+// meeting transcript is tens of KB), and the metadata route updates a field by downloading and
+// re-uploading the whole object — 799 MB of video rewritten to save a text field. The sidecar also
+// lands in the OWNER'S account: own-R2 users keep their transcripts in their own bucket, which is
+// the whole point of per-user Cloudflare accounts. RealtimeKit-only recordings have no bucket at
+// all, so saving refuses and says to sync to R2 first rather than writing somewhere else.
+const TRANSCRIPT_SUFFIX = '.transcript.json'
+function transcriptKeyFor(recordingKey) {
+  return `${String(recordingKey || '')}${TRANSCRIPT_SUFFIX}`
+}
+function isTranscriptKey(key) {
+  return String(key || '').endsWith(TRANSCRIPT_SUFFIX)
+}
+function recordingKeyFromTranscriptKey(key) {
+  const k = String(key || '')
+  return isTranscriptKey(k) ? k.slice(0, -TRANSCRIPT_SUFFIX.length) : k
+}
+// Split a raw R2 listing into the recordings to show and the set of keys that HAVE a transcript,
+// so the listing never shows a sidecar as if it were a recording (it would have no playable video)
+// and the UI can tell which recordings already carry saved text — both from the one listing call
+// that already happens.
+function partitionTranscriptKeys(keys) {
+  const recordings = [], transcripts = new Set()
+  for (const key of keys || []) {
+    if (isTranscriptKey(key)) transcripts.add(recordingKeyFromTranscriptKey(key))
+    else recordings.push(key)
+  }
+  return { recordings, transcripts }
+}
+
 // ── Ownership gate for the LEGACY shared bucket ─────────────────────────────
 // Objects in the shared MEETING_RECORDINGS bucket are commingled from the era
 // when the whole system ran in one central account. Neither the listing nor the
@@ -1627,7 +1660,9 @@ export default {
               const res = await r2List(creds.r2Bucket, prefix, creds.r2AccessKeyId, creds.r2Secret, creds.r2AccountId)
               if (!res.ok) continue
               const xml = await res.text()
-              const keys = [...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].map(m => m[1])
+              const allKeys = [...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].map(m => m[1])
+              // Sidecar transcripts share the prefix; they are not recordings.
+              const { recordings: keys, transcripts: keysWithTranscript } = partitionTranscriptKeys(allKeys)
               for (const key of keys) {
                 // Skip the folder placeholder (a 0-byte marker object).
                 if (!key || key === prefix || key.endsWith('/')) continue
@@ -1669,6 +1704,7 @@ export default {
                   title: metadata.title,
                   labels: metadata.labels,
                   thumbnailUrl: metadata.thumbnailUrl,
+                  hasTranscript: keysWithTranscript.has(key),
                 })
               }
             }
@@ -3065,6 +3101,95 @@ export default {
         return createResponse(JSON.stringify({ success: true, key, sizeMB, text: result.text || '', transcription: result.transcription || result, model: result.model || '@cf/openai/whisper' }))
       } catch (e) {
         console.error('Error in /realtime/recordings/transcribe:', e)
+        return createResponse(JSON.stringify({ error: e.message }), 500)
+      }
+    }
+
+    // ── GET/POST /realtime/recordings/transcript ───────────────────────────────
+    // Save or read the transcript sidecar for one recording. The text is produced in the browser
+    // (chunked Whisper) or by /recordings/transcribe; before this endpoint existed there was NO
+    // save step at all — the transcript lived in React state and a reload lost it (2026-09-12).
+    if (pathname === '/realtime/recordings/transcript' && (request.method === 'POST' || request.method === 'GET')) {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+        const isWrite = request.method === 'POST'
+        if (isWrite && !canManageRecordings(auth.role)) {
+          return createResponse(JSON.stringify({ error: 'Admin or Superadmin access required' }), 403)
+        }
+        const body = isWrite ? await request.json().catch(() => ({})) : {}
+        const url = new URL(request.url)
+        const key = String((isWrite ? body.key : url.searchParams.get('key')) || '').trim()
+        if (!key) return createResponse(JSON.stringify({ error: 'key is required (the R2 key of the recording)' }), 400)
+        if (isTranscriptKey(key)) return createResponse(JSON.stringify({ error: 'key must be the recording, not its transcript sidecar' }), 400)
+
+        const eff = await resolveEffectiveEmail(request, auth, isWrite ? body.asUser : undefined)
+        if (!eff.ok) return createResponse(JSON.stringify({ error: eff.error }), eff.status)
+        const creds = await getUserCloudflareCredentials(eff.email, env)
+        const useOwnR2 = !!(creds.r2AccessKeyId && creds.r2Secret && creds.r2Bucket && creds.r2AccountId)
+        const sidecarKey = transcriptKeyFor(key)
+
+        // A RealtimeKit cloud recording has no bucket: its "key" is an RTK recording id, so there is
+        // nothing to put a sidecar beside. Say that, instead of writing the text somewhere it will
+        // never be found again.
+        if (!useOwnR2 && !env.MEETING_RECORDINGS) {
+          return createResponse(JSON.stringify({ error: 'This recording has no storage bucket (RealtimeKit cloud only). Sync it to R2 first, then save the transcript.' }), 409)
+        }
+
+        if (isWrite) {
+          const text = typeof body.text === 'string' ? body.text : ''
+          if (!text.trim()) return createResponse(JSON.stringify({ error: 'text is required' }), 400)
+          const payload = JSON.stringify({
+            key,
+            text,
+            chars: text.length,
+            model: String(body.model || '').slice(0, 80) || null,
+            source: String(body.source || '').slice(0, 40) || null,
+            savedBy: auth.email || '',
+            savedAt: new Date().toISOString(),
+          })
+          if (useOwnR2) {
+            // Confirm the recording exists in THIS bucket before writing beside it — otherwise a
+            // wrong key silently creates an orphan sidecar nobody will ever open.
+            const head = await r2Head(creds.r2Bucket, key, creds.r2AccessKeyId, creds.r2Secret, creds.r2AccountId)
+            if (!head.ok) return createResponse(JSON.stringify({ error: 'Recording not found in your R2 bucket' }), 404)
+            const put = await r2Put(creds.r2Bucket, sidecarKey, payload, 'application/json', { recordingkey: key, savedby: auth.email || '' }, creds.r2AccessKeyId, creds.r2Secret, creds.r2AccountId)
+            if (!put.ok) {
+              const details = await put.text()
+              return createResponse(JSON.stringify({ error: 'Failed to write the transcript to your R2 bucket', details }), 502)
+            }
+          } else {
+            if (!(await canReadSharedRecording(key, auth, eff, env))) {
+              return createResponse(JSON.stringify({ error: 'You do not have access to this recording' }), 403)
+            }
+            const obj = await env.MEETING_RECORDINGS.head(key)
+            if (!obj) return createResponse(JSON.stringify({ error: 'Recording not found' }), 404)
+            await env.MEETING_RECORDINGS.put(sidecarKey, payload, {
+              httpMetadata: { contentType: 'application/json' },
+              customMetadata: { recordingKey: key, savedBy: auth.email || '' },
+            })
+          }
+          return createResponse(JSON.stringify({ success: true, key, transcriptKey: sidecarKey, chars: text.length }))
+        }
+
+        // READ
+        if (useOwnR2) {
+          const get = await r2Get(creds.r2Bucket, sidecarKey, creds.r2AccessKeyId, creds.r2Secret, creds.r2AccountId)
+          if (!get.ok) return createResponse(JSON.stringify({ success: true, key, found: false }), 200)
+          const saved = safeJsonParse(await get.text())
+          if (!saved) return createResponse(JSON.stringify({ success: true, key, found: false }), 200)
+          return createResponse(JSON.stringify({ success: true, key, found: true, ...saved }))
+        }
+        if (!(await canReadSharedRecording(key, auth, eff, env))) {
+          return createResponse(JSON.stringify({ error: 'You do not have access to this recording' }), 403)
+        }
+        const obj = await env.MEETING_RECORDINGS.get(sidecarKey)
+        if (!obj) return createResponse(JSON.stringify({ success: true, key, found: false }), 200)
+        const saved = safeJsonParse(await obj.text())
+        if (!saved) return createResponse(JSON.stringify({ success: true, key, found: false }), 200)
+        return createResponse(JSON.stringify({ success: true, key, found: true, ...saved }))
+      } catch (e) {
+        console.error('Error in /realtime/recordings/transcript:', e)
         return createResponse(JSON.stringify({ error: e.message }), 500)
       }
     }
