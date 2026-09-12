@@ -4245,7 +4245,7 @@ export default {
             '/searchGraphs': {
               get: {
                 summary: 'Search and filter knowledge graphs',
-                description: 'Search graphs by free text (title, description, category, node labels), filter by node type or category. Without auth only published graphs are searched. Provide X-API-Token with graph:read to search all graphs including drafts.',
+                description: 'Search graphs by free text (title, description, category, node labels, node content, and the domain an html-node is published to), filter by node type or category. Without auth only published graphs are searched. Provide X-API-Token with graph:read to search all graphs including drafts.',
                 operationId: 'searchGraphs',
                 security: [{ ApiTokenAuth: ['graph:read'] }, {}],
                 parameters: [
@@ -4254,7 +4254,7 @@ export default {
                     in: 'query',
                     required: false,
                     schema: { type: 'string' },
-                    description: 'Free text search across title, description, category, and node labels'
+                    description: 'Free text search across title, description, category, node labels, node content, and published html-node domains (e.g. learn.vegvisr.org)'
                   },
                   {
                     name: 'nodeType',
@@ -6226,7 +6226,8 @@ export default {
             bindings.push(nodeType)
           }
 
-          // Free text search (title, description, category, node labels, and node content)
+          // Free text search (title, description, category, node labels, node content,
+          // and the domain an html-node publishes to)
           // Supports wildcard: "Per * Stilling" matches "Per Egenæss Stilling"
           if (q) {
             // Replace * with SQL wildcard % so users can bridge unknown middle names etc.
@@ -6239,9 +6240,17 @@ export default {
                 SELECT 1 FROM json_each(${safeNodesSql})
                 WHERE LOWER(COALESCE(json_extract(value, '$.label'), '')) LIKE ?
                    OR LOWER(COALESCE(json_extract(value, '$.info'), '')) LIKE ?
+                   OR LOWER(COALESCE(json_extract(value, '$.publishedDomain'), '')) LIKE ?
               )
             )`)
-            bindings.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern)
+            bindings.push(
+              searchPattern,
+              searchPattern,
+              searchPattern,
+              searchPattern,
+              searchPattern,
+              searchPattern,
+            )
           }
 
           // Filter by category
@@ -6280,6 +6289,11 @@ export default {
                 FROM json_each(${safeNodesSql})
                 WHERE json_extract(value, '$.type') IS NOT NULL
               ), '') AS node_types_csv,
+              COALESCE((
+                SELECT GROUP_CONCAT(DISTINCT json_extract(value, '$.publishedDomain'))
+                FROM json_each(${safeNodesSql})
+                WHERE json_extract(value, '$.publishedDomain') IS NOT NULL
+              ), '') AS published_domains_csv,
               updated_at
             FROM knowledge_graphs
             ${whereSql}
@@ -6301,6 +6315,14 @@ export default {
             metaArea: row.metadata_meta_area || '',
             nodeCount: Number(row.node_count || 0),
             nodeTypes: String(row.node_types_csv || '').split(',').filter(Boolean),
+            publishedDomains: Array.from(
+              new Set(
+                String(row.published_domains_csv || '')
+                  .split(',')
+                  .map((value) => value.trim().toLowerCase())
+                  .filter(Boolean),
+              ),
+            ),
             updatedAt: row.updated_at || '',
           }))
 
