@@ -94,3 +94,6 @@ scr/assets/HalloVegvisr/
 
 # (All worker-dir blanket ignores removed 2026-08-03 — ALL worker source is tracked, no exceptions.
 #  billing/coaching-report/deployment-status/openapi included per architect directive.)
+
+# macOS AppleDouble sidecars (created on exFAT volumes) — never source
+._*

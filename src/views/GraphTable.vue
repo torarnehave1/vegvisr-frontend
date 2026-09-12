@@ -27,6 +27,7 @@
               {{ localSortDirection === 'asc' ? '▲' : '▼' }}
             </span>
           </th>
+          <th>Published Site</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -36,6 +37,19 @@
           <td>{{ graph.metadata?.createdBy || 'Unknown' }}</td>
           <td>{{ getNodeCount(graph) }}</td>
           <td>{{ formatDate(graph.metadata?.updatedAt) }}</td>
+          <td class="published-domains">
+            <a
+              v-for="domain in getPublishedDomains(graph)"
+              :key="domain"
+              :href="`https://${domain}`"
+              target="_blank"
+              rel="noopener"
+              :title="`Open https://${domain}`"
+            >
+              {{ domain }}
+            </a>
+            <span v-if="!getPublishedDomains(graph).length" class="text-muted">—</span>
+          </td>
           <td>
             <button class="btn btn-primary btn-sm" @click="$emit('view-graph', graph)">View</button>
             <button
@@ -61,7 +75,6 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { usePortfolioStore } from '@/stores/portfolioStore'
 import { useUserStore } from '@/stores/userStore'
 
 const props = defineProps({
@@ -75,7 +88,6 @@ const props = defineProps({
   },
 })
 
-const portfolioStore = usePortfolioStore()
 const userStore = useUserStore()
 const localSortBy = ref('updatedAt')
 const localSortDirection = ref('desc')
@@ -104,27 +116,21 @@ function formatDate(dateString) {
   })
 }
 
+function getPublishedDomains(graph) {
+  return Array.isArray(graph?.publishedDomains) ? graph.publishedDomains : []
+}
+
 function getNodeCount(graph) {
   if (Number.isFinite(graph?.nodeCount)) return graph.nodeCount
   return Array.isArray(graph?.nodes) ? graph.nodes.length : 0
 }
 
+// `graphs` arrives already filtered by GraphPortfolio (search query, meta area,
+// owner). Re-filtering here on title/createdBy/id only threw away every row for
+// searches the portfolio understands but this narrow filter did not — domains,
+// #metaArea, :has-seo, node labels. Sort only.
 const sortedGraphs = computed(() => {
-  let filtered = props.graphs
-  // Apply search filter
-  if (portfolioStore.searchQuery) {
-    const query = portfolioStore.searchQuery.toLowerCase()
-    filtered = filtered.filter((graph) => {
-      const title = graph.metadata?.title?.toLowerCase() || ''
-      const createdBy = graph.metadata?.createdBy?.toLowerCase() || ''
-      return (
-        title.includes(query) ||
-        createdBy.includes(query) ||
-        graph.id?.toLowerCase().includes(query)
-      )
-    })
-  }
-  // Sort
+  const filtered = props.graphs
   const dir = localSortDirection.value === 'desc' ? -1 : 1
   return filtered.slice().sort((a, b) => {
     let cmp = 0
@@ -178,6 +184,22 @@ const sortedGraphs = computed(() => {
   color: #007bff;
   margin-left: 4px;
 }
+.graph-table td.published-domains {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85rem;
+}
+
+.graph-table td.published-domains a {
+  color: #0d9488;
+  text-decoration: none;
+}
+
+.graph-table td.published-domains a:hover {
+  text-decoration: underline;
+}
+
 .graph-table tr:last-child td {
   border-bottom: none;
 }

@@ -35,12 +35,21 @@
             type="text"
             v-model="portfolioStore.searchQuery"
             class="form-control mb-2"
-            placeholder="🔍 Search by title, slug, or #tag..."
+            placeholder="🔍 Search by title, slug, domain, or #tag..."
             @input="filterGraphs"
           />
           <small class="text-muted">
-            Portfolio Filter • Type SEO slug or #MetaArea • For global search, use the search bar above
+            Portfolio Filter • Type SEO slug, published domain, #MetaArea or :published • For global search, use the search bar above
           </small>
+          <div v-if="publishedDomainCount" class="quick-filters mt-2">
+            <button
+              type="button"
+              class="btn btn-sm quick-filter-domains"
+              @click="filterByPublishedDomains"
+            >
+              🌐 Published sites ({{ publishedDomainCount }})
+            </button>
+          </div>
         </div>
 
         <!-- Sort Options (Mobile) -->
@@ -168,12 +177,30 @@
                       type="text"
                       v-model="portfolioStore.searchQuery"
                       class="form-control"
-                      placeholder="🔍 Search by title, slug, or #tag..."
+                      placeholder="🔍 Search by title, slug, domain, or #tag..."
                       @input="filterGraphs"
                     />
                     <small class="text-muted">
-                      Portfolio Filter • Type SEO slug or #MetaArea • For global search, use the search bar above
+                      Portfolio Filter • Type SEO slug, published domain, #MetaArea or :published • For global search, use the search bar above
                     </small>
+                    <div v-if="publishedDomainCount" class="quick-filters mt-1">
+                      <button
+                        type="button"
+                        class="btn btn-sm quick-filter-domains"
+                        title="Show only graphs with an HTML node published to a site"
+                        @click="filterByPublishedDomains"
+                      >
+                        🌐 Published sites ({{ publishedDomainCount }})
+                      </button>
+                      <button
+                        v-if="portfolioStore.searchQuery"
+                        type="button"
+                        class="btn btn-sm btn-outline-secondary ms-2"
+                        @click="clearPortfolioSearch"
+                      >
+                        Clear
+                      </button>
+                    </div>
                   </div>
                   <div class="view-options d-flex align-items-center" style="gap: 0.5rem">
                     <div v-if="userStore.role === 'Superadmin'" class="d-flex align-items-center">
@@ -533,6 +560,17 @@
                               @click="filterBySEO"
                             >
                               🔗 SEO
+                            </span>
+                          </template>
+                          <template v-if="getPublishedDomains(graph).length">
+                            <span
+                              v-for="domain in getPublishedDomains(graph)"
+                              :key="domain"
+                              class="badge bg-published-domain ms-2 cursor-pointer"
+                              :title="`HTML node published to ${domain} — click to filter by this domain`"
+                              @click="filterByDomain(domain)"
+                            >
+                              🌐 {{ domain }}
                             </span>
                           </template>
                           <span
@@ -1148,6 +1186,29 @@ const buildSummaryNodesFromTypes = (nodeTypes) =>
         .filter(Boolean)
     : []
 
+// Hostnames an html-node in this graph has been published to. Stored per node as
+// `publishedDomain` by GNewHtmlNode's publish action; the summaries endpoint returns
+// them pre-collected so the portfolio can filter without loading every graph blob.
+const normalizeDomainList = (value) => {
+  const list = Array.isArray(value) ? value : value ? [value] : []
+  return Array.from(
+    new Set(
+      list
+        .map((domain) => String(domain || '').trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  )
+}
+
+// A pasted URL ("https://learn.vegvisr.org/page") should still match the bare hostname.
+const domainQueryFromSearch = (query) =>
+  query
+    .replace(/^https?:\/\//, '')
+    .replace(/\/.*$/, '')
+    .trim()
+
+const getPublishedDomains = (graph) => normalizeDomainList(graph?.publishedDomains)
+
 const processGraphSummary = (summary) => {
   const summaryNodeTypes = Array.isArray(summary?.nodeTypes) ? summary.nodeTypes : []
   const summaryNodes = buildSummaryNodesFromTypes(summaryNodeTypes)
@@ -1183,7 +1244,11 @@ const processGraphSummary = (summary) => {
     nodeTypes: summaryNodeTypes,
     nodeLabelsText: summary.nodeLabelsText || '',
     portfolioImagePath: summary.portfolioImagePath || null,
-    summarySearchText: (summary.searchText || `${summaryNodeTypes.join(' ')} ${summary.nodeLabelsText || ''}`).toLowerCase(),
+    publishedDomains: normalizeDomainList(summary.publishedDomains),
+    summarySearchText: (
+      summary.searchText ||
+      `${summaryNodeTypes.join(' ')} ${summary.nodeLabelsText || ''} ${normalizeDomainList(summary.publishedDomains).join(' ')}`
+    ).toLowerCase(),
     isSummaryOnly: true,
     vectorization: {
       isVectorized: false,
@@ -1239,10 +1304,11 @@ const processGraphData = (graphSummary, graphData) => {
       .slice(0, 40)
       .join(' '),
     portfolioImagePath: portfolioNode?.path || null,
+    publishedDomains: normalizeDomainList(nodes.map((node) => node?.publishedDomain)),
     summarySearchText: `${nodeTypes.join(' ')} ${nodes
       .map((node) => String(node?.label || ''))
       .slice(0, 40)
-      .join(' ')}`.toLowerCase(),
+      .join(' ')} ${normalizeDomainList(nodes.map((node) => node?.publishedDomain)).join(' ')}`.toLowerCase(),
     isSummaryOnly: false,
     vectorization: {
       isVectorized: false,
@@ -1711,6 +1777,10 @@ const filteredGraphs = computed(() => {
         return graph.metadata?.seoSlug && graph.metadata.seoSlug.trim() !== ''
       })
     }
+    // Special :published filter — graphs with an html-node published to a domain
+    else if (query === ':published' || query === ':has-domain') {
+      filtered = filtered.filter((graph) => getPublishedDomains(graph).length > 0)
+    }
     // Check if searching by meta area (starts with #)
     else if (query.startsWith('#')) {
       const metaAreaSearch = query.substring(1) // Remove the #
@@ -1724,9 +1794,12 @@ const filteredGraphs = computed(() => {
         return normalizedMetaArea.includes(metaAreaSearch)
       })
     } else {
+      const domainQuery = domainQueryFromSearch(query)
       filtered = filtered.filter((graph) => {
         const categories = getCategories(graph.metadata?.category || '')
         if (
+          (domainQuery &&
+            getPublishedDomains(graph).some((domain) => domain.includes(domainQuery))) ||
           graph.metadata?.title?.toLowerCase().includes(query) ||
           graph.metadata?.description?.toLowerCase().includes(query) ||
           graph.metadata?.seoSlug?.toLowerCase().includes(query) ||
@@ -1795,6 +1868,15 @@ const filteredGraphs = computed(() => {
 })
 
 const visibleGraphs = computed(() => filteredGraphs.value.slice(0, visibleCount.value))
+
+// Distinct hostnames across the loaded portfolio — drives the "Published sites" chip.
+const publishedDomainCount = computed(() => {
+  const domains = new Set()
+  for (const graph of graphs.value) {
+    for (const domain of getPublishedDomains(graph)) domains.add(domain)
+  }
+  return domains.size
+})
 
 const remainingGraphCount = computed(() =>
   Math.max(filteredGraphs.value.length - visibleGraphs.value.length, 0),
@@ -2898,6 +2980,24 @@ const filterBySEO = () => {
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
+const filterByDomain = (domain) => {
+  // Search by the published hostname — matches this graph and any other
+  // graph publishing to the same site.
+  portfolioStore.searchQuery = domain
+  closeMobileMenu()
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+const clearPortfolioSearch = () => {
+  portfolioStore.searchQuery = ''
+}
+
+const filterByPublishedDomains = () => {
+  portfolioStore.searchQuery = ':published'
+  closeMobileMenu()
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
 const filterByMetaArea = (area) => {
   // Filter by meta area without modifying search box (same as clicking sidebar)
   portfolioStore.selectedMetaArea = area
@@ -3007,6 +3107,33 @@ const filterByMetaArea = (area) => {
 
 .graph-meta .badge.bg-purple:hover {
   background-color: #a855f7 !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.quick-filter-domains {
+  background-color: #0d9488;
+  color: #fff;
+  border: 1px solid #0f766e;
+  font-weight: 600;
+}
+
+.quick-filter-domains:hover {
+  background-color: #14b8a6;
+  color: #fff;
+}
+
+.graph-meta .badge.bg-published-domain {
+  background-color: #0d9488 !important;
+  color: white !important;
+  border: 1px solid #0f766e;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+
+.graph-meta .badge.bg-published-domain:hover {
+  background-color: #14b8a6 !important;
   transform: translateY(-1px);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }

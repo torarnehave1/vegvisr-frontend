@@ -4167,7 +4167,7 @@ export default {
             '/getknowgraphsummaries': {
               get: {
                 summary: 'List graph summaries with pagination',
-                description: 'Returns paginated graph summaries including metadata, node counts, node types, and search text. Without authentication only graphs with publicationState=published or a seoSlug are returned. Provide X-API-Token with graph:read scope to retrieve all graphs including drafts. Trusted origins (vegvisr.org) and session-based auth (x-user-role) also return all graphs.',
+                description: 'Returns paginated graph summaries including metadata, node counts, node types, published html-node domains, and search text. Without authentication only graphs with publicationState=published or a seoSlug are returned. Provide X-API-Token with graph:read scope to retrieve all graphs including drafts. Trusted origins (vegvisr.org) and session-based auth (x-user-role) also return all graphs.',
                 operationId: 'getKnowGraphSummaries',
                 security: [{ ApiTokenAuth: ['graph:read'] }, {}],
                 parameters: [
@@ -4207,6 +4207,11 @@ export default {
                                   edgeCount: { type: 'integer' },
                                   nodeTypes: { type: 'array', items: { type: 'string' } },
                                   nodeLabelsText: { type: 'string' },
+                                  publishedDomains: {
+                                    type: 'array',
+                                    items: { type: 'string' },
+                                    description: 'Hostnames this graph has published html-node content to (e.g. learn.vegvisr.org). Also folded into searchText so a domain search matches.'
+                                  },
                                   metadata: {
                                     type: 'object',
                                     properties: {
@@ -5988,7 +5993,12 @@ export default {
                 WHERE json_extract(value, '$.type') = 'portfolio-image'
                   AND json_extract(value, '$.path') IS NOT NULL
                 LIMIT 1
-              ) AS portfolio_image_path
+              ) AS portfolio_image_path,
+              COALESCE((
+                SELECT GROUP_CONCAT(DISTINCT json_extract(value, '$.publishedDomain'))
+                FROM json_each(${safeNodesSql})
+                WHERE json_extract(value, '$.publishedDomain') IS NOT NULL
+              ), '') AS published_domains_csv
             FROM knowledge_graphs
             ${whereSql}
             ORDER BY COALESCE(updated_at, created_date) DESC
@@ -6093,6 +6103,14 @@ export default {
                 row.metadata_is_theme_graph === '1' ||
                 row.metadata_is_theme_graph === 'true'
               const nodeLabelsText = row.node_labels_text || ''
+              const publishedDomains = Array.from(
+                new Set(
+                  String(row.published_domains_csv || '')
+                    .split(',')
+                    .map((value) => value.trim().toLowerCase())
+                    .filter(Boolean),
+                ),
+              )
 
               return {
                 id: row.id,
@@ -6104,7 +6122,8 @@ export default {
                 nodeTypes,
                 nodeLabelsText,
                 portfolioImagePath: row.portfolio_image_path || null,
-                searchText: `${nodeTypes.join(' ')} ${nodeLabelsText}`.trim(),
+                publishedDomains,
+                searchText: `${nodeTypes.join(' ')} ${nodeLabelsText} ${publishedDomains.join(' ')}`.trim(),
                 metadata: {
                   title: row.metadata_title || row.title || 'Untitled Graph',
                   description: row.metadata_description || '',
