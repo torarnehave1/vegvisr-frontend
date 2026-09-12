@@ -5035,6 +5035,18 @@ const handleUpdateSandman = async (request, env) => {
 const WORKER_AI_GEMMA_MODEL = '@cf/google/gemma-4-26b-a4b-it'
 
 const WORKER_AI_MODELS_MAP = {
+  anthropic: [
+    {
+      id: 'claude-haiku-4-5-20251001',
+      name: 'Claude Haiku 4.5',
+      description: 'Anthropic via anthropic-worker service binding',
+    },
+    {
+      id: 'claude-sonnet-4-5-20250929',
+      name: 'Claude Sonnet 4.5',
+      description: 'Anthropic via anthropic-worker service binding',
+    },
+  ],
   gemma: [
     {
       id: WORKER_AI_GEMMA_MODEL,
@@ -5042,6 +5054,41 @@ const WORKER_AI_MODELS_MAP = {
       description: 'Cloudflare Workers AI, runs in the api-worker',
     },
   ],
+}
+
+// Claude models are served by anthropic-worker over its service binding. The Gemma
+// path below stays the default; a caller opts into Claude with provider:'anthropic'
+// or a model id starting with 'claude-'.
+const WORKER_AI_ANTHROPIC_DEFAULT_MODEL = 'claude-haiku-4-5-20251001'
+
+const runWorkerAIAnthropic = async (env, { system, messages, model, maxTokens, temperature }) => {
+  if (!env.ANTHROPIC_WORKER) throw new Error('ANTHROPIC_WORKER service binding not configured')
+  // Service binding, never https://anthropic.vegvisr.org — a worker-to-worker fetch over
+  // the public hostname 522s from inside the runtime while an external curl succeeds.
+  const resp = await env.ANTHROPIC_WORKER.fetch('https://anthropic-worker/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messages,
+      system: system || null,
+      model: model || WORKER_AI_ANTHROPIC_DEFAULT_MODEL,
+      max_tokens: maxTokens,
+      temperature,
+      // Trusted-service key path documented in anthropic-worker's handleChat.
+      apiKey: env.ANTHROPIC_API_KEY,
+    }),
+  })
+  const data = await resp.json().catch(() => ({}))
+  if (!resp.ok) {
+    throw new Error(
+      'anthropic-worker ' + resp.status + ': ' + JSON.stringify(data && data.error ? data.error : data),
+    )
+  }
+  const content = Array.isArray(data.content)
+    ? data.content.map((part) => part.text || '').join('').trim()
+    : ''
+  if (!content) throw new Error('anthropic-worker returned empty content')
+  return { content, model: data.model || model || WORKER_AI_ANTHROPIC_DEFAULT_MODEL }
 }
 
 const hashStringSha256 = async (value) => {
@@ -5136,6 +5183,41 @@ const handleWorkerAIChat = async (request, env) => {
       messages.push({ role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user', content: m.content })
     }
   }
+  const requestedModel = typeof body.model === 'string' ? body.model : ''
+  const wantsAnthropic =
+    (typeof body.provider === 'string' && body.provider.toLowerCase() === 'anthropic') ||
+    requestedModel.startsWith('claude-')
+
+  if (wantsAnthropic) {
+    try {
+      // Anthropic takes the system prompt as its own field, not as a message.
+      const anthropicMessages = messages.filter((m) => m.role !== 'system')
+      const result = await runWorkerAIAnthropic(env, {
+        system: typeof body.system === 'string' ? body.system : null,
+        messages: anthropicMessages,
+        model: requestedModel || WORKER_AI_ANTHROPIC_DEFAULT_MODEL,
+        maxTokens: Number.isFinite(Number(body.max_tokens)) ? Number(body.max_tokens) : 2048,
+        temperature:
+          body.temperature !== undefined && Number.isFinite(Number(body.temperature))
+            ? Number(body.temperature)
+            : undefined,
+      })
+      return createResponse(
+        JSON.stringify({
+          success: true,
+          content: result.content,
+          provider: 'anthropic',
+          model: result.model,
+          requestedProvider: body.provider || null,
+          requestedModel: body.model || null,
+        }),
+      )
+    } catch (error) {
+      // Fall through to Gemma rather than failing the request outright.
+      console.error('Worker AI: anthropic path failed, falling back to Gemma:', error)
+    }
+  }
+
   const aiParams = {
     messages,
     // Gemma is a reasoning model — it spends tokens reasoning before the
