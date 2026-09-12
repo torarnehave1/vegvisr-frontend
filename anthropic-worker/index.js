@@ -211,6 +211,24 @@ export default {
 }
 
 /**
+ * One place that talks to the Anthropic API, so the retry above can re-send the same request.
+ */
+async function callAnthropic(requestBody, apiKey) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'prompt-caching-2024-07-31,pdfs-2024-09-25'
+    },
+    body: JSON.stringify(requestBody)
+  })
+  const data = await response.json()
+  return { response, data }
+}
+
+/**
  * Handle chat completion with conversation history
  */
 async function handleChat(request, env, corsHeaders) {
@@ -219,7 +237,7 @@ async function handleChat(request, env, corsHeaders) {
     messages,
     model = 'claude-sonnet-4-20250514',
     max_tokens = 8192,
-    temperature = 1,
+    temperature,   // optional — forwarded only when the caller set it (see below)
     system = null,
     userId,
     apiKey,        // Optional: caller-supplied key (trusted service bindings only)
@@ -253,9 +271,12 @@ async function handleChat(request, env, corsHeaders) {
     const requestBody = {
       model,
       max_tokens,
-      temperature,
       messages
     }
+    // Only send a temperature the caller actually chose. A default invented here is sent on every
+    // request of every worker that binds this one, which is how one model's parameter change became
+    // an outage for all of them.
+    if (temperature !== undefined && temperature !== null) requestBody.temperature = temperature
 
     if (system) {
       // Wrap system prompt with cache_control for prompt caching
@@ -302,18 +323,24 @@ async function handleChat(request, env, corsHeaders) {
       }
     }
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'prompt-caching-2024-07-31,pdfs-2024-09-25'
-      },
-      body: JSON.stringify(requestBody)
-    })
+    let { response, data } = await callAnthropic(requestBody, ANTHROPIC_API_KEY)
 
-    const data = await response.json()
+    // Newer models accept no `temperature` knob at all. Measured 2026-09-12 through this worker:
+    // claude-opus-4-8 answers 400 "`temperature` is deprecated for this model." for 0.3, while
+    // tolerating the default 1; Haiku 4.5 and Sonnet 4.6 accept 0.3. Five workers bind this one and
+    // several send their own default (agent-worker sends 0.3), so EVERY Opus request failed before it
+    // reached a tool — the architect's own model could not run the agent at all. Retry once without
+    // the parameter instead of keeping a list of which model accepts which knob here: a hand-kept
+    // list is a second contract that rots (L104).
+    if (
+      !response.ok && response.status === 400 &&
+      requestBody.temperature !== undefined &&
+      /temperature/i.test(JSON.stringify(data && data.error ? data.error : ''))
+    ) {
+      const { temperature: rejected, ...withoutTemperature } = requestBody
+      console.log(`[anthropic-worker] ${model} rejected temperature=${rejected}; retrying without it`)
+      ;({ response, data } = await callAnthropic(withoutTemperature, ANTHROPIC_API_KEY))
+    }
 
     if (!response.ok) {
       return new Response(JSON.stringify({
@@ -346,7 +373,7 @@ async function handleMessage(request, env, corsHeaders) {
     message,
     model = 'claude-sonnet-4-20250514',
     max_tokens = 8192,
-    temperature = 1,
+    temperature,   // optional — undefined is dropped by JSON.stringify and never reaches the API
     system = null,
     userId
   } = body
@@ -389,7 +416,7 @@ async function handleModelEndpoint(request, env, corsHeaders, modelId) {
     message,
     messages,
     max_tokens = 8192,
-    temperature = 1,
+    temperature,   // optional — undefined is dropped by JSON.stringify and never reaches the API
     system = null,
     userId
   } = body
@@ -580,7 +607,7 @@ function handleApiDocs(corsHeaders) {
                     },
                     model: { type: 'string', default: 'claude-sonnet-4-20250514' },
                     max_tokens: { type: 'integer', default: 8192 },
-                    temperature: { type: 'number', minimum: 0, maximum: 1, default: 1 },
+                    temperature: { type: 'number', minimum: 0, maximum: 1, description: 'Optional. Sent only when you set it. Models that no longer accept it (Opus 4.8 and later) are retried automatically without it.' },
                     system: { type: 'string', description: 'System prompt' }
                   }
                 },
