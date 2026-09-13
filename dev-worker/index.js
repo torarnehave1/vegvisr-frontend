@@ -1877,6 +1877,10 @@ const extractYoutubeVideoId = (raw) => {
   return null
 }
 
+// Module-scope so one isolate reads the 60-odd HTML_PAGES keys once a minute
+// instead of on every graph listing.
+let publishedDomainRegistryCache = null
+
 export default {
   async fetch(request, env, ctx) {
     const corsHeaders = {
@@ -2380,6 +2384,64 @@ export default {
           .split('#')
           .map((token) => token.trim().toUpperCase())
           .filter(Boolean)
+      }
+
+      // brand-worker records every html-node publish as an HTML_PAGES key
+      // `html:<hostname>` whose metadata names the graph and node it came from.
+      // That registry — not the node's own publishedDomain field, which is only
+      // stamped client-side and only when the graph is saved afterwards — is the
+      // authoritative answer to "which site does this graph publish?".
+      const readPublishedDomainRegistry = async () => {
+        if (!env.HTML_PAGES) return new Map()
+        const now = Date.now()
+        if (publishedDomainRegistryCache && now - publishedDomainRegistryCache.at < 60000) {
+          return publishedDomainRegistryCache.registry
+        }
+
+        const byGraph = new Map()
+        const ownerOf = new Map()
+        try {
+          let cursor
+          do {
+            const page = await env.HTML_PAGES.list({ prefix: 'html:', cursor })
+            for (const key of page.keys || []) {
+              const hostname = String(key.name || '').slice(5).trim().toLowerCase()
+              // Skip malformed keys left by older publishes (pasted URLs, stray text).
+              if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(hostname)) {
+                continue
+              }
+              const graphId = String(key.metadata?.graphId || '').trim()
+              if (!graphId) continue
+              if (!byGraph.has(graphId)) byGraph.set(graphId, new Set())
+              byGraph.get(graphId).add(hostname)
+              ownerOf.set(hostname, graphId)
+            }
+            cursor = page.list_complete ? null : page.cursor
+          } while (cursor)
+        } catch (error) {
+          console.error('[Worker] Failed to read published domain registry:', error)
+          return publishedDomainRegistryCache?.registry || { byGraph: new Map(), ownerOf: new Map() }
+        }
+
+        const registry = { byGraph, ownerOf }
+        publishedDomainRegistryCache = { at: now, registry }
+        return registry
+      }
+
+      // A node keeps its publishedDomain stamp forever, so a graph still claims a host
+      // that a later publish gave to someone else. The registry decides who serves a
+      // host today; a stamp the registry contradicts is dropped. Hosts the registry has
+      // no owner for (published before it recorded graphId) are left to the stamp.
+      const mergePublishedDomains = (graphId, stampedCsv, registry) => {
+        const stamped = String(stampedCsv || '')
+          .split(',')
+          .map((value) => value.trim().toLowerCase())
+          .filter(Boolean)
+          .filter((hostname) => {
+            const owner = registry.ownerOf.get(hostname)
+            return !owner || owner === graphId
+          })
+        return Array.from(new Set([...stamped, ...(registry.byGraph.get(graphId) || [])])).sort()
       }
 
       const parseMaybeJsonObject = (value) => {
@@ -4210,7 +4272,7 @@ export default {
                                   publishedDomains: {
                                     type: 'array',
                                     items: { type: 'string' },
-                                    description: 'Hostnames this graph has published html-node content to (e.g. learn.vegvisr.org). Also folded into searchText so a domain search matches.'
+                                    description: 'Hostnames this graph currently serves published html-node content on (e.g. learn.vegvisr.org), read from the publish registry rather than the node stamp, so a host a later publish reassigned is not still claimed here. Also folded into searchText so a domain search matches.'
                                   },
                                   metadata: {
                                     type: 'object',
@@ -6075,6 +6137,8 @@ export default {
             rows = fallbackResult.results || fallbackResult.rows || []
           }
 
+          const domainRegistry = await readPublishedDomainRegistry()
+
           const summaries = rows
             .map((row) => {
               const metaArea = row.metadata_meta_area || ''
@@ -6103,13 +6167,10 @@ export default {
                 row.metadata_is_theme_graph === '1' ||
                 row.metadata_is_theme_graph === 'true'
               const nodeLabelsText = row.node_labels_text || ''
-              const publishedDomains = Array.from(
-                new Set(
-                  String(row.published_domains_csv || '')
-                    .split(',')
-                    .map((value) => value.trim().toLowerCase())
-                    .filter(Boolean),
-                ),
+              const publishedDomains = mergePublishedDomains(
+                row.id,
+                row.published_domains_csv,
+                domainRegistry,
               )
 
               return {
@@ -6226,12 +6287,31 @@ export default {
             bindings.push(nodeType)
           }
 
+          const srchDomainRegistry = await readPublishedDomainRegistry()
+
           // Free text search (title, description, category, node labels, node content,
           // and the domain an html-node publishes to)
           // Supports wildcard: "Per * Stilling" matches "Per Egenæss Stilling"
           if (q) {
             // Replace * with SQL wildcard % so users can bridge unknown middle names etc.
             const searchPattern = `%${q.toLowerCase().replace(/\*/g, '%')}%`
+            // A graph whose node never got stamped with publishedDomain is still findable
+            // by its hostname: the publish registry says which graphs serve it.
+            const registryMatches = []
+            const domainNeedle = q.toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim()
+            if (domainNeedle) {
+              for (const [graphId, hostnames] of srchDomainRegistry.byGraph) {
+                for (const hostname of hostnames) {
+                  if (hostname.includes(domainNeedle)) {
+                    registryMatches.push(graphId)
+                    break
+                  }
+                }
+              }
+            }
+            const registryClause = registryMatches.length
+              ? ` OR id IN (${registryMatches.map(() => '?').join(',')})`
+              : ''
             conditions.push(`(
               LOWER(COALESCE(json_extract(${safeJsonDataSql}, '$.metadata.title'), title, '')) LIKE ?
               OR LOWER(COALESCE(json_extract(${safeJsonDataSql}, '$.metadata.description'), '')) LIKE ?
@@ -6241,7 +6321,7 @@ export default {
                 WHERE LOWER(COALESCE(json_extract(value, '$.label'), '')) LIKE ?
                    OR LOWER(COALESCE(json_extract(value, '$.info'), '')) LIKE ?
                    OR LOWER(COALESCE(json_extract(value, '$.publishedDomain'), '')) LIKE ?
-              )
+              )${registryClause}
             )`)
             bindings.push(
               searchPattern,
@@ -6250,6 +6330,7 @@ export default {
               searchPattern,
               searchPattern,
               searchPattern,
+              ...registryMatches,
             )
           }
 
@@ -6315,13 +6396,10 @@ export default {
             metaArea: row.metadata_meta_area || '',
             nodeCount: Number(row.node_count || 0),
             nodeTypes: String(row.node_types_csv || '').split(',').filter(Boolean),
-            publishedDomains: Array.from(
-              new Set(
-                String(row.published_domains_csv || '')
-                  .split(',')
-                  .map((value) => value.trim().toLowerCase())
-                  .filter(Boolean),
-              ),
+            publishedDomains: mergePublishedDomains(
+              row.id,
+              row.published_domains_csv,
+              srchDomainRegistry,
             ),
             updatedAt: row.updated_at || '',
           }))
