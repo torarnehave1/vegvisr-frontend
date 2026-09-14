@@ -258,8 +258,10 @@ export const VEGVISR_AUTH_COMPONENT = `/**
     get requireRoles() { return (this.getAttribute('require-role') || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean); }
     get appName() { return this.getAttribute('app-name') || 'Vegvisr'; }
     get logo() { return this.getAttribute('logo') || ''; }
-    get lang() { return /^en/i.test(this.getAttribute('lang') || '') ? 'en' : 'nb'; }
-    t(key) { return (TEXT[this.lang] || TEXT.nb)[key]; }
+    // Not named "lang": a getter-only accessor would shadow HTMLElement.lang, and any script
+    // assigning element.lang would then throw in this strict class body.
+    get uiLang() { return /^en/i.test(this.getAttribute('lang') || '') ? 'en' : 'nb'; }
+    t(key) { return (TEXT[this.uiLang] || TEXT.nb)[key]; }
     errText(e) { return (e && e.fallback) ? this.t('sendFailed') : ((e && e.message) || this.t('sendFailed')); }
     connectedCallback() {
       var self = this;
