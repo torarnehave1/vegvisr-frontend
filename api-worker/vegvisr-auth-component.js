@@ -21,6 +21,7 @@ export const VEGVISR_AUTH_COMPONENT = `/**
  *   <script src="https://api.vegvisr.org/components/vegvisr-auth.js"></script>
  *   <vegvisr-auth></vegvisr-auth>                     (login-only; invite worlds)
  *   <vegvisr-auth register-mode="open"></vegvisr-auth> (also offers email self-registration)
+ *   <vegvisr-auth lang="en"></vegvisr-auth>            (English text; default is Norwegian)
  */
 (function () {
   var AUTH = 'https://cookie.vegvisr.org';
@@ -134,13 +135,39 @@ export const VEGVISR_AUTH_COMPONENT = `/**
       window.history.replaceState({}, document.title, u.pathname + (u.search || '') + u.hash);
     } catch (e) {}
   }
+  // UI text. Default Norwegian (nb) keeps every existing page unchanged; lang="en" on the element
+  // switches the bar and the gate card to English. The page's <html lang> is deliberately NOT
+  // used: many Norwegian pages are tagged lang="en", and their login card must not flip.
+  var TEXT = {
+    nb: {
+      logout: 'Logg ut', login: 'Logg inn', register: 'Registrer', registerNew: 'Registrer ny konto',
+      placeholder: 'deg@epost.no', checkInbox: 'Sjekk innboksen din for påloggingslenken.',
+      sendingLink: 'Sender lenke…', creatingAccount: 'Oppretter konto…', sending: 'Sender…',
+      noAccess: 'Ingen tilgang', noAccessPre: 'Kontoen ', noAccessPost: ' har ikke tilgang til denne siden.',
+      sentTitle: 'Magisk lenke sendt!', sentPre: 'Sjekk innboksen din', sentAt: ' på ', sentPost: ' og klikk lenken for å logge inn.',
+      tryAnother: 'Prøv en annen e-post', emailLabel: 'E-postadresse', sendMagic: 'Send magisk lenke',
+      welcome: 'Velkommen til ', welcomeSub: 'Skriv inn e-posten din for å få en sikker påloggingslenke.',
+      terms: 'Ved å logge inn godtar du våre vilkår og personvernregler.', sendFailed: 'Kunne ikke sende lenke'
+    },
+    en: {
+      logout: 'Log out', login: 'Log in', register: 'Register', registerNew: 'Register a new account',
+      placeholder: 'you@example.com', checkInbox: 'Check your inbox for the sign-in link.',
+      sendingLink: 'Sending link…', creatingAccount: 'Creating account…', sending: 'Sending…',
+      noAccess: 'No access', noAccessPre: 'The account ', noAccessPost: ' does not have access to this page.',
+      sentTitle: 'Magic link sent!', sentPre: 'Check your inbox', sentAt: ' at ', sentPost: ' and click the link to sign in.',
+      tryAnother: 'Try another email', emailLabel: 'Email address', sendMagic: 'Send magic link',
+      welcome: 'Welcome to ', welcomeSub: 'Enter your email to receive a secure sign-in link.',
+      terms: 'By signing in you accept our terms and privacy policy.', sendFailed: 'Could not send the link'
+    }
+  };
+
   async function sendMagic(email) {
     var r = await fetch(AUTH + '/login/magic/send', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email, redirectUrl: currentUrl() })
     });
     var d = await r.json().catch(function () { return {}; });
-    if (!r.ok || !d.success) throw new Error(d.error || 'Kunne ikke sende lenke');
+    if (!r.ok || !d.success) { var err = new Error(d.error || 'Kunne ikke sende lenke'); if (!d.error) err.fallback = true; throw err; }
     return d;
   }
   async function registerThenSend(email) {
@@ -231,6 +258,9 @@ export const VEGVISR_AUTH_COMPONENT = `/**
     get requireRoles() { return (this.getAttribute('require-role') || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean); }
     get appName() { return this.getAttribute('app-name') || 'Vegvisr'; }
     get logo() { return this.getAttribute('logo') || ''; }
+    get lang() { return /^en/i.test(this.getAttribute('lang') || '') ? 'en' : 'nb'; }
+    t(key) { return (TEXT[this.lang] || TEXT.nb)[key]; }
+    errText(e) { return (e && e.fallback) ? this.t('sendFailed') : ((e && e.message) || this.t('sendFailed')); }
     connectedCallback() {
       var self = this;
       this._onChanged = function () { if (self.requireAuth) self.evaluate(); else self.refresh(); };
@@ -258,16 +288,16 @@ export const VEGVISR_AUTH_COMPONENT = `/**
     async doSignIn(email) {
       if (!email) return;
       this.lastEmail = email;
-      if (this.requireAuth) { this.card = 'working'; this.note = 'Sender lenke…'; this.render(); } else this.setMode('working', 'Sender lenke…');
+      if (this.requireAuth) { this.card = 'working'; this.note = this.t('sendingLink'); this.render(); } else this.setMode('working', this.t('sendingLink'));
       try { await sendMagic(email); if (this.requireAuth) { this.card = 'sent'; this.note = ''; this.render(); } else this.setMode('sent', ''); }
-      catch (e) { if (this.requireAuth) { this.card = 'form'; this.note = e.message; this.render(); } else this.setMode('signedout', e.message); }
+      catch (e) { if (this.requireAuth) { this.card = 'form'; this.note = this.errText(e); this.render(); } else this.setMode('signedout', this.errText(e)); }
     }
     async doRegister(email) {
       if (!email) return;
       this.lastEmail = email;
-      if (this.requireAuth) { this.card = 'working'; this.note = 'Oppretter konto…'; this.render(); } else this.setMode('working', 'Oppretter konto…');
+      if (this.requireAuth) { this.card = 'working'; this.note = this.t('creatingAccount'); this.render(); } else this.setMode('working', this.t('creatingAccount'));
       try { await registerThenSend(email); if (this.requireAuth) { this.card = 'sent'; this.note = ''; this.render(); } else this.setMode('sent', ''); }
-      catch (e) { if (this.requireAuth) { this.card = 'form'; this.note = e.message; this.render(); } else this.setMode('signedout', e.message); }
+      catch (e) { if (this.requireAuth) { this.card = 'form'; this.note = this.errText(e); this.render(); } else this.setMode('signedout', this.errText(e)); }
     }
     doLogout() {
       clearStore(); try { window.dispatchEvent(new Event(CHANGED)); } catch (e) {}
@@ -296,17 +326,17 @@ export const VEGVISR_AUTH_COMPONENT = `/**
       if (this.requireAuth) return this.renderGate();
       var body, me = readStore();
       if (this.mode === 'signedin' && me) {
-        body = '<span class="email">' + esc(me.email) + '</span><button class="btn out" id="lo">Logg ut</button>';
+        body = '<span class="email">' + esc(me.email) + '</span><button class="btn out" id="lo">' + esc(this.t('logout')) + '</button>';
       } else if (this.mode === 'sent') {
-        body = '<span class="msg">Sjekk innboksen din for påloggingslenken.</span>';
+        body = '<span class="msg">' + esc(this.t('checkInbox')) + '</span>';
       } else if (this.mode === 'working') {
         body = '<span class="msg">' + esc(this.note || '…') + '</span>';
       } else if (this.mode === 'loading') {
         body = '<span class="msg">…</span>';
       } else {
-        var reg = this.registerMode === 'open' ? '<button class="btn ghost" id="reg">Registrer</button>' : '';
-        body = '<input class="in" id="em" type="email" placeholder="deg@epost.no" autocomplete="email" />'
-          + '<button class="btn" id="si">Logg inn</button>' + reg
+        var reg = this.registerMode === 'open' ? '<button class="btn ghost" id="reg">' + esc(this.t('register')) + '</button>' : '';
+        body = '<input class="in" id="em" type="email" placeholder="' + esc(this.t('placeholder')) + '" autocomplete="email" />'
+          + '<button class="btn" id="si">' + esc(this.t('login')) + '</button>' + reg
           + (this.note ? '<span class="err">' + esc(this.note) + '</span>' : '');
       }
       this.shadowRoot.innerHTML = '<style>' + CSS + '</style><div class="bar">' + body + '</div>';
@@ -323,7 +353,7 @@ export const VEGVISR_AUTH_COMPONENT = `/**
       if (this.access === 'granted') {
         // reveal the page; float a signed-in bar (email + logout) at top-right so it is visible
         // regardless of where the <vegvisr-auth> element sits in the DOM (gates inject at page end).
-        root.innerHTML = '<style>' + CSS + '</style><div class="floatbar"><span class="email">' + esc((this.me && this.me.email) || '') + '</span><button class="btn out" id="lo">Logg ut</button></div>';
+        root.innerHTML = '<style>' + CSS + '</style><div class="floatbar"><span class="email">' + esc((this.me && this.me.email) || '') + '</span><button class="btn out" id="lo">' + esc(this.t('logout')) + '</button></div>';
         var lo = root.getElementById('lo'); if (lo) lo.onclick = function () { self.doLogout(); };
         this.hidePageLoginControls();
         return;
@@ -332,29 +362,29 @@ export const VEGVISR_AUTH_COMPONENT = `/**
       if (this.access === 'loading') {
         inner = '<div class="card">' + this.logoBlock() + '<div class="title">' + esc(this.appName) + '</div><div class="sub">' + IC_SPIN + '</div></div>';
       } else if (this.access === 'denied') {
-        inner = '<div class="card">' + this.logoBlock() + '<div class="title">Ingen tilgang</div>'
-          + '<div class="sub">Kontoen ' + esc((this.me && this.me.email) || '') + ' har ikke tilgang til denne siden.</div>'
-          + '<button class="gbtn" id="glo">Logg ut</button></div>';
+        inner = '<div class="card">' + this.logoBlock() + '<div class="title">' + esc(this.t('noAccess')) + '</div>'
+          + '<div class="sub">' + esc(this.t('noAccessPre')) + esc((this.me && this.me.email) || '') + esc(this.t('noAccessPost')) + '</div>'
+          + '<button class="gbtn" id="glo">' + esc(this.t('logout')) + '</button></div>';
       } else { // login
         var form;
         if (this.card === 'sent') {
-          form = '<div class="gsent">' + IC_CHECK + '<div class="gh">Magisk lenke sendt!</div>'
-            + '<div class="gp">Sjekk innboksen din' + (this.lastEmail ? ' på <b>' + esc(this.lastEmail) + '</b>' : '') + ' og klikk lenken for å logge inn.</div></div>'
-            + '<button class="linkbtn" id="gagain">Prøv en annen e-post</button>';
+          form = '<div class="gsent">' + IC_CHECK + '<div class="gh">' + esc(this.t('sentTitle')) + '</div>'
+            + '<div class="gp">' + esc(this.t('sentPre')) + (this.lastEmail ? esc(this.t('sentAt')) + '<b>' + esc(this.lastEmail) + '</b>' : '') + esc(this.t('sentPost')) + '</div></div>'
+            + '<button class="linkbtn" id="gagain">' + esc(this.t('tryAnother')) + '</button>';
         } else if (this.card === 'working') {
-          form = '<button class="gbtn" disabled>' + IC_SPIN + esc(this.note || 'Sender…') + '</button>';
+          form = '<button class="gbtn" disabled>' + IC_SPIN + esc(this.note || this.t('sending')) + '</button>';
         } else {
-          var reg = this.registerMode === 'open' ? '<button class="gbtn ghost" id="greg">Registrer ny konto</button>' : '';
-          form = '<label class="glabel" for="gem">E-postadresse</label>'
-            + '<div class="gfield">' + IC_MAIL + '<input class="gin" id="gem" type="email" placeholder="deg@epost.no" autocomplete="email" /></div>'
+          var reg = this.registerMode === 'open' ? '<button class="gbtn ghost" id="greg">' + esc(this.t('registerNew')) + '</button>' : '';
+          form = '<label class="glabel" for="gem">' + esc(this.t('emailLabel')) + '</label>'
+            + '<div class="gfield">' + IC_MAIL + '<input class="gin" id="gem" type="email" placeholder="' + esc(this.t('placeholder')) + '" autocomplete="email" /></div>'
             + (this.note ? '<div class="gerr">' + esc(this.note) + '</div>' : '')
-            + '<button class="gbtn" id="gsi">Send magisk lenke</button>' + reg;
+            + '<button class="gbtn" id="gsi">' + esc(this.t('sendMagic')) + '</button>' + reg;
         }
         inner = '<div class="card">' + this.logoBlock()
-          + '<div class="title">Velkommen til ' + esc(this.appName) + '</div>'
-          + '<div class="sub">Skriv inn e-posten din for å få en sikker påloggingslenke.</div>'
+          + '<div class="title">' + esc(this.t('welcome')) + esc(this.appName) + '</div>'
+          + '<div class="sub">' + esc(this.t('welcomeSub')) + '</div>'
           + form
-          + '<div class="gfoot">Ved å logge inn godtar du våre vilkår og personvernregler.</div></div>';
+          + '<div class="gfoot">' + esc(this.t('terms')) + '</div></div>';
       }
       root.innerHTML = '<style>' + CSS + '</style><div class="gate">' + inner + '</div>';
       var gem = root.getElementById('gem');
