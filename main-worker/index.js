@@ -1041,7 +1041,7 @@ export default {
         const db = env.vegvisr_org
         const user = await db
           .prepare(
-            'SELECT email, user_id, role, phone, phone_verified_at, profileimage, emailVerificationToken FROM config WHERE emailVerificationToken = ?',
+            'SELECT email, user_id, role, phone, phone_verified_at, profileimage, emailVerificationToken, data, display_name, address, street, postal_code, place, city, country FROM config WHERE emailVerificationToken = ?',
           )
           .bind(token)
           .first()
@@ -1052,9 +1052,59 @@ export default {
           )
         }
 
+        // Only the public profile leaves the server. config.data also holds settings.emailAccountPasswords,
+        // API tokens, branding and domain config; returning all of it (2026-09-19 → 21) sent every stored
+        // password to each browser that resolved an identity. The NIBI settings panel reads data.profile only.
+        let profile = {}
+        try {
+          const parsedData = user.data ? JSON.parse(user.data) : {}
+          profile = parsedData && typeof parsedData.profile === 'object' && parsedData.profile ? parsedData.profile : {}
+        } catch { profile = {} }
         return addCorsHeaders(
-          new Response(JSON.stringify(user), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+          new Response(JSON.stringify({ ...user, data: { profile } }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
         )
+      }
+
+      if (path === '/nibi-settings' && (method === 'GET' || method === 'PUT')) {
+        const authHeader = request.headers.get('Authorization') || ''
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+        if (!token) {
+          return addCorsHeaders(new Response(JSON.stringify({ error: 'Missing authorization token' }), { status: 401 }))
+        }
+        const db = env.vegvisr_org
+        const user = await db.prepare('SELECT user_id, data FROM config WHERE emailVerificationToken = ? LIMIT 1').bind(token).first()
+        if (!user) {
+          return addCorsHeaders(new Response(JSON.stringify({ error: 'Invalid token' }), { status: 401 }))
+        }
+        let data = {}
+        try { data = user.data ? JSON.parse(user.data) : {} } catch { data = {} }
+        const current = data.nibi_notifications && typeof data.nibi_notifications === 'object' ? data.nibi_notifications : {}
+        if (method === 'GET') {
+          return addCorsHeaders(new Response(JSON.stringify({
+            success: true,
+            preferences: {
+              sender_email: 'post@nibi.no',
+              graph_updates: current.graph_updates === true,
+              message_updates: current.message_updates === true,
+            },
+          }), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }))
+        }
+        const body = await request.json().catch(() => null)
+        if (!body || typeof body.graph_updates !== 'boolean' || typeof body.message_updates !== 'boolean') {
+          return addCorsHeaders(new Response(JSON.stringify({ error: 'graph_updates and message_updates must be boolean' }), { status: 400 }))
+        }
+        const nextData = {
+          ...data,
+          nibi_notifications: {
+            ...current,
+            sender_email: 'post@nibi.no',
+            graph_updates: body.graph_updates,
+            message_updates: body.message_updates,
+            updated_at: Date.now(),
+          },
+        }
+        await db.prepare('UPDATE config SET data = ? WHERE user_id = ?').bind(JSON.stringify(nextData), user.user_id).run()
+        return addCorsHeaders(new Response(JSON.stringify({ success: true, preferences: nextData.nibi_notifications }), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }))
       }
 
       // ── Profile image upload (R2) ──────────────────────────────────
