@@ -1881,13 +1881,42 @@ const extractYoutubeVideoId = (raw) => {
 // instead of on every graph listing.
 let publishedDomainRegistryCache = null
 
+async function notifyNibiGraphUpdate(env, graphId, graphData) {
+  const communityId = 'b1e906b9-8fab-45a0-8cb9-df5c7624b030'
+  if (graphId !== '37772e96-dea0-4c4e-b3d3-b7d4cc4eb6e4' || !env.CHAT_DB || !env.EMAIL_WORKER || !env.GRAPH_ALERT_SECRET) return
+  try {
+    const members = await env.CHAT_DB.prepare(
+      "SELECT user_id FROM group_members WHERE group_id = ? AND role != 'bot'"
+    ).bind(communityId).all()
+    const ids = (members.results || []).map(row => row.user_id).filter(Boolean)
+    if (!ids.length) return
+    const profiles = await env.vegvisr_org.prepare(
+      `SELECT email, data FROM config WHERE user_id IN (SELECT value FROM json_each(?))`
+    ).bind(JSON.stringify(ids)).all()
+    const title = String(graphData?.metadata?.title || 'NIBI Felles').replace(/[&<>"']/g, value => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[value]))
+    await Promise.all((profiles.results || []).flatMap(profile => {
+      let data = {}
+      try { data = profile.data ? JSON.parse(profile.data) : {} } catch {}
+      if (!profile.email || data?.nibi_notifications?.graph_updates !== true) return []
+      const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#0f172a;line-height:1.5"><p>Hovedsiden for NIBI er oppdatert.</p><p><strong>${title}</strong></p><p><a href="https://minside.nibi.no/" style="display:inline-block;padding:10px 18px;background:#17634b;color:#fff;border-radius:6px;text-decoration:none">Åpne Min side</a></p><p style="color:#64748b;font-size:13px">Du mottar dette fordi du har slått på oppdateringer på NIBI-siden i Innstillinger.</p></div>`
+      return [env.EMAIL_WORKER.fetch('https://email-worker/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-internal-auth': env.GRAPH_ALERT_SECRET, 'x-internal-caller': 'knowledge-graph-worker' },
+        body: JSON.stringify({ fromEmail: 'post@nibi.no', toEmail: profile.email, subject: 'NIBI: Hovedsiden er oppdatert', html }),
+      }).catch(error => console.warn('[NIBI graph alert] email failed:', error?.message || error))]
+    }))
+  } catch (error) {
+    console.warn('[NIBI graph alert] notification failed:', error?.message || error)
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const corsHeaders = {
       'Access-Control-Allow-Origin': request.headers.get('Origin') || '*',
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers':
-        'Content-Type, x-user-role, x-user-id, x-user-email, x-plugin-authenticated, X-API-Token, X-Email, Accept, Origin, Cache-Control',
+        'Content-Type, Authorization, x-user-role, x-user-id, x-user-email, x-plugin-authenticated, X-API-Token, X-Email, Accept, Origin, Cache-Control',
       'Access-Control-Allow-Credentials': 'true',
       'Access-Control-Max-Age': '86400',
     }
@@ -1911,6 +1940,30 @@ export default {
           worker: 'knowledge-graph-worker',
           timestamp: new Date().toISOString()
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
+
+      // Compatibility route for cached NIBI member pages. The chat worker is the
+      // canonical owner, but older bundles still call this host.
+      if (pathname === '/world-chat-groups' && request.method === 'GET') {
+        const token = request.headers.get('X-API-Token') || request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') || ''
+        if (!token || !env.CHAT_DB || !env.vegvisr_org) {
+          return new Response(JSON.stringify({ success: false, error: 'Authentication required' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+        const identity = await env.vegvisr_org.prepare(
+          'SELECT user_id FROM config WHERE emailVerificationToken = ? LIMIT 1'
+        ).bind(token).first()
+        if (!identity?.user_id) {
+          return new Response(JSON.stringify({ success: false, error: 'Invalid token' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+        const domain = url.searchParams.get('domain') || ''
+        const query = `SELECT g.*, gm.role, gm.joined_at
+          FROM groups g JOIN group_members gm ON gm.group_id = g.id
+          WHERE gm.user_id = ? AND substr(g.id, 1, 3) != 'dm_'
+            AND (g.archived_at IS NULL OR g.archived_at = 0)
+            ${domain === 'nibi.no' ? "AND lower(g.name) LIKE '%nibi%'" : ''}
+          ORDER BY g.updated_at DESC, g.name COLLATE NOCASE`
+        const { results } = await env.CHAT_DB.prepare(query).bind(identity.user_id).all()
+        return new Response(JSON.stringify({ success: true, domain: domain || null, owner_email: 'post@nibi.no', groups: results || [] }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
       }
 
       if (pathname === '/plugin/landing' && request.method === 'GET') {
@@ -3551,6 +3604,22 @@ export default {
                   '400': { description: 'email parameter is required' },
                   '403': { description: 'Superadmin required, or a token matching the requested email' }
                 }
+              }
+            },
+            '/world-main-chat-group': {
+              get: {
+                summary: 'Read the explicitly configured World main chat group',
+                description: 'Reads the main chat group configured for a World Founder domain. No group is inferred automatically.',
+                operationId: 'getWorldMainChatGroup',
+                parameters: [{ name: 'domain', in: 'query', required: true, schema: { type: 'string' } }],
+                responses: { '200': { description: 'Configured main group or null' }, '403': { description: 'Superadmin required' } }
+              },
+              post: {
+                summary: 'Set or change the World main chat group',
+                description: 'Explicitly sets the main chat group by exact group ID. Never creates or infers a group.',
+                operationId: 'setWorldMainChatGroup',
+                requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['domain', 'group_id'], properties: { domain: { type: 'string' }, group_id: { type: 'string' } } } } } },
+                responses: { '200': { description: 'Main group saved' }, '400': { description: 'Invalid domain or group' }, '403': { description: 'Superadmin required' } }
               }
             },
             '/restoreGraph': {
@@ -6688,8 +6757,38 @@ export default {
         }
       }
 
+      if (pathname === '/world-main-chat-group' && (request.method === 'GET' || request.method === 'POST')) {
+        try {
+          if (String(request.headers.get('x-user-role') || '').trim() !== 'Superadmin') return new Response(JSON.stringify({ error: 'Superadmin required' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+          await env.vegvisr_org.prepare('ALTER TABLE world_founders ADD COLUMN main_chat_group_id TEXT').run().catch(() => {})
+          let domain = String(url.searchParams.get('domain') || '').trim().toLowerCase()
+          let groupId = ''
+          if (request.method === 'POST') {
+            const body = await request.json().catch(() => ({}))
+            domain = String(body.domain || domain).trim().toLowerCase()
+            groupId = String(body.group_id || '').trim()
+          }
+          if (!domain || !domain.includes('.')) return new Response(JSON.stringify({ error: 'domain is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+          const world = await env.vegvisr_org.prepare('SELECT world_name, domain FROM world_founders WHERE domain = ? LIMIT 1').bind(domain).first()
+          if (!world) return new Response(JSON.stringify({ error: `World ${domain} is not registered` }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+          if (request.method === 'POST') {
+            if (!groupId) return new Response(JSON.stringify({ error: 'group_id is required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+            const group = await env.CHAT_DB.prepare('SELECT id FROM groups WHERE id = ? LIMIT 1').bind(groupId).first()
+            if (!group) return new Response(JSON.stringify({ error: `Chat group ${groupId} does not exist` }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+            await env.vegvisr_org.prepare('UPDATE world_founders SET main_chat_group_id = ? WHERE domain = ?').bind(groupId, domain).run()
+          }
+          const stored = await env.vegvisr_org.prepare('SELECT main_chat_group_id FROM world_founders WHERE domain = ? LIMIT 1').bind(domain).first()
+          const configuredId = stored?.main_chat_group_id || null
+          const group = configuredId ? await env.CHAT_DB.prepare('SELECT id, name, (SELECT COUNT(*) FROM group_messages WHERE group_id = groups.id) AS messages, (SELECT COUNT(*) FROM group_members WHERE group_id = groups.id) AS members FROM groups WHERE id = ? LIMIT 1').bind(configuredId).first() : null
+          return new Response(JSON.stringify({ success: true, domain, world_name: world.world_name, main_chat_group_id: configuredId, group: group || null }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        } catch (err) {
+          return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+        }
+      }
+
       if (pathname === '/onboarding-status' && request.method === 'GET') {
         try {
+          await env.vegvisr_org.prepare('ALTER TABLE world_founders ADD COLUMN main_chat_group_id TEXT').run().catch(() => {})
           const email = url.searchParams.get('email')
           // Gate: Superadmin (any email) OR self — an X-API-Token resolving to a config row whose
           // OWN email equals the requested ?email may read their own report (a founder's MyPage).
@@ -6749,7 +6848,7 @@ export default {
           let registryWorld = null
           try {
             const fr = await env.vegvisr_org
-              .prepare("SELECT world_name, domain, cf_account_id, meta_area_tag, account_holder_email FROM world_founders WHERE founder_email = ?1 OR account_holder_email = ?1 ORDER BY created_at")
+              .prepare("SELECT world_name, domain, cf_account_id, meta_area_tag, account_holder_email, main_chat_group_id FROM world_founders WHERE founder_email = ?1 OR account_holder_email = ?1 ORDER BY created_at")
               .bind(email).all()
             founderOf = (fr && fr.results) || []
           } catch (_) { /* table may not exist yet */ }
@@ -7080,12 +7179,17 @@ export default {
             const likeName = `%${worldTagStem.toLowerCase()}%`
             const tagLike = `%#${worldTagStem}%`
             let worldGroups = [], worldMsgs = 0, worldMembers = 0, memberUids = []
+            const configuredMainGroupId = registryWorld && registryWorld.main_chat_group_id ? String(registryWorld.main_chat_group_id) : null
             if (env.CHAT_DB) {
               try {
-                const gr = await env.CHAT_DB.prepare("SELECT g.id, g.name, (SELECT COUNT(*) FROM group_messages WHERE group_id=g.id) AS msgs, (SELECT COUNT(*) FROM group_members WHERE group_id=g.id) AS members FROM groups g WHERE lower(g.name) LIKE ?").bind(likeName).all()
+                const gr = configuredMainGroupId
+                  ? await env.CHAT_DB.prepare("SELECT g.id, g.name, (SELECT COUNT(*) FROM group_messages WHERE group_id=g.id) AS msgs, (SELECT COUNT(*) FROM group_members WHERE group_id=g.id) AS members FROM groups g WHERE g.id = ?").bind(configuredMainGroupId).all()
+                  : await env.CHAT_DB.prepare("SELECT g.id, g.name, (SELECT COUNT(*) FROM group_messages WHERE group_id=g.id) AS msgs, (SELECT COUNT(*) FROM group_members WHERE group_id=g.id) AS members FROM groups g WHERE lower(g.name) LIKE ?").bind(likeName).all()
                 worldGroups = (gr.results || []).map(r => ({ id: r.id, name: r.name, messages: r.msgs || 0, members: r.members || 0 }))
                 worldMsgs = worldGroups.reduce((s, g) => s + (g.messages || 0), 0)
-                const mr = await env.CHAT_DB.prepare("SELECT DISTINCT user_id FROM group_members WHERE group_id IN (SELECT id FROM groups WHERE lower(name) LIKE ?)").bind(likeName).all()
+                const mr = configuredMainGroupId
+                  ? await env.CHAT_DB.prepare("SELECT DISTINCT user_id FROM group_members WHERE group_id = ?").bind(configuredMainGroupId).all()
+                  : await env.CHAT_DB.prepare("SELECT DISTINCT user_id FROM group_members WHERE group_id IN (SELECT id FROM groups WHERE lower(name) LIKE ?)").bind(likeName).all()
                 memberUids = (mr.results || []).map(r => r.user_id).filter(Boolean)
                 worldMembers = memberUids.length
               } catch (_) { /* leave zeros */ }
@@ -7116,7 +7220,7 @@ export default {
             else { wVerdict = 'PARK'; wReason = 'no World group activity or knowledge graphs' }
             world = {
               tag: `#${worldTagStem}`,
-              chat: { groups: worldGroups, messages: worldMsgs, members: worldMembers },
+              chat: { groups: worldGroups, messages: worldMsgs, members: worldMembers, main_group_id: configuredMainGroupId, main_group_configured: Boolean(configuredMainGroupId) },
               knowledge_graphs: { count: worldKgCount, creators: kgCreators },
               published_pages: publishedPages,
               published: hasPublishedPage,
@@ -7660,6 +7764,7 @@ export default {
           // Auto-classify in the background (non-blocking)
           if (ctx && ctx.waitUntil) {
             ctx.waitUntil(classifyAndStore(env, id, enrichedGraphData))
+            ctx.waitUntil(notifyNibiGraphUpdate(env, id, enrichedGraphData))
           }
 
           return new Response(
