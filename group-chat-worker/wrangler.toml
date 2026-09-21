@@ -1,0 +1,48 @@
+name = "group-chat-worker"
+
+main = "index.js"
+compatibility_date = "2025-01-15"
+
+# D1 Database binding for group chat
+[[d1_databases]]
+binding = "CHAT_DB"
+database_name = "hallo_vegvisr_chat"
+database_id = "1abe2080-33ae-442b-9552-5203caa6c0e0"
+
+[[d1_databases]]
+binding = "IDENTITY_DB"
+database_name = "vegvisr_org"
+database_id = "507d1efd-1dda-45ef-971f-52d2c8e8afe8"
+
+[vars]
+ENVIRONMENT = "production"
+# Public base for media URLs. Without it, buildMediaUrl derives the origin from
+# request.url — which for a worker-to-worker call (the Instagram attachment
+# ingest) is the synthetic service-binding host "group-chat-worker", producing
+# urls no browser can resolve. Matches what the normal upload path already emits.
+PUBLIC_MEDIA_BASE_URL = "https://group-chat-worker.torarnehave.workers.dev/media"
+# Fallback from-address when a group has no alert_sender_email set. MUST be on a
+# domain verified in Cloudflare → Email → Email Workers (Send), or
+# env.EMAIL.send() rejects it. vegr.ai is the user's configured send domain.
+ALERT_FROM_EMAIL = "noreply@vegr.ai"
+# INTERNAL_SHARED_SECRET is a secret, not a var. Set it to the SAME value the
+# email-worker uses:  npx wrangler secret put INTERNAL_SHARED_SECRET
+
+# Service binding to SMS auth worker
+[[services]]
+binding = "SMS_WORKER"
+service = "sms-gateway"
+
+[[r2_buckets]]
+binding = "CHAT_MEDIA"
+bucket_name = "hallo-vegvisr-chat-media"
+
+# Service binding to agent-worker for bot responses
+[[services]]
+binding = "AGENT_WORKER"
+service = "agent-worker"
+
+# Service binding to email-worker for owner-sent email alerts
+[[services]]
+binding = "EMAIL_WORKER"
+service = "email-worker"

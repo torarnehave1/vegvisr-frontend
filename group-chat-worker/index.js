@@ -3,6 +3,8 @@
 // name-preservation wrappers stripped. Variable names may differ from the original where
 // esbuild renamed to avoid collisions, and the original comments are gone.
 
+import { handleDirectChat, blockLegacyDirectAccess, isDirectGroup, directChatPaths } from './direct-chat.js';
+
 function generateInviteCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
   let code = "";
@@ -147,7 +149,7 @@ async function getGroupMemberTokens(env, groupId, excludeUserId) {
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-user-id, x-user-phone, x-user-email, X-File-Name, Range",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Token, x-user-id, x-user-phone, x-user-email, X-File-Name, Range",
   "Access-Control-Expose-Headers": "Content-Type, Content-Length, Accept-Ranges, Content-Range"
 };
 var jsonResponse = (data, status = 200) => new Response(JSON.stringify(data), {
@@ -162,13 +164,130 @@ async function readJson(request) {
     return null;
   }
 }
-var LINK_PREVIEW_ALLOWED_HOSTS = ["www.finn.no", "finn.no", "m.finn.no"];
-function extractOgTag(html, property) {
-  const match = html.match(
-    new RegExp(`<meta[^>]+property=["']${property}["'][^>]+content=["']([^"']*)["']`, "i")
-  ) || html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+property=["']${property}["']`, "i"));
-  return match ? match[1] : null;
-}
+// Any public https page may be previewed (2026-09-07). The finn.no allowlist this replaces meant
+// every new domain needed a worker edit — 57 published brand pages across nine zones, plus a
+// second Cloudflare account, none of them previewable. The guard below blocks what the allowlist
+// was really standing in for (internal targets, non-web schemes, unbounded bodies) without
+// enumerating who is allowed.
+var PREVIEW_TIMEOUT_MS = 8e3;
+var PREVIEW_MAX_BYTES = 512 * 1024;
+var PREVIEW_MAX_REDIRECTS = 3;
+// Suffixes that never name a public page. "arpa" also covers home.arpa and in-addr.arpa.
+var PREVIEW_BLOCKED_TLDS = ["local", "localhost", "internal", "intranet", "lan", "home", "corp", "onion", "test", "invalid", "arpa"];
+// The SSRF vector is an IP literal in the hostname — 127.0.0.1, 169.254.169.254 (cloud metadata),
+// 10.x, and their decimal/hex/IPv6 spellings (2130706433, 0x7f000001, [::1]). A page worth
+// previewing always has a DNS name, so requiring a letters-only TLD rejects every literal form in
+// one test instead of chasing private ranges.
+var isPublicHttpsUrl = (u) => {
+  if (u.protocol !== "https:") return false;
+  if (u.username || u.password) return false;
+  if (u.port && u.port !== "443") return false;
+  const host = u.hostname.toLowerCase();
+  if (!/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(host)) return false;
+  return !PREVIEW_BLOCKED_TLDS.includes(host.slice(host.lastIndexOf(".") + 1));
+};
+// Only the <head> is needed. await response.text() would pull a 50 MB page into worker memory,
+// so the body is read in chunks and abandoned at the cap.
+var readCappedText = async (response) => {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let text = "";
+  let total = 0;
+  while (total < PREVIEW_MAX_BYTES) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    text += decoder.decode(value, { stream: true });
+  }
+  try {
+    await reader.cancel();
+  } catch {
+  }
+  return text;
+};
+// Redirects are followed by hand so every hop is re-validated: a public host is free to redirect
+// to an internal one, which is exactly what an entry check alone would miss.
+var fetchPreviewPage = async (startUrl) => {
+  let current = startUrl;
+  for (let hop = 0; hop <= PREVIEW_MAX_REDIRECTS; hop++) {
+    const response = await fetch(current.toString(), {
+      redirect: "manual",
+      signal: AbortSignal.timeout(PREVIEW_TIMEOUT_MS),
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; VegvisrChatBot/1.0; +https://chat.vegvisr.org)",
+        Accept: "text/html,application/xhtml+xml"
+      },
+      cf: { cacheTtl: 3600, cacheEverything: true }
+    });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) return { error: "Redirect without a location", status: 502 };
+      let next;
+      try {
+        next = new URL(location, current);
+      } catch {
+        return { error: "Invalid redirect target", status: 502 };
+      }
+      if (!isPublicHttpsUrl(next)) return { error: "Redirect target not allowed", status: 400 };
+      current = next;
+      continue;
+    }
+    if (!response.ok) return { error: "Failed to fetch preview", status: 502 };
+    const contentType = (response.headers.get("content-type") || "").toLowerCase();
+    if (contentType && !contentType.includes("html") && !contentType.includes("xml")) {
+      return { error: "Not an HTML page", status: 415 };
+    }
+    return { html: await readCappedText(response), finalUrl: current };
+  }
+  return { error: "Too many redirects", status: 502 };
+};
+var HTML_ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+// Published pages carry entity-escaped attribute values — the imgix crops on the brand pages are
+// written &amp; — so an undecoded content attribute yields a URL the browser cannot load.
+var decodeEntities = (value) => String(value).replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (whole, body) => {
+  if (body[0] === "#") {
+    const isHex = body[1] === "x" || body[1] === "X";
+    const code = parseInt(isHex ? body.slice(2) : body.slice(1), isHex ? 16 : 10);
+    if (!Number.isFinite(code) || code <= 0 || code > 1114111) return whole;
+    try {
+      return String.fromCodePoint(code);
+    } catch {
+      return whole;
+    }
+  }
+  const key = body.toLowerCase();
+  return key in HTML_ENTITIES ? HTML_ENTITIES[key] : whole;
+});
+// og:* is declared with property=, twitter:* and description with name=, and either attribute can
+// sit before or after content=. Four shapes, one lookup. The value's own quote character is
+// captured and back-referenced: charlie.iamazing.page's description reads
+// content="Meet Charles 'Charlie' Muroza …", which a ["'] close-class cuts at the apostrophe.
+var extractMeta = (html, key) => {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patterns = [
+    new RegExp(`<meta[^>]+(?:property|name)=["']${escaped}["'][^>]*?content=(["'])([\\s\\S]*?)\\1`, "i"),
+    new RegExp(`<meta[^>]+content=(["'])([\\s\\S]*?)\\1[^>]*?(?:property|name)=["']${escaped}["']`, "i")
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match && match[2].trim()) return decodeEntities(match[2].trim());
+  }
+  return null;
+};
+var extractTitleTag = (html) => {
+  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (!match) return null;
+  return decodeEntities(match[1].replace(/\s+/g, " ").trim()) || null;
+};
+var absolutizeUrl = (value, base) => {
+  if (!value) return null;
+  try {
+    return new URL(value, base).toString();
+  } catch {
+    return null;
+  }
+};
 async function handleLinkPreview(request, env, searchParams) {
   const targetUrl = searchParams.get("url");
   if (!targetUrl) {
@@ -180,23 +299,35 @@ async function handleLinkPreview(request, env, searchParams) {
   } catch {
     return errorResponse("Invalid url");
   }
-  if (!LINK_PREVIEW_ALLOWED_HOSTS.includes(parsed.hostname)) {
-    return errorResponse("Host not supported", 400);
+  if (!isPublicHttpsUrl(parsed)) {
+    return errorResponse("Only public https pages can be previewed", 400);
   }
-  const upstream = await fetch(parsed.toString(), {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; VegvisrChatBot/1.0)" },
-    cf: { cacheTtl: 3600, cacheEverything: true }
-  });
-  if (!upstream.ok) {
+  let result;
+  try {
+    result = await fetchPreviewPage(parsed);
+  } catch {
     return errorResponse("Failed to fetch preview", 502);
   }
-  const html = await upstream.text();
+  if (result.error) {
+    return errorResponse(result.error, result.status);
+  }
+  const html = result.html;
+  const base = result.finalUrl.toString();
+  // og:* first, then twitter:*, then the plain <title>/description a page has even when it
+  // publishes no card metadata at all — a title-only card still beats a bare blue link.
   const preview = {
-    title: extractOgTag(html, "og:title"),
-    description: extractOgTag(html, "og:description"),
-    image: extractOgTag(html, "og:image"),
-    url: extractOgTag(html, "og:url") || parsed.toString()
+    title: extractMeta(html, "og:title") || extractMeta(html, "twitter:title") || extractTitleTag(html),
+    description: extractMeta(html, "og:description") || extractMeta(html, "twitter:description") || extractMeta(html, "description"),
+    image: absolutizeUrl(
+      extractMeta(html, "og:image") || extractMeta(html, "og:image:url") || extractMeta(html, "twitter:image") || extractMeta(html, "twitter:image:src"),
+      base
+    ),
+    url: extractMeta(html, "og:url") || base,
+    siteName: extractMeta(html, "og:site_name") || parsed.hostname.replace(/^www\./, "")
   };
+  if (!preview.title && !preview.description && !preview.image) {
+    return errorResponse("No preview metadata", 404);
+  }
   return jsonResponse({ success: true, preview }, 200);
 }
 function escapeHtml(value) {
@@ -206,6 +337,93 @@ function normalizeBotId(value) {
   const s = typeof value === "string" ? value.trim() : "";
   return s.startsWith("bot:") ? s.slice(4) : s;
 }
+function relayFailureText(parsed, status) {
+  const reason = parsed?.reason || parsed?.error || `HTTP ${status}`;
+  switch (reason) {
+    case "window_expired":
+    case "window_never_messaged":
+      return "Ikke sendt til Instagram: 24-timersvinduet er utl\u00f8pt. Instagram tillater svar f\u00f8rst n\u00e5r personen skriver til deg igjen.";
+    case "no_usable_connection":
+      return "Ikke sendt til Instagram: tilkoblingen mangler eller er utl\u00f8pt. Koble Instagram til p\u00e5 nytt.";
+    case "nothing_to_send":
+      return null;
+    case "not_an_instagram_thread":
+      return null;
+    default: {
+      // format_<ext>_not_supported_for_<type> — thrown before Meta is called.
+      const fmt = /^format_([a-z0-9]+)_not_supported_for_([a-z]+)$/.exec(reason);
+      if (fmt) {
+        const kind = fmt[2] === "audio" ? "lydmeldinger" : fmt[2] === "image" ? "bilder" : fmt[2] === "video" ? "video" : "filer";
+        return `Ikke sendt til Instagram: formatet .${fmt[1]} st\u00f8ttes ikke for ${kind}. Instagram godtar ${fmt[2] === "audio" ? "AAC, M4A, WAV eller MP4" : fmt[2] === "image" ? "PNG eller JPEG" : fmt[2] === "video" ? "MP4, OGG, AVI, MOV eller WEBM" : "PDF"}.`;
+      }
+      const unsupported = /^unsupported_message_type_(.+)$/.exec(reason);
+      if (unsupported) {
+        return `Ikke sendt til Instagram: meldingstypen "${unsupported[1]}" st\u00f8ttes ikke.`;
+      }
+      return `Ikke sendt til Instagram: ${reason}`;
+    }
+  }
+}
+
+// Writes the failure into the thread as a bot_error message, which the client
+// already renders as an error. Inserted directly rather than through the message
+// endpoint, so it cannot itself trigger another relay.
+async function postRelayFailureNotice(env, groupId, text) {
+  if (!text) return;
+  const now = Date.now();
+  await env.CHAT_DB.prepare(
+    `INSERT INTO group_messages (group_id, user_id, body, created_at, message_type)
+     VALUES (?, ?, ?, ?, 'bot_error')`
+  ).bind(groupId, "system:instagram", text, now).run();
+  await env.CHAT_DB.prepare("UPDATE groups SET updated_at = ? WHERE id = ?").bind(now, groupId).run();
+  console.log(`[IG relay] posted failure notice to ${groupId}: ${text}`);
+}
+
+async function relayToInstagramIfThread(env, ctx, groupId, text, label, media = null, messageId = null) {
+  // Groups created by the Instagram connector carry external_kind='instagram'.
+  // Checking the column costs one indexed read and avoids a subrequest on every
+  // message in every ordinary group.
+  if ((!text && !media?.url) || !env.AGENT_WORKER?.fetch) return;
+  ctx.waitUntil((async () => {
+    try {
+      const group = await env.CHAT_DB.prepare(
+        "SELECT external_kind FROM groups WHERE id = ?"
+      ).bind(groupId).first();
+      if (group?.external_kind !== "instagram") return;
+      const res = await env.AGENT_WORKER.fetch("https://agent-worker/instagram/relay", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Secret": env.INTERNAL_SHARED_SECRET || ""
+        },
+        body: JSON.stringify({
+          groupId,
+          text,
+          mediaUrl: media?.url || void 0,
+          messageType: media?.messageType || void 0,
+          // Idempotency key: a client retry re-inserts the message and would
+          // otherwise relay it to Instagram twice.
+          messageId: messageId || void 0
+        })
+      });
+      const out = await res.text();
+      console.log(`[IG relay ${label}] group=${groupId} status=${res.status} ${out.slice(0, 200)}`);
+      let parsed = null;
+      try { parsed = JSON.parse(out); } catch { parsed = null; }
+      if (!res.ok || !parsed?.relayed) {
+        await postRelayFailureNotice(env, groupId, relayFailureText(parsed, res.status));
+      }
+    } catch (err) {
+      // The chat message is already stored and visible; the Instagram hop is
+      // best-effort. But a silent failure is worse than none — the sender would
+      // believe a message was delivered that never left the building — so the
+      // reason is written into the thread where they will see it.
+      console.error(`[IG relay ${label}] error`, err);
+      await postRelayFailureNotice(env, groupId, `Ikke sendt til Instagram: ${err.message || "ukjent feil"}`).catch(() => {});
+    }
+  })());
+}
+
 async function validateUser(env, userId, phone, email) {
   if (!env.SMS_WORKER?.fetch) {
     return { ok: false, status: 500, error: "SMS worker service not configured" };
@@ -276,6 +494,39 @@ async function sendAlertEmail(env, fromEmail, toEmail, subject, html) {
     return { ok: false, error: err?.message || "email-worker call failed" };
   }
 }
+async function sendNibiMessageAlerts(env, groupId, authorId, body) {
+  if (!env.IDENTITY_DB || !env.EMAIL_WORKER?.fetch) return;
+  try {
+    const direct = await env.CHAT_DB.prepare(
+      "SELECT source_group_id FROM direct_chats WHERE group_id = ?"
+    ).bind(groupId).first();
+    const sourceGroupId = direct?.source_group_id || groupId;
+    const source = await env.CHAT_DB.prepare(
+      "SELECT id, name FROM groups WHERE id = ? AND archived_at IS NULL"
+    ).bind(sourceGroupId).first();
+    if (!source || String(source.name || '').trim().toLocaleLowerCase('nb') !== 'nibi felles') return;
+    const members = await env.CHAT_DB.prepare(
+      "SELECT user_id FROM group_members WHERE group_id = ? AND user_id != ? AND role != 'bot'"
+    ).bind(sourceGroupId, authorId).all();
+    const ids = (members.results || []).map(row => row.user_id).filter(Boolean);
+    if (!ids.length) return;
+    const profiles = await env.IDENTITY_DB.prepare(
+      `SELECT user_id, email, data FROM config
+       WHERE user_id IN (SELECT value FROM json_each(?))`
+    ).bind(JSON.stringify(ids)).all();
+    const sender = 'post@nibi.no';
+    const excerpt = String(body || '').trim().slice(0, 240);
+    await Promise.all((profiles.results || []).flatMap(profile => {
+      let data = {};
+      try { data = profile.data ? JSON.parse(profile.data) : {}; } catch {}
+      if (!profile.email || data?.nibi_notifications?.message_updates !== true) return [];
+      const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#0f172a;line-height:1.5"><p>Det er en ny melding i NIBI FELLES.</p><p>${escapeHtml(excerpt)}</p><p><a href="https://minside.nibi.no/" style="display:inline-block;padding:10px 18px;background:#17634b;color:#fff;border-radius:6px;text-decoration:none">Åpne Min side</a></p><p style="color:#64748b;font-size:13px">Du mottar dette fordi du har slått på relevante chatmeldinger i Innstillinger.</p></div>`;
+      return [sendAlertEmail(env, sender, profile.email, 'NIBI: Ny relevant chatmelding', html).catch(error => console.warn('[NIBI alert] message email failed:', error?.message || error))];
+    }));
+  } catch (error) {
+    console.warn('[NIBI alert] message notification failed:', error?.message || error);
+  }
+}
 async function fetchOwnerSenders(env, ownerEmail) {
   if (!env.EMAIL_WORKER?.fetch) {
     return { ok: false, error: "EMAIL_WORKER service binding not configured" };
@@ -317,6 +568,7 @@ async function fetchOwnerSenders(env, ownerEmail) {
   }
 }
 async function ensureMember(env, groupId, userId) {
+  if (isDirectGroup(groupId)) return false;
   const member = await env.CHAT_DB.prepare(
     "SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?"
   ).bind(groupId, userId).first();
@@ -568,12 +820,39 @@ var index_default = {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
     try {
+      const directResponse = await handleDirectChat(request, env, jsonResponse, ctx);
+      if (directResponse) return directResponse;
+      if (await blockLegacyDirectAccess(request, env)) return errorResponse('Use authenticated direct chat routes', 403);
       if (pathname === "/health") {
         return jsonResponse({
           status: "healthy",
           service: "group-chat-worker",
           database: "hallo_vegvisr_chat",
           timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        });
+      }
+      if (pathname === "/world-chat-groups" && request.method === "GET") {
+        const token = request.headers.get("X-API-Token") || request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") || "";
+        const domain = new URL(request.url).searchParams.get("domain") || "";
+        if (!token || !env.IDENTITY_DB) return errorResponse("Authentication required", 401);
+        const identity = await env.IDENTITY_DB.prepare(
+          "SELECT user_id, email FROM config WHERE emailVerificationToken = ? LIMIT 1"
+        ).bind(token).first();
+        if (!identity?.user_id) return errorResponse("Invalid token", 401);
+        const query = `SELECT g.*, gm.role, gm.joined_at
+           FROM groups g JOIN group_members gm ON gm.group_id = g.id
+           WHERE gm.user_id = ? AND substr(g.id, 1, 3) != 'dm_'
+             AND (g.archived_at IS NULL OR g.archived_at = 0)
+             ${domain === 'nibi.no' ? "AND lower(g.name) LIKE '%nibi%'" : ""}
+           ORDER BY g.updated_at DESC, g.name COLLATE NOCASE`;
+        const { results } = await env.CHAT_DB.prepare(
+          query
+        ).bind(identity.user_id).all();
+        return jsonResponse({
+          success: true,
+          domain: domain || null,
+          owner_email: "post@nibi.no",
+          groups: results || [],
         });
       }
       if (pathname === "/openapi.json" && request.method === "GET") {
@@ -604,7 +883,9 @@ var index_default = {
             description: "D1-backed polling chat API for Hallo Vegvisr. Provides group management, messaging, media upload, polls, reactions, invite links, push notification registration, and bot management."
           },
           servers: [{ url: url.origin }],
+          components: { securitySchemes: { directSession: { type: 'http', scheme: 'bearer', description: 'Member session token, verified against config.emailVerificationToken. Never put tokens in URLs.' } } },
           paths: {
+            ...directChatPaths,
             "/health": {
               get: {
                 summary: "Health check",
@@ -1155,6 +1436,47 @@ var index_default = {
       if (pathname === "/link-preview" && request.method === "GET") {
         return await handleLinkPreview(request, env, searchParams);
       }
+      // POST /internal/media-ingest — worker-to-worker. agent-worker calls this
+      // with the BYTES of an inbound Instagram attachment so they land in R2
+      // and get a durable url. Meta serves attachments from signed CDN links
+      // that expire, so storing their url directly would leave holes in the
+      // chat history later; re-hosting avoids that.
+      //
+      // Secret-gated, not user-authenticated: the caller is a worker acting on a
+      // webhook Meta already authenticated by signature.
+      if (pathname === "/internal/media-ingest" && request.method === "POST") {
+        const provided = request.headers.get("x-internal-secret") || "";
+        const expected = env.INTERNAL_SHARED_SECRET || "";
+        if (!expected || provided !== expected) {
+          return errorResponse("Forbidden", 403);
+        }
+        if (!env.CHAT_MEDIA) return errorResponse("CHAT_MEDIA bucket not configured", 500);
+        const groupId = request.headers.get("x-group-id") || "";
+        const contentType = request.headers.get("x-media-content-type") || "application/octet-stream";
+        const fileName = request.headers.get("x-file-name") || "attachment";
+        if (!groupId) return errorResponse("x-group-id required");
+        const ext = guessExtensionFromFileName(fileName);
+        const objectKey = `media/${groupId}/${crypto.randomUUID()}${ext}`;
+        try {
+          // Buffer before the put: a forwarded stream arrives chunked with no
+          // Content-Length, and R2 rejects a stream of unknown length
+          // ("must have a known length"). Meta caps attachments at 25MB, well
+          // inside the worker memory budget.
+          const bytes = await request.arrayBuffer();
+          if (bytes.byteLength === 0) return errorResponse("Empty body", 400);
+          if (bytes.byteLength > MAX_MEDIA_BYTES) {
+            return errorResponse(`Media too large. Max ${MAX_MEDIA_BYTES} bytes`, 413);
+          }
+          await env.CHAT_MEDIA.put(objectKey, bytes, { httpMetadata: { contentType } });
+        } catch (err) {
+          console.error("[media-ingest] put failed", err);
+          return errorResponse(`Store failed: ${String(err?.message || err)}`, 502);
+        }
+        const mediaUrl = buildMediaUrl(request, env, objectKey);
+        console.log(`[media-ingest] stored ${objectKey} for group ${groupId}`);
+        return jsonResponse({ success: true, objectKey, mediaUrl, contentType });
+      }
+
       if (pathname === "/media" && (request.method === "GET" || request.method === "HEAD")) {
         const response = await handleMediaFetch(request, env, searchParams);
         if (request.method === "HEAD") {
@@ -1295,7 +1617,7 @@ var index_default = {
         let query = `SELECT g.*, gm.role, gm.joined_at
            FROM groups g
            JOIN group_members gm ON g.id = gm.group_id
-           WHERE gm.user_id = ?`;
+           WHERE gm.user_id = ? AND substr(g.id, 1, 3) != 'dm_'`;
         const params = [userId];
         if (!(includeArchived && isSuperAdmin)) {
           query += " AND (g.archived_at IS NULL OR g.archived_at = 0)";
@@ -1747,6 +2069,9 @@ var index_default = {
           "UPDATE groups SET updated_at = ? WHERE id = ?"
         ).bind(createdAt, groupId).run();
         const botUserId = userId.startsWith("bot:") ? userId : null;
+        if (!botUserId && storedBody) {
+          ctx.waitUntil(sendNibiMessageAlerts(env, groupId, userId, storedBody));
+        }
         if (!botUserId && storedBody && env.AGENT_WORKER) {
           const botMentions = storedBody.match(/@([a-z0-9_-]+)/g) || [];
           if (botMentions.length > 0) {
@@ -1826,6 +2151,10 @@ var index_default = {
             })());
           }
         }
+        relayToInstagramIfThread(env, ctx, groupId, storedBody, "user", {
+          url: messageType === "voice" ? audioUrl : mediaUrl,
+          messageType
+        }, result.meta.last_row_id);
         const isSuperadmin = auth.role === "Superadmin";
         if (isSuperadmin) {
           console.log("[Push] Superadmin sending message, triggering push notifications");
@@ -2881,6 +3210,49 @@ var index_default = {
         ).bind(groupId).all();
         return jsonResponse({ success: true, bots: bots.results || [] });
       }
+      // Approve a contact enquiry from inside the chat group — the action behind the Approve
+      // button on a contact_request card. The clicking Superadmin is authenticated here with
+      // the same user_id + phone the rest of this API uses. The registration and the branded
+      // magic-link mail happen in agent-worker, which is the only worker holding vegvisr_org,
+      // the knowledge graph and the email sender together; this route just carries the
+      // authenticated decision across.
+      if (pathname === "/contact-requests/approve" && request.method === "POST") {
+        const body = await readJson(request);
+        if (!body) return errorResponse("Invalid JSON body");
+        const userId = (body.user_id || "").trim();
+        const phone = (body.phone || "").trim();
+        const email = body.email ? String(body.email).trim() : "";
+        if (!userId || !phone) return errorResponse("user_id and phone required");
+        const auth = await validateUser(env, userId, phone, email);
+        if (!auth.ok) return errorResponse(auth.error, auth.status);
+        if (auth.role !== "Superadmin") return errorResponse("Only Superadmin can approve contact requests", 403);
+        const contactEmail = String(body.contact_email || "").trim().toLowerCase();
+        const domain = String(body.domain || "").trim().toLowerCase();
+        if (!contactEmail || !domain) return errorResponse("contact_email and domain are required");
+        if (!env.AGENT_WORKER) return errorResponse("AGENT_WORKER binding not configured", 500);
+        if (!env.INTERNAL_SHARED_SECRET) return errorResponse("INTERNAL_SHARED_SECRET not configured on this worker", 500);
+        let res, result;
+        try {
+          res = await env.AGENT_WORKER.fetch("https://agent-worker/contact/approve", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-internal-secret": env.INTERNAL_SHARED_SECRET },
+            body: JSON.stringify({
+              approverUserId: userId,
+              email: contactEmail,
+              name: String(body.contact_name || "").trim(),
+              phone: String(body.contact_phone || "").trim(),
+              domain
+            })
+          });
+          result = await res.json().catch(() => null);
+        } catch (e) {
+          return errorResponse(`Approval failed: ${e.message}`, 502);
+        }
+        if (!res.ok || !result || result.success !== true) {
+          return errorResponse((result && result.error) || `Approval failed (${res.status})`, res.status >= 400 ? res.status : 502);
+        }
+        return jsonResponse(result);
+      }
       if (pathname === "/bot-message" && request.method === "POST") {
         const body = await readJson(request);
         if (!body) return errorResponse("Invalid JSON body");
@@ -2888,6 +3260,13 @@ var index_default = {
         const groupId = (body.group_id || "").trim();
         const text = (body.body || "").trim();
         const placeholderId = Number(body.placeholder_id) || null;
+        // Bots could only ever post plain text, so an enquiry arriving from brand-worker had to
+        // be prose and could carry no action. Allow a small whitelist of interactive types so a
+        // contact enquiry can render as a card the way a poll does. Anything unrecognised falls
+        // back to "text" rather than erroring — an unknown type must never drop a message.
+        const ALLOWED_BOT_MESSAGE_TYPES = new Set(["text", "contact_request"]);
+        const requestedType = String(body.message_type || "").trim();
+        const botMessageType = ALLOWED_BOT_MESSAGE_TYPES.has(requestedType) ? requestedType : "text";
         if (!botId || !groupId || !text) return errorResponse("bot_id, group_id, and body required");
         const membership = await env.CHAT_DB.prepare(
           "SELECT 1 FROM group_bot_members WHERE group_id = ? AND bot_id = ?"
@@ -2908,11 +3287,12 @@ var index_default = {
         } else {
           const result = await env.CHAT_DB.prepare(
             `INSERT INTO group_messages (group_id, user_id, body, created_at, message_type, sender_avatar_url)
-             VALUES (?, ?, ?, ?, 'text', ?)`
-          ).bind(groupId, botUserId, text, createdAt, bot.avatar_url || null).run();
+             VALUES (?, ?, ?, ?, ?, ?)`
+          ).bind(groupId, botUserId, text, createdAt, botMessageType, bot.avatar_url || null).run();
           finalMessageId = result.meta.last_row_id;
         }
         await env.CHAT_DB.prepare("UPDATE groups SET updated_at = ? WHERE id = ?").bind(createdAt, groupId).run();
+        relayToInstagramIfThread(env, ctx, groupId, text, "bot", null, finalMessageId);
         return jsonResponse({
           success: true,
           message: {
@@ -2921,7 +3301,7 @@ var index_default = {
             user_id: botUserId,
             body: text,
             created_at: createdAt,
-            message_type: "text",
+            message_type: placeholderId ? "text" : botMessageType,
             bot_name: bot.name,
             bot_username: bot.username,
             sender_avatar_url: bot.avatar_url || null
