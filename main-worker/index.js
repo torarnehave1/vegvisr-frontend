@@ -1052,10 +1052,16 @@ export default {
           )
         }
 
-        let parsedData = {}
-        try { parsedData = user.data ? JSON.parse(user.data) : {} } catch { parsedData = {} }
+        // Only the public profile leaves the server. config.data also holds settings.emailAccountPasswords,
+        // API tokens, branding and domain config; returning all of it (2026-09-19 → 21) sent every stored
+        // password to each browser that resolved an identity. The NIBI settings panel reads data.profile only.
+        let profile = {}
+        try {
+          const parsedData = user.data ? JSON.parse(user.data) : {}
+          profile = parsedData && typeof parsedData.profile === 'object' && parsedData.profile ? parsedData.profile : {}
+        } catch { profile = {} }
         return addCorsHeaders(
-          new Response(JSON.stringify({ ...user, data: parsedData }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+          new Response(JSON.stringify({ ...user, data: { profile } }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
         )
       }
 
