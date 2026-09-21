@@ -3,7 +3,7 @@
 // name-preservation wrappers stripped. Variable names may differ from the original where
 // esbuild renamed to avoid collisions, and the original comments are gone.
 
-import { handleDirectChat, blockLegacyDirectAccess, isDirectGroup, directChatPaths } from './direct-chat.js';
+import { handleDirectChat, blockLegacyDirectAccess, isDirectGroup, directChatPaths, MESSAGE_COLUMNS } from './direct-chat.js';
 
 function generateInviteCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
@@ -1080,6 +1080,7 @@ var index_default = {
             "/groups/{groupId}/messages/{messageId}": {
               patch: {
                 summary: "Update a message (transcript fields or body)",
+                description: "body: the author only, for text, voice, image, video and pdf messages; no owner or Superadmin override. Transcript fields: voice messages only; any member may fill an empty transcript, only the author may change an existing one. Returns the full message.",
                 operationId: "updateMessage",
                 parameters: [groupIdParam, { name: "messageId", in: "path", required: true, schema: { type: "integer" }, description: "Message ID" }],
                 requestBody: {
@@ -1088,6 +1089,7 @@ var index_default = {
                 },
                 responses: {
                   "200": { description: "Message updated", content: { "application/json": { schema: { type: "object", properties: { ...successProp, message: { type: "object" } } } } } },
+                  "403": { description: "Not a member, not the author of the text, or changing someone else's existing transcript", content: { "application/json": { schema: errorSchema } } },
                   "404": { description: "Message not found", content: { "application/json": { schema: errorSchema } } }
                 }
               },
@@ -2228,6 +2230,9 @@ var index_default = {
         const phone = (body.phone || "").trim();
         const email = body.email ? String(body.email).trim() : "";
         const newBody = typeof body.body === "string" ? body.body.trim() : null;
+        if (newBody === "") {
+          return errorResponse("Message body cannot be empty");
+        }
         const transcriptText = body.transcript_text ? String(body.transcript_text) : null;
         const transcriptLang = body.transcript_lang ? String(body.transcript_lang) : null;
         const transcriptionStatus = body.transcription_status ? String(body.transcription_status) : null;
@@ -2238,7 +2243,7 @@ var index_default = {
           return errorResponse("phone required");
         }
         if (!newBody && !transcriptText && !transcriptLang && !transcriptionStatus) {
-          return errorResponse("No transcript fields provided");
+          return errorResponse("Nothing to update");
         }
         const auth = await validateUser(env, userId, phone, email);
         if (!auth.ok) {
@@ -2249,10 +2254,38 @@ var index_default = {
           return errorResponse("Not a group member", 403);
         }
         const existing = await env.CHAT_DB.prepare(
-          `SELECT id FROM group_messages WHERE id = ? AND group_id = ?`
+          `SELECT id, user_id, message_type, transcript_text, transcript_lang FROM group_messages WHERE id = ? AND group_id = ?`
         ).bind(messageId, groupId).first();
         if (!existing) {
           return errorResponse("Message not found", 404);
+        }
+        // Text belongs to its author: nobody else edits it, owners and Superadmin included
+        // (they can delete, not put words in someone's mouth). Transcripts are derived from
+        // a voice recording, and any member may fill an empty one (the web and Flutter apps
+        // transcribe other people's voice notes); once filled, only the author changes it.
+        const isAuthor = existing.user_id === userId;
+        const messageType = existing.message_type || "text";
+        if (newBody !== null) {
+          if (!isAuthor) {
+            return errorResponse("Only the author can edit this message", 403);
+          }
+          if (!["text", "voice", "image", "video", "pdf"].includes(messageType)) {
+            return errorResponse("This message type cannot be edited");
+          }
+        }
+        if (transcriptText !== null || transcriptLang !== null || transcriptionStatus !== null) {
+          if (messageType !== "voice") {
+            return errorResponse("Transcripts belong to voice messages");
+          }
+          const storedTranscript = String(existing.transcript_text || "").trim();
+          const changesTranscript = storedTranscript !== "" && (
+            (transcriptText !== null && transcriptText !== existing.transcript_text) ||
+            (transcriptLang !== null && existing.transcript_lang && transcriptLang !== existing.transcript_lang) ||
+            (transcriptionStatus !== null && transcriptionStatus !== "complete")
+          );
+          if (!isAuthor && changesTranscript) {
+            return errorResponse("Only the author can change an existing transcript", 403);
+          }
         }
         await env.CHAT_DB.prepare(
           `UPDATE group_messages
@@ -2263,11 +2296,7 @@ var index_default = {
            WHERE id = ? AND group_id = ?`
         ).bind(newBody, transcriptText, transcriptLang, transcriptionStatus, messageId, groupId).run();
         const updated = await env.CHAT_DB.prepare(
-          `SELECT id, group_id, user_id, body, created_at,
-                  message_type, audio_url, audio_duration_ms,
-                  transcript_text, transcript_lang, transcription_status
-           FROM group_messages
-           WHERE id = ?`
+          `SELECT ${MESSAGE_COLUMNS} FROM group_messages WHERE id = ?`
         ).bind(messageId).first();
         return jsonResponse({ success: true, message: updated });
       }
