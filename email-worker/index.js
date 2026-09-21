@@ -75,6 +75,12 @@ async function resolveCaller(request, env2) {
   const internalAuth = request.headers.get("x-internal-auth") || "";
   const internalCaller = request.headers.get("x-internal-caller") || "";
   if (internalAuth) {
+    if (internalCaller === "knowledge-graph-worker" && env2.GRAPH_ALERT_SECRET) {
+      if (internalAuth !== env2.GRAPH_ALERT_SECRET) {
+        return { ok: false, status: 401, error: "invalid graph alert secret" };
+      }
+      return { ok: true, email: "post@nibi.no", mode: "graph-internal" };
+    }
     if (!env2.INTERNAL_SHARED_SECRET) {
       return { ok: false, status: 500, error: "INTERNAL_SHARED_SECRET not configured on this worker" };
     }
@@ -217,7 +223,10 @@ async function getMagicLink(env2, token) {
 async function markMagicLinkUsed(env2, token) {
   await env2.vegvisr_org.prepare(`UPDATE ${MAGIC_LINK_TABLE} SET used = 1, used_at = ?1 WHERE token = ?2`).bind((/* @__PURE__ */ new Date()).toISOString(), token).run();
 }
-async function resolveWorldEmailTemplate(env2, domain2, purpose, preferredLangs = ["no", "en"]) {
+// Load the nodes of a World's email graph (the SSOT for that domain's mail identity).
+// Extracted so the SENDER can be resolved from the same graph as the template — previously
+// only the template path read it, so brand-level settings could not influence sender choice.
+async function loadWorldEmailNodes(env2, domain2) {
   if (!domain2 || !env2.KNOWLEDGE_GRAPH_WORKER)
     return null;
   try {
@@ -239,7 +248,24 @@ async function resolveWorldEmailTemplate(env2, domain2, purpose, preferredLangs 
       return null;
     const graph = await res.json().catch(() => null);
     const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
-    if (!nodes.length)
+    return nodes.length ? nodes : null;
+  } catch (e) {
+    console.error("[loadWorldEmailNodes] error:", e?.message);
+    return null;
+  }
+}
+// The brand metadata alone (name/logo/accent/fromName/footer/fromEmail).
+async function resolveWorldEmailBrand(env2, domain2) {
+  const nodes = await loadWorldEmailNodes(env2, domain2);
+  if (!nodes)
+    return null;
+  const brandNode = nodes.find((n) => (n.type || "").toLowerCase() === "email-brand");
+  return brandNode && brandNode.metadata || null;
+}
+async function resolveWorldEmailTemplate(env2, domain2, purpose, preferredLangs = ["no", "en"]) {
+  try {
+    const nodes = await loadWorldEmailNodes(env2, domain2);
+    if (!nodes)
       return null;
     const brandNode = nodes.find((n) => (n.type || "").toLowerCase() === "email-brand");
     const brand = brandNode && brandNode.metadata || {};
@@ -418,13 +444,40 @@ async function resolveWhiteLabelSender(env2, redirectUrl) {
       break;
     }
   }
+  // Platform domains (domains.kind='platform', e.g. vegr.ai) have no World founder — the
+  // System Owner owns their mail identity. Without this branch such a domain could never
+  // white-label and fell back to the generic Vegvisr sender (measured 2026-09-10:
+  // vegr.ai -> whiteLabel:false, vegvisr.org@gmail.com). Strictly additive: it is only
+  // reached when no founder row matched, which previously returned null outright.
+  if (!founderEmail) {
+    for (const cand of domainCandidates(host)) {
+      const dom = await env2.vegvisr_org.prepare("SELECT kind FROM domains WHERE domain = ?").bind(cand).first();
+      if (dom?.kind === "platform") {
+        const owner = await env2.vegvisr_org.prepare("SELECT email FROM system_owners LIMIT 1").first();
+        if (owner?.email) {
+          founderEmail = owner.email;
+          matchedDomain = cand;
+        }
+        break;
+      }
+    }
+  }
   if (!founderEmail)
     return null;
   const data2 = await loadUserSettings(env2, founderEmail);
   const settings = data2.settings || {};
   const accounts2 = Array.isArray(settings.emailAccounts) ? settings.emailAccounts : [];
   const passwords2 = settings.emailAccountPasswords || {};
-  const account2 = accounts2.find((a) => a.email && a.email.toLowerCase().endsWith("@" + matchedDomain) && passwords2[a.id]) || accounts2.find((a) => a.isDefault && passwords2[a.id]) || accounts2.find((a) => passwords2[a.id]);
+  // A World may NAME its sending address in its email-brand node (metadata.fromEmail).
+  // Prefer it. The heuristic below only INFERS a sender — it takes an account on the same
+  // domain, else the profile default — and picks the wrong address whenever the intended
+  // sender lives on another domain: for vegr.ai it lands on a personal gmail rather than
+  // post@universi.no. Falls through to the original heuristic when unset, so every domain
+  // without a brand fromEmail behaves exactly as before.
+  const brandMeta = await resolveWorldEmailBrand(env2, matchedDomain);
+  const brandFrom = String(brandMeta?.fromEmail || "").trim().toLowerCase();
+  const brandNamed = brandFrom ? accounts2.find((a) => a.email && a.email.toLowerCase() === brandFrom && passwords2[a.id]) : null;
+  const account2 = brandNamed || accounts2.find((a) => a.email && a.email.toLowerCase().endsWith("@" + matchedDomain) && passwords2[a.id]) || accounts2.find((a) => a.isDefault && passwords2[a.id]) || accounts2.find((a) => passwords2[a.id]);
   if (!account2)
     return null;
   const appPassword2 = passwords2[account2.id];
@@ -468,6 +521,44 @@ async function isLoginAllowed(env2, redirectUrl, targetEmail) {
         return true;
     } catch (err) {
       console.warn("world_founders check failed:", err);
+    }
+  }
+  // NIBI member access: membership in the World owner's NIBI Felles group is
+  // the approval signal for minside.nibi.no. This is checked server-side before
+  // sending a magic link; it is not a frontend bypass and does not affect other Worlds.
+  if (env2.CHAT_DB && domainCandidates(host).includes('nibi.no')) {
+    try {
+      const profile = await env2.vegvisr_org.prepare(
+        'SELECT user_id FROM config WHERE lower(email) = ? LIMIT 1'
+      ).bind(email).first()
+      if (!profile?.user_id) return false
+      const member = await env2.CHAT_DB.prepare(`
+        SELECT 1
+        FROM groups g
+        JOIN group_members gm ON gm.group_id = g.id
+        WHERE lower(g.name) = 'nibi felles' AND g.archived_at IS NULL AND gm.user_id = ?
+        LIMIT 1
+      `).bind(profile.user_id).first()
+      if (member) return true
+    } catch (err) {
+      console.warn('NIBI chat membership check failed:', err)
+    }
+  }
+  // A platform domain (domains.kind='platform', e.g. vegr.ai) is the product's own front door,
+  // not an invite-only client World: any REGISTERED user may be sent a login link there. The
+  // config row IS the record of approval — on this flow a Superadmin approves an enquiry in the
+  // chat group and that creates the account. World domains keep the founder-only rule verbatim.
+  // Additive: it can only grant access previously refused, and an unregistered address is still
+  // refused. Before this, a registered Admin got 403 on vegr.ai (measured 2026-09-10).
+  for (const cand of domainCandidates(host)) {
+    try {
+      const dom = await env2.vegvisr_org.prepare("SELECT kind FROM domains WHERE domain = ?").bind(cand).first();
+      if (dom?.kind === "platform") {
+        const u = await env2.vegvisr_org.prepare("SELECT 1 FROM config WHERE lower(email) = ?").bind(email).first();
+        return !!u;
+      }
+    } catch (err) {
+      console.warn("platform domain check failed:", err);
     }
   }
   return false;
