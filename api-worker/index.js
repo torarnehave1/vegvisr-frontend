@@ -5034,17 +5034,26 @@ const handleUpdateSandman = async (request, env) => {
 // constant as vemotion-worker (proven in production).
 const WORKER_AI_GEMMA_MODEL = '@cf/google/gemma-4-26b-a4b-it'
 
+// This map is what /worker-ai/models serves, and the editor's model picker renders it
+// verbatim — so every id here must actually answer. Each was verified through
+// /worker-ai/chat on 2026-09-12; do not add one that has not been.
+// Haiku first: switching provider selects the first entry, and that should be the fast one.
 const WORKER_AI_MODELS_MAP = {
   anthropic: [
     {
       id: 'claude-haiku-4-5-20251001',
       name: 'Claude Haiku 4.5',
-      description: 'Anthropic via anthropic-worker service binding',
+      description: 'Fastest Claude — seconds, not tens of seconds. Good default.',
     },
     {
-      id: 'claude-sonnet-4-5-20250929',
-      name: 'Claude Sonnet 4.5',
-      description: 'Anthropic via anthropic-worker service binding',
+      id: 'claude-sonnet-4-6',
+      name: 'Claude Sonnet 4.6',
+      description: 'Balanced Claude for longer writing and reasoning.',
+    },
+    {
+      id: 'claude-opus-4-8',
+      name: 'Claude Opus 4.8',
+      description: 'Most capable Claude — slowest and most expensive.',
     },
   ],
   gemma: [
