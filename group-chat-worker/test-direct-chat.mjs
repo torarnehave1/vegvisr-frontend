@@ -29,27 +29,64 @@ function database(schema) {
   };
 }
 
+// In-memory R2 with the calls the worker makes: put/head/get(range)/delete.
+export function bucket() {
+  const objects = new Map();
+  return {
+    objects,
+    async put(key, value, options = {}) {
+      const bytes = value instanceof Uint8Array ? value : new Uint8Array(value instanceof ArrayBuffer ? value : await new Response(value).arrayBuffer());
+      objects.set(key, { bytes, httpMetadata: options.httpMetadata || {}, customMetadata: options.customMetadata || {} });
+    },
+    async head(key) {
+      const object = objects.get(key);
+      return object ? { size: object.bytes.byteLength, httpMetadata: object.httpMetadata, customMetadata: object.customMetadata } : null;
+    },
+    async get(key, options) {
+      const object = objects.get(key);
+      if (!object) return null;
+      const bytes = options?.range ? object.bytes.slice(options.range.offset, options.range.offset + options.range.length) : object.bytes;
+      return { body: new Response(bytes).body, size: object.bytes.byteLength, httpMetadata: object.httpMetadata, customMetadata: object.customMetadata, arrayBuffer: async () => bytes.slice().buffer };
+    },
+    async delete(key) { objects.delete(key); },
+  };
+}
+
 export function fixture() {
   const schema = readFileSync(new URL('./schema.sql', import.meta.url), 'utf8');
   const migration = readFileSync(new URL('./add-direct-chats.sql', import.meta.url), 'utf8');
-  const chat = database(schema + ';ALTER TABLE groups ADD COLUMN archived_at INTEGER;' + migration);
+  const chat = database(schema + ';' + migration);
   chat.db.exec(migration);
   const identities = database('CREATE TABLE config(user_id TEXT, emailVerificationToken TEXT, display_name TEXT, email TEXT, data TEXT);');
   for (const [id, name] of [['tor', 'Tor Arne Have'], ['inger', 'Inger Hildrum'], ['outsider', 'Other Admin']]) {
     identities.db.prepare('INSERT INTO config VALUES (?, ?, ?, ?, ?)').run(id, 'token-' + id, null, id + '@test.invalid', JSON.stringify({ profile: { name } }));
   }
-  chat.db.exec("INSERT INTO groups(id,name,created_by,created_at,updated_at) VALUES ('nibi','NIBI FELLES','tor',1,1); INSERT INTO group_members VALUES ('nibi','tor','member',1),('nibi','inger','member',1);");
+  chat.db.exec("INSERT INTO groups(id,name,created_by,created_at,updated_at) VALUES ('nibi','NIBI FELLES','tor',1,1); INSERT INTO group_members(group_id,user_id,role,joined_at) VALUES ('nibi','tor','member',1),('nibi','inger','member',1);");
+  const media = bucket();
+  const transcriptions = [];
   const env = {
     CHAT_DB: chat,
     IDENTITY_DB: identities,
+    CHAT_MEDIA: media,
+    INTERNAL_SHARED_SECRET: 'test-internal-secret',
     SMS_WORKER: { fetch: async () => Response.json({ role: 'Superadmin' }) },
+    OPENAI_WORKER: { fetch: async (url, init) => {
+      const file = init.body.get('file');
+      transcriptions.push({ url, name: file.name, type: file.type, bytes: new Uint8Array(await file.arrayBuffer()) });
+      return Response.json({ text: 'Hei fra talemeldingen' });
+    } },
   };
   const call = async (user, method, route, body, extraHeaders = {}) => worker.fetch(new Request('https://chat.test' + route, {
     method,
     headers: { ...(user ? { Authorization: 'Bearer token-' + user } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}), ...extraHeaders },
     body: body ? JSON.stringify(body) : undefined,
   }), env, { waitUntil() {} });
-  return { chat, identities, env, call, fetch: request => worker.fetch(request, env, { waitUntil() {} }) };
+  const upload = async (user, groupId, bytes, contentType, fileName) => worker.fetch(new Request(`https://chat.test/direct/${groupId}/media`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer token-' + user, 'Content-Type': contentType, 'Content-Length': String(bytes.byteLength), 'X-File-Name': fileName },
+    body: bytes,
+  }), env, { waitUntil() {} });
+  return { chat, identities, env, media, transcriptions, call, upload, fetch: request => worker.fetch(request, env, { waitUntil() {} }) };
 }
 
 const { chat, identities, call } = fixture();
@@ -65,7 +102,7 @@ assert.deepEqual(people.people, [{ user_id: 'inger', name: 'Inger Hildrum' }]);
 for (let index = 0; index < 55; index += 1) {
   const userId = 'extra-' + index;
   identities.db.prepare('INSERT INTO config VALUES (?, ?, ?, ?, ?)').run(userId, 'token-' + userId, 'Extra ' + index, userId + '@test.invalid', '{}');
-  chat.db.prepare('INSERT INTO group_members VALUES (?, ?, ?, ?)').run('nibi', userId, 'member', 1);
+  chat.db.prepare('INSERT INTO group_members(group_id,user_id,role,joined_at) VALUES (?, ?, ?, ?)').run('nibi', userId, 'member', 1);
 }
 const pageOne = await (await call('tor', 'GET', '/direct/people?source_group_id=nibi')).json();
 const pageTwo = await (await call('tor', 'GET', '/direct/people?source_group_id=nibi&offset=50')).json();
@@ -114,7 +151,7 @@ for (const [method, route, body] of [
 ]) assert.equal((await call('tor', method, route, body)).status, 403, route);
 const legacyGroups = await (await call(null, 'GET', '/groups?user_id=tor&phone=123')).json();
 assert.equal(legacyGroups.groups.some(group => group.id === groupId), false);
-assert.throws(() => chat.db.prepare('INSERT INTO group_members VALUES (?, ?, ?, ?)').run(groupId, 'outsider', 'member', 1));
+assert.throws(() => chat.db.prepare('INSERT INTO group_members(group_id,user_id,role,joined_at) VALUES (?, ?, ?, ?)').run(groupId, 'outsider', 'member', 1));
 assert.throws(() => chat.db.prepare("UPDATE group_members SET role='owner' WHERE group_id=?").run(groupId));
 assert.throws(() => chat.db.prepare('DELETE FROM group_members WHERE group_id=?').run(groupId));
 chat.db.prepare("DELETE FROM group_members WHERE group_id='nibi' AND user_id='inger'").run();

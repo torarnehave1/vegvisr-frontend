@@ -46,3 +46,8 @@ service = "agent-worker"
 [[services]]
 binding = "EMAIL_WORKER"
 service = "email-worker"
+
+# Service binding to openai-worker for private voice transcription (audio bytes, no public URL)
+[[services]]
+binding = "OPENAI_WORKER"
+service = "openai-worker"

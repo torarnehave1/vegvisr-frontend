@@ -820,7 +820,7 @@ var index_default = {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
     try {
-      const directResponse = await handleDirectChat(request, env, jsonResponse, ctx);
+      const directResponse = await handleDirectChat(request, env, jsonResponse, ctx, { serveMedia: handleMediaFetch, publicMediaUrl: buildMediaUrl });
       if (directResponse) return directResponse;
       if (await blockLegacyDirectAccess(request, env)) return errorResponse('Use authenticated direct chat routes', 403);
       if (pathname === "/health") {
@@ -3001,12 +3001,14 @@ var index_default = {
         const allCounts = await env.CHAT_DB.prepare(
           `SELECT message_id, reaction, COUNT(*) as cnt
            FROM message_reactions WHERE message_id IN (${placeholders})
+           AND message_id IN (SELECT id FROM group_messages WHERE group_id = ?)
            GROUP BY message_id, reaction`
-        ).bind(...ids).all();
+        ).bind(...ids, groupId).all();
         const myCounts = await env.CHAT_DB.prepare(
           `SELECT message_id, reaction
-           FROM message_reactions WHERE message_id IN (${placeholders}) AND user_id = ?`
-        ).bind(...ids, userId).all();
+           FROM message_reactions WHERE message_id IN (${placeholders}) AND user_id = ?
+           AND message_id IN (SELECT id FROM group_messages WHERE group_id = ?)`
+        ).bind(...ids, userId, groupId).all();
         const result = {};
         for (const row of allCounts.results || []) {
           if (!result[row.message_id]) result[row.message_id] = { counts: {}, mine: [] };
