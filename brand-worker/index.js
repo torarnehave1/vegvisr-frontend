@@ -278,7 +278,14 @@ ${message}`;
       const botReq = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bot_id: botId, group_id: groupId, body: bodyText })
+        // contact_request renders as an actionable card in the chat (Approve -> registers the
+        // person and sends their branded magic-link mail). The BODY stays human-readable prose
+        // on purpose: the same string is the group-list preview, the push notification and the
+        // Instagram relay text, and raw JSON would degrade all three. The card parses the
+        // labelled lines, and any client that does not know the type still shows a sensible
+        // message. group-chat-worker falls back to "text" for unknown types, so this is safe
+        // even if that worker is ever rolled back.
+        body: JSON.stringify({ bot_id: botId, group_id: groupId, body: bodyText, message_type: "contact_request" })
       };
       // MUST go through the binding, exactly like the SMS gateway above. A plain fetch to
       // our own workers.dev hostname from inside a Worker gets an edge error rather than the

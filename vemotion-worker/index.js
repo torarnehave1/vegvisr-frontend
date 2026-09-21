@@ -1601,6 +1601,94 @@ async function handleSuggestMeta(request, env) {
     metaArea: typeof parsed.metaArea === "string" ? parsed.metaArea.trim() : ""
   });
 }
+
+// ── Instagram caption suggestion (Claude Haiku 4.5) ─────────────────────────
+// Blotato caps Instagram posts at 5 hashtags, so the cap is enforced HERE by
+// trimming extras — a model instruction is a request, not a guarantee.
+var IG_CAPTION_MAX = 2200;
+var IG_MAX_HASHTAGS = 5;
+var ANTHROPIC_HAIKU = "https://anthropic.vegvisr.org/claude-haiku-4.5";
+
+/**
+ * Keep at most `max` hashtags, in the order they appear, and drop the rest.
+ * Trailing whitespace left by removed tags is collapsed so the caption does
+ * not end in a ragged gap.
+ */
+function trimHashtags(text, max) {
+  let kept = 0;
+  const dropped = [];
+  const out = text.replace(/#[\p{L}\p{N}_]+/gu, (tag) => {
+    kept += 1;
+    if (kept <= max) return tag;
+    dropped.push(tag);
+    return "";
+  });
+  return {
+    caption: out.replace(/[ \t]{2,}/g, " ").replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n").trim(),
+    hashtagsKept: Math.min(kept, max),
+    hashtagsDropped: dropped
+  };
+}
+
+async function handleSuggestCaption(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return error("Invalid JSON body", 400);
+  }
+  const composition = body.composition && typeof body.composition === "object" && !Array.isArray(body.composition) ? body.composition : null;
+  if (!composition) return error("composition is required", 400);
+  const direction = typeof body.direction === "string" ? body.direction.trim().slice(0, 500) : "";
+
+  const system = [
+    "You write Instagram captions for short videos made in a tool called Vemotion.",
+    "You are given a summary of the composition (its on-screen text, layers and timing).",
+    "Write ONE caption for that post. Rules:",
+    "- Write in the SAME LANGUAGE as the composition's on-screen text. If the text is Norwegian, write Norwegian.",
+    "- Open with a hook drawn from the actual on-screen text. Do not invent facts, names, offers or statistics.",
+    "- 1 to 3 short paragraphs, then the hashtags on their own final line.",
+    "- AT MOST " + IG_MAX_HASHTAGS + " hashtags. Never more. Fewer is fine.",
+    "- Under " + IG_CAPTION_MAX + " characters total.",
+    "- Plain text only: no markdown, no headings, no quotes around the caption, no commentary.",
+    "Return ONLY the caption text itself."
+  ].join("\n");
+
+  const summary = summarizeComposition(composition);
+  const userMessage = direction ? summary + "\n\nExtra direction from the author: " + direction : summary;
+
+  // Reach anthropic-worker through the SERVICE BINDING, not its public
+  // hostname: a worker->worker fetch over api/anthropic.vegvisr.org on the same
+  // zone dies at the edge with a Cloudflare 522 (verified 2026-09-07). Same
+  // pattern /vemotion/assist already uses.
+  if (!env.ANTHROPIC_WORKER) return error("ANTHROPIC_WORKER service binding not configured", 500);
+  let resp, data;
+  try {
+    resp = await env.ANTHROPIC_WORKER.fetch(ANTHROPIC_HAIKU, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system, message: userMessage, max_tokens: 1024, temperature: 1 })
+    });
+    data = await resp.json();
+  } catch (e) {
+    return error("Caption request failed: " + (e && e.message ? e.message : "unknown"), 502);
+  }
+  if (!resp.ok) return error(data && data.error ? String(data.error) : "Caption model returned " + resp.status, 502);
+
+  const raw = Array.isArray(data.content)
+    ? data.content.filter((b) => b && b.type === "text").map((b) => b.text).join("").trim()
+    : "";
+  if (!raw) return error("Caption model returned no text", 502, { stop_reason: data && data.stop_reason });
+
+  const trimmed = trimHashtags(raw, IG_MAX_HASHTAGS);
+  return json({
+    caption: trimmed.caption.slice(0, IG_CAPTION_MAX),
+    hashtagsKept: trimmed.hashtagsKept,
+    hashtagsDropped: trimmed.hashtagsDropped,
+    model: data.model || "claude-haiku-4-5"
+  });
+}
+
 var STRUCT_LABELS = "ABCDEFGHIJ";
 var STRUCT_COLORS = ["#00e5ff", "#00cce0", "#00b4c4", "#009cb0", "#0086a0", "#00707e", "#005a68"];
 function structNum(v, d) {
@@ -2205,6 +2293,8 @@ var index_default = {
         return await handleDeleteImagePrompt(url, env, auth);
       if (pathname === "/vemotion/suggest-meta" && method === "POST")
         return await handleSuggestMeta(request, env);
+      if (pathname === "/vemotion/suggest-caption" && method === "POST")
+        return await handleSuggestCaption(request, env);
       if (pathname === "/vemotion/assist" && method === "POST")
         return await handleAssist(request, env, auth);
       return error("Not found", 404, { pathname });
