@@ -1,0 +1,60 @@
+name = "knowledge-graph-worker"          # Change this to your desired worker name
+
+main = "index.js"                # Path relative to the wrangler.toml file (here, same folder)
+compatibility_date = "2025-02-14"
+
+# Optionally, if you plan to deploy to Workers.dev:
+workers_dev = true
+
+[ai]
+binding = "AI"
+
+# Browser Rendering — a real browser the worker can borrow. Needed because plain fetch()
+# gets bot-challenged by Cloudflare (cf-mitigated: challenge -> 403) and cannot run the
+# JavaScript that builds modern pages. Used by /renderUrl. No API token required with a
+# binding (a REST call would need one scoped Browser Rendering - Edit).
+[browser]
+binding = "BROWSER"
+
+[[kv_namespaces]]
+binding = "BINDING_NAME"
+id = "1e3f20b8ed40453dbfa1f771012c99f2"
+
+[[kv_namespaces]]
+binding = "THEME_STUDIO_KV"
+id = "c1489b0abee34a9d82f326b1b8f89c15"
+
+# Read-only. brand-worker writes html:<hostname> here on every html-node publish;
+# this worker reads the registry so graph listings can report which site a graph
+# publishes to without trusting the node-level publishedDomain stamp.
+[[kv_namespaces]]
+binding = "HTML_PAGES"
+id = "2b8ce05731454bcf82b790b91392bee8"
+
+[[d1_databases]]
+binding = "vegvisr_org"
+database_name = "vegvisr_org"
+database_id = "507d1efd-1dda-45ef-971f-52d2c8e8afe8"
+
+# Group chat DB — for the /onboarding/status chat-engagement counts
+[[d1_databases]]
+binding = "CHAT_DB"
+database_name = "hallo_vegvisr_chat"
+database_id = "1abe2080-33ae-442b-9552-5203caa6c0e0"
+
+[[services]]
+binding = "CHAT_HISTORY_WORKER"
+service = "chat-history-worker"
+
+[[services]]
+binding = "DRIZZLE_WORKER"
+service = "drizzle-worker"
+
+[[services]]
+binding = "DASH"
+service = "vegvisr-dash-worker"
+environment = "production"
+
+[[services]]
+binding = "EMAIL_WORKER"
+service = "email-worker"
