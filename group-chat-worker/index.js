@@ -831,28 +831,46 @@ var index_default = {
           timestamp: (/* @__PURE__ */ new Date()).toISOString()
         });
       }
+      // A World's chat groups come from the registry, never from names: the groups owned by the
+      // World founder (world_founders.founder_email → config.user_id), plus the World's main group,
+      // and only those the caller is a member of. The main group is the World's community.
       if (pathname === "/world-chat-groups" && request.method === "GET") {
         const token = request.headers.get("X-API-Token") || request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") || "";
-        const domain = new URL(request.url).searchParams.get("domain") || "";
         if (!token || !env.IDENTITY_DB) return errorResponse("Authentication required", 401);
         const identity = await env.IDENTITY_DB.prepare(
           "SELECT user_id, email FROM config WHERE emailVerificationToken = ? LIMIT 1"
         ).bind(token).first();
         if (!identity?.user_id) return errorResponse("Invalid token", 401);
-        const query = `SELECT g.*, gm.role, gm.joined_at
+        const domain = String(searchParams.get("domain") || "").trim().toLowerCase().replace(/^www\./, "");
+        if (!domain || !domain.includes(".")) return errorResponse("domain is required", 400);
+        const { results: worlds } = await env.IDENTITY_DB.prepare(
+          "SELECT world_name, founder_email, main_chat_group_id FROM world_founders WHERE lower(domain) = ?"
+        ).bind(domain).all();
+        if (!worlds?.length) return errorResponse(`World ${domain} is not registered`, 404);
+        const founderEmails = [...new Set(worlds.map((world) => String(world.founder_email || "").trim().toLowerCase()).filter(Boolean))];
+        const { results: founders } = await env.IDENTITY_DB.prepare(
+          "SELECT user_id FROM config WHERE lower(email) IN (SELECT value FROM json_each(?))"
+        ).bind(JSON.stringify(founderEmails)).all();
+        const founderIds = (founders || []).map((founder) => founder.user_id).filter(Boolean);
+        if (!founderIds.length) return errorResponse(`The founder of ${domain} has no account`, 409);
+        const mainGroupId = worlds.find((world) => world.main_chat_group_id)?.main_chat_group_id || null;
+        const { results } = await env.CHAT_DB.prepare(
+          `SELECT g.*, gm.role, gm.joined_at
            FROM groups g JOIN group_members gm ON gm.group_id = g.id
            WHERE gm.user_id = ? AND substr(g.id, 1, 3) != 'dm_'
              AND (g.archived_at IS NULL OR g.archived_at = 0)
-             ${domain === 'nibi.no' ? "AND lower(g.name) LIKE '%nibi%'" : ""}
-           ORDER BY g.updated_at DESC, g.name COLLATE NOCASE`;
-        const { results } = await env.CHAT_DB.prepare(
-          query
-        ).bind(identity.user_id).all();
+             AND (g.created_by IN (SELECT value FROM json_each(?)) OR g.id = ?)
+           ORDER BY g.updated_at DESC, g.name COLLATE NOCASE`
+        ).bind(identity.user_id, JSON.stringify(founderIds), mainGroupId).all();
+        const groups = results || [];
         return jsonResponse({
           success: true,
-          domain: domain || null,
-          owner_email: "post@nibi.no",
-          groups: results || [],
+          domain,
+          world_name: worlds[0].world_name || null,
+          owner_email: founderEmails[0] || null,
+          main_chat_group_id: mainGroupId,
+          world_member: Boolean(mainGroupId && groups.some((group) => group.id === mainGroupId)),
+          groups,
         });
       }
       if (pathname === "/openapi.json" && request.method === "GET") {
@@ -886,6 +904,24 @@ var index_default = {
           components: { securitySchemes: { directSession: { type: 'http', scheme: 'bearer', description: 'Member session token, verified against config.emailVerificationToken. Never put tokens in URLs.' } } },
           paths: {
             ...directChatPaths,
+            "/world-chat-groups": {
+              get: {
+                summary: "A World's chat groups for the signed-in member",
+                description: "The World is looked up in world_founders by domain. Returns the non-archived groups owned by the World founder (groups.created_by = the founder's user) plus the World's main group (main_chat_group_id), limited to groups the caller is a member of. Group names play no part. main_chat_group_id is the World's community (members of it are World members; private chats use it as source_group_id). world_member tells whether the caller belongs to it.",
+                operationId: "listWorldChatGroups",
+                parameters: [
+                  { name: "domain", in: "query", required: true, schema: { type: "string" }, description: "World domain, e.g. nibi.no (a leading www. is ignored)" },
+                  { name: "X-API-Token", in: "header", required: true, schema: { type: "string" }, description: "Member session token (Authorization: Bearer is also accepted)" }
+                ],
+                responses: {
+                  "200": { description: "{ success, domain, world_name, owner_email, main_chat_group_id, world_member, groups: [group + role, joined_at] }" },
+                  "400": { description: "domain missing" },
+                  "401": { description: "Missing or invalid token" },
+                  "404": { description: "World not registered" },
+                  "409": { description: "The founder email has no account" }
+                }
+              }
+            },
             "/health": {
               get: {
                 summary: "Health check",
