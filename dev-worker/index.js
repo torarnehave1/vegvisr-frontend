@@ -1944,28 +1944,6 @@ export default {
 
       // Compatibility route for cached NIBI member pages. The chat worker is the
       // canonical owner, but older bundles still call this host.
-      if (pathname === '/world-chat-groups' && request.method === 'GET') {
-        const token = request.headers.get('X-API-Token') || request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') || ''
-        if (!token || !env.CHAT_DB || !env.vegvisr_org) {
-          return new Response(JSON.stringify({ success: false, error: 'Authentication required' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-        }
-        const identity = await env.vegvisr_org.prepare(
-          'SELECT user_id FROM config WHERE emailVerificationToken = ? LIMIT 1'
-        ).bind(token).first()
-        if (!identity?.user_id) {
-          return new Response(JSON.stringify({ success: false, error: 'Invalid token' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-        }
-        const domain = url.searchParams.get('domain') || ''
-        const query = `SELECT g.*, gm.role, gm.joined_at
-          FROM groups g JOIN group_members gm ON gm.group_id = g.id
-          WHERE gm.user_id = ? AND substr(g.id, 1, 3) != 'dm_'
-            AND (g.archived_at IS NULL OR g.archived_at = 0)
-            ${domain === 'nibi.no' ? "AND lower(g.name) LIKE '%nibi%'" : ''}
-          ORDER BY g.updated_at DESC, g.name COLLATE NOCASE`
-        const { results } = await env.CHAT_DB.prepare(query).bind(identity.user_id).all()
-        return new Response(JSON.stringify({ success: true, domain: domain || null, owner_email: 'post@nibi.no', groups: results || [] }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
-      }
-
       if (pathname === '/plugin/landing' && request.method === 'GET') {
         return new Response(generatePluginLandingHtml(), {
           status: 200,
