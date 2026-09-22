@@ -174,6 +174,19 @@ export const directChatPaths = {
     description: 'The caller must be a participant (private) or member (group) of BOTH source_group_id and target_group_id. Private media is copied into the target, so the source stays private. Polls and system messages are not forwarded. Returns 201 {message}.',
     requestBody: jsonBody({ source_group_id: { type: 'string' }, message_id: { type: 'integer' }, target_group_id: { type: 'string' } }, ['source_group_id', 'message_id', 'target_group_id']), responses: directResponses,
   } },
+  '/direct/contact-sharing': {
+    get: { operationId: 'getContactSharing', summary: 'What I share with members of a community', security: directSecurity,
+      description: 'Returns {phone, email} (booleans, default false) and has_phone / has_email (whether the account has them). Stored per community in the member\'s own profile (config.data.contact_sharing[source_group_id]).',
+      parameters: [sourceParameter], responses: directResponses },
+    put: { operationId: 'setContactSharing', summary: 'Choose what to share with members of a community', security: directSecurity,
+      description: 'Opt-in: phone and email are hidden unless set true. Applies only to private conversations in that community.',
+      requestBody: jsonBody({ source_group_id: { type: 'string' }, phone: { type: 'boolean' }, email: { type: 'boolean' } }, ['source_group_id']), responses: directResponses },
+  },
+  '/direct/{groupId}/peer': { get: {
+    operationId: 'getDirectPeer', summary: 'The other participant\'s contact card', security: directSecurity,
+    description: 'Participant-only. Returns {user_id, name, avatar_url, phone, email, shares:{phone,email}}; phone and email are null unless that person chose to share them with this community.',
+    parameters: [groupPath], responses: directResponses,
+  } },
   '/direct/forward-targets': { get: {
     operationId: 'listForwardTargets', summary: 'Groups and private conversations I can forward to', security: directSecurity,
     description: 'Returns groups: my non-archived groups (kind group) followed by my private conversations in source_group_id (kind direct, named after the other person).',
@@ -284,6 +297,12 @@ export async function handleDirectChat(request, env, sendResponse, ctx, helpers 
     if (!used) await env.CHAT_MEDIA.delete(key);
   };
   const readJsonBody = () => request.json().catch(() => null);
+  // Contact sharing is opt-in per community, stored in the member's own profile data.
+  const sharingOf = (data, source) => {
+    const entry = data?.contact_sharing?.[source] || {};
+    return { phone: entry.phone === true, email: entry.email === true };
+  };
+  const parseData = raw => { try { return JSON.parse(raw || '{}') || {}; } catch { return {}; } };
   const pollView = async poll => {
     const { results } = await env.CHAT_DB.prepare(
       'SELECT option_index, COUNT(*) AS cnt FROM poll_votes WHERE poll_id = ? GROUP BY option_index'
@@ -348,6 +367,26 @@ export async function handleDirectChat(request, env, sendResponse, ctx, helpers 
     const row = await access(groupId);
     if (!row) return fail('Community membership changed', 403);
     return respond({ success: true, group: (await present([row]))[0] });
+  }
+
+  if (url.pathname === '/direct/contact-sharing' && ['GET', 'PUT'].includes(request.method)) {
+    const body = request.method === 'PUT' ? await readJsonBody() : null;
+    const source = request.method === 'PUT' ? body?.source_group_id : url.searchParams.get('source_group_id');
+    if (typeof source !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(source) || isDirectGroup(source) || !await member(source, me.user_id)) return fail('Not a community member', 403);
+    if (request.method === 'PUT') {
+      if (['phone', 'email'].some(key => body[key] !== undefined && typeof body[key] !== 'boolean')) return fail('phone and email must be true or false');
+      const current = sharingOf(parseData((await env.IDENTITY_DB.prepare('SELECT data FROM config WHERE user_id = ?').bind(me.user_id).first())?.data), source);
+      const next = { phone: body.phone ?? current.phone, email: body.email ?? current.email };
+      await env.IDENTITY_DB.prepare(
+        `UPDATE config SET data = json_set(
+           json_set(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.contact_sharing',
+             json(COALESCE(CASE WHEN json_valid(data) THEN json_extract(data, '$.contact_sharing') END, '{}'))),
+           ?, json(?)) WHERE user_id = ?`
+      ).bind(`$.contact_sharing."${source}"`, JSON.stringify(next), me.user_id).run();
+    }
+    const row = await env.IDENTITY_DB.prepare('SELECT phone, email, data FROM config WHERE user_id = ?').bind(me.user_id).first();
+    const data = parseData(row?.data);
+    return respond({ success: true, source_group_id: source, ...sharingOf(data, source), has_phone: Boolean(row?.phone || data?.profile?.phone), has_email: Boolean(row?.email) });
   }
 
   if (url.pathname === '/direct/forward-targets' && request.method === 'GET') {
@@ -425,6 +464,26 @@ export async function handleDirectChat(request, env, sendResponse, ctx, helpers 
   if (!conversation) return fail('Not a conversation participant', 403);
   const slot = conversation.user_low === me.user_id ? 'l' : 'h';
   const touch = now => env.CHAT_DB.prepare('UPDATE groups SET updated_at = ? WHERE id = ?').bind(now, groupId);
+
+  if (rest === 'peer' && request.method === 'GET') {
+    const peerId = conversation.user_low === me.user_id ? conversation.user_high : conversation.user_low;
+    const row = await env.IDENTITY_DB.prepare(
+      'SELECT user_id, display_name, email, phone, profile_image_url, profileimage, data FROM config WHERE user_id = ?'
+    ).bind(peerId).first();
+    if (!row) return fail('Member profile unavailable', 404);
+    const data = parseData(row.data);
+    const shares = sharingOf(data, conversation.source_group_id);
+    const phone = row.phone || data?.profile?.phone || null;
+    return respond({
+      success: true,
+      user_id: row.user_id,
+      name: row.display_name || data?.profile?.name || data?.profile?.displayName || row.email,
+      avatar_url: row.profile_image_url || row.profileimage || null,
+      phone: shares.phone ? phone : null,
+      email: shares.email ? (row.email || null) : null,
+      shares,
+    });
+  }
 
   if (rest === 'messages' && request.method === 'GET') {
     const after = Number(url.searchParams.get('after') || 0);
