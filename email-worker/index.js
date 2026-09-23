@@ -389,7 +389,10 @@ async function sendMagicLinkEmail(env2, toEmail, magicLink, sender = null) {
     }
     if (!cfResp.ok || cfJson.success === false) {
       const em = Array.isArray(cfJson.errors) && cfJson.errors.length ? cfJson.errors.map((e) => e.message || JSON.stringify(e)).join("; ") : cfJson.raw || cfText;
-      throw new Error(`Failed to send magic link email via Cloudflare Email Service: ${em}`);
+      // A World's own sender must never lock its members out: a rejected or missing Cloudflare
+      // token sends the login link from the platform sender instead (vegr.ai, 2026-09-23).
+      console.warn(`[magic link] World sender ${fromEmail} failed (${em}); falling back to the platform sender.`);
+      return await sendMagicLinkEmail(env2, toEmail, magicLink, null);
     }
     return;
   }
