@@ -21,10 +21,12 @@ ENVIRONMENT = "production"
 # ingest) is the synthetic service-binding host "group-chat-worker", producing
 # urls no browser can resolve. Matches what the normal upload path already emits.
 PUBLIC_MEDIA_BASE_URL = "https://group-chat-worker.torarnehave.workers.dev/media"
-# Fallback from-address when a group has no alert_sender_email set. MUST be on a
-# domain verified in Cloudflare → Email → Email Workers (Send), or
-# env.EMAIL.send() rejects it. vegr.ai is the user's configured send domain.
-ALERT_FROM_EMAIL = "noreply@vegr.ai"
+# From-address for every group email alert. MUST be on a domain verified in
+# Cloudflare → Email → Email Workers (Send), or env.EMAIL.send() rejects it.
+# Per-group alert_sender_email is no longer used for sending (owner-picked
+# addresses aren't guaranteed to be verified, which was rejecting sends) —
+# post@vegr.ai is the platform's verified sender.
+ALERT_FROM_EMAIL = "post@vegr.ai"
 # INTERNAL_SHARED_SECRET is a secret, not a var. Set it to the SAME value the
 # email-worker uses:  npx wrangler secret put INTERNAL_SHARED_SECRET
 

@@ -1840,10 +1840,10 @@ var index_default = {
           return errorResponse("Target user has no email on file", 422);
         }
         const group = await env.CHAT_DB.prepare(
-          "SELECT name, alert_sender_email FROM groups WHERE id = ?"
+          "SELECT name FROM groups WHERE id = ?"
         ).bind(groupId).first();
         const groupName = group?.name || "your group chat";
-        const fromEmail = (group?.alert_sender_email || env.ALERT_FROM_EMAIL || "").trim();
+        const fromEmail = (env.ALERT_FROM_EMAIL || "").trim();
         const chatUrl = `https://chat.vegvisr.org/?group=${encodeURIComponent(groupId)}`;
         const subject = `New activity in ${groupName}`;
         const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#0f172a;line-height:1.5"><p>There's new activity in <strong>${escapeHtml(groupName)}</strong>.</p><p><a href="${chatUrl}" style="display:inline-block;padding:10px 18px;background:#0284c7;color:#fff;border-radius:8px;text-decoration:none">Open the chat</a></p><p style="color:#64748b;font-size:13px">You're receiving this because you enabled email alerts for this group. Turn them off anytime in Group Info.</p></div>`;
