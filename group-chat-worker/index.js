@@ -494,6 +494,39 @@ async function sendAlertEmail(env, fromEmail, toEmail, subject, html) {
     return { ok: false, error: err?.message || "email-worker call failed" };
   }
 }
+// The platform's alert sender (post@vegr.ai) lives on a Cloudflare account
+// email-worker's native env.EMAIL.send() binding can't reach (that binding
+// only sends from domains in the SAME account the worker runs in — see
+// E_SENDER_DOMAIN_NOT_AVAILABLE). It's stored as a cf-email-service account
+// (config.data.settings.emailAccounts), so route it through email-worker's
+// /send-cf-email REST path instead, the same way Agent-Builder's send_email
+// tool sends from this address today.
+async function sendAlertEmailViaCfService(env, userEmail, accountId, toEmail, subject, html) {
+  if (!env.EMAIL_WORKER?.fetch) {
+    return { ok: false, error: "EMAIL_WORKER service binding not configured" };
+  }
+  if (!env.INTERNAL_SHARED_SECRET) {
+    return { ok: false, error: "INTERNAL_SHARED_SECRET not configured on this worker" };
+  }
+  try {
+    const res = await env.EMAIL_WORKER.fetch("https://email-worker/send-cf-email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-auth": env.INTERNAL_SHARED_SECRET,
+        "x-internal-caller": userEmail
+      },
+      body: JSON.stringify({ userEmail, accountId, toEmail, subject, html })
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.success) {
+      return { ok: false, error: data?.error || `email-worker returned ${res.status}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || "email-worker call failed" };
+  }
+}
 async function sendNibiMessageAlerts(env, groupId, authorId, body) {
   if (!env.IDENTITY_DB || !env.EMAIL_WORKER?.fetch) return;
   try {
@@ -1843,11 +1876,15 @@ var index_default = {
           "SELECT name FROM groups WHERE id = ?"
         ).bind(groupId).first();
         const groupName = group?.name || "your group chat";
-        const fromEmail = (env.ALERT_FROM_EMAIL || "").trim();
+        const senderUserEmail = (env.ALERT_SENDER_USER_EMAIL || "").trim();
+        const senderAccountId = (env.ALERT_SENDER_ACCOUNT_ID || "").trim();
+        if (!senderUserEmail || !senderAccountId) {
+          return errorResponse("ALERT_SENDER_USER_EMAIL / ALERT_SENDER_ACCOUNT_ID not configured on this worker", 500);
+        }
         const chatUrl = `https://chat.vegvisr.org/?group=${encodeURIComponent(groupId)}`;
         const subject = `New activity in ${groupName}`;
         const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#0f172a;line-height:1.5"><p>There's new activity in <strong>${escapeHtml(groupName)}</strong>.</p><p><a href="${chatUrl}" style="display:inline-block;padding:10px 18px;background:#0284c7;color:#fff;border-radius:8px;text-decoration:none">Open the chat</a></p><p style="color:#64748b;font-size:13px">You're receiving this because you enabled email alerts for this group. Turn them off anytime in Group Info.</p></div>`;
-        const sent = await sendAlertEmail(env, fromEmail, targetEmail, subject, html);
+        const sent = await sendAlertEmailViaCfService(env, senderUserEmail, senderAccountId, targetEmail, subject, html);
         if (!sent.ok) {
           return errorResponse(sent.error, 502);
         }

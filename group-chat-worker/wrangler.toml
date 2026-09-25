@@ -21,12 +21,19 @@ ENVIRONMENT = "production"
 # ingest) is the synthetic service-binding host "group-chat-worker", producing
 # urls no browser can resolve. Matches what the normal upload path already emits.
 PUBLIC_MEDIA_BASE_URL = "https://group-chat-worker.torarnehave.workers.dev/media"
-# From-address for every group email alert. MUST be on a domain verified in
-# Cloudflare → Email → Email Workers (Send), or env.EMAIL.send() rejects it.
-# Per-group alert_sender_email is no longer used for sending (owner-picked
-# addresses aren't guaranteed to be verified, which was rejecting sends) —
-# post@vegr.ai is the platform's verified sender.
-ALERT_FROM_EMAIL = "post@vegr.ai"
+# Sender for every group email alert: post@vegr.ai, sent via email-worker's
+# /send-cf-email REST path (Cloudflare's native env.EMAIL.send() binding can
+# only send from domains in the SAME Cloudflare account as this worker —
+# vegr.ai lives in a different account, so that binding rejects it with
+# E_SENDER_DOMAIN_NOT_AVAILABLE regardless of which @vegr.ai address is used).
+# These identify the existing cf-email-service account entry in
+# config.data.settings.emailAccounts (vegvisr_org DB) that already holds a
+# working Cloudflare API token for the vegr.ai account — the same account
+# Agent-Builder's send_email tool uses to send from this address today.
+# Per-group alert_sender_email is no longer used for sending (an owner-picked
+# address isn't guaranteed to be reachable this way either).
+ALERT_SENDER_USER_EMAIL = "post@vegr.ai"
+ALERT_SENDER_ACCOUNT_ID = "5673fe94-0d29-4b8e-8be6-5362877a3a65"
 # INTERNAL_SHARED_SECRET is a secret, not a var. Set it to the SAME value the
 # email-worker uses:  npx wrangler secret put INTERNAL_SHARED_SECRET
 
