@@ -464,43 +464,14 @@ async function getUserEmail(env, userId) {
     return null;
   }
 }
-async function sendAlertEmail(env, fromEmail, toEmail, subject, html) {
-  if (!env.EMAIL_WORKER?.fetch) {
-    return { ok: false, error: "EMAIL_WORKER service binding not configured" };
-  }
-  fromEmail = (fromEmail || "").trim();
-  if (!fromEmail) {
-    return { ok: false, error: "No alert sender configured for this group" };
-  }
-  if (!env.INTERNAL_SHARED_SECRET) {
-    return { ok: false, error: "INTERNAL_SHARED_SECRET not configured on this worker" };
-  }
-  try {
-    const res = await env.EMAIL_WORKER.fetch("https://email-worker/send-email", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-internal-auth": env.INTERNAL_SHARED_SECRET,
-        "x-internal-caller": fromEmail
-      },
-      body: JSON.stringify({ fromEmail, toEmail, subject, html })
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data?.success) {
-      return { ok: false, error: data?.error || `email-worker returned ${res.status}` };
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err?.message || "email-worker call failed" };
-  }
-}
-// The platform's alert sender (post@vegr.ai) lives on a Cloudflare account
-// email-worker's native env.EMAIL.send() binding can't reach (that binding
-// only sends from domains in the SAME account the worker runs in — see
-// E_SENDER_DOMAIN_NOT_AVAILABLE). It's stored as a cf-email-service account
-// (config.data.settings.emailAccounts), so route it through email-worker's
-// /send-cf-email REST path instead, the same way Agent-Builder's send_email
-// tool sends from this address today.
+// Every alert sender here (post@vegr.ai, post@nibi.no) lives on its own
+// Cloudflare account, separate from the account email-worker's native
+// env.EMAIL.send() binding runs under — that binding only sends from domains
+// in the SAME account as the worker (E_SENDER_DOMAIN_NOT_AVAILABLE otherwise).
+// Each sender is stored as a cf-email-service account
+// (config.data.settings.emailAccounts) with its own working Cloudflare API
+// token, so route through email-worker's /send-cf-email REST path instead —
+// the same way Agent-Builder's send_email tool sends from these addresses.
 async function sendAlertEmailViaCfService(env, userEmail, accountId, toEmail, subject, html) {
   if (!env.EMAIL_WORKER?.fetch) {
     return { ok: false, error: "EMAIL_WORKER service binding not configured" };
@@ -547,14 +518,22 @@ async function sendNibiMessageAlerts(env, groupId, authorId, body) {
       `SELECT user_id, email, data FROM config
        WHERE user_id IN (SELECT value FROM json_each(?))`
     ).bind(JSON.stringify(ids)).all();
-    const sender = 'post@nibi.no';
+    // post@nibi.no's zone is on its own Cloudflare account (e458403763...),
+    // separate from this worker's — same E_SENDER_DOMAIN_NOT_AVAILABLE
+    // problem as post@vegr.ai. Route through the same cf-email-service
+    // account (config.data.settings.emailAccounts, held by post@nibi.no
+    // itself) instead of the same-account-only native binding.
+    const senderUserEmail = 'post@nibi.no';
+    const senderAccountId = '5c34c130-3792-4778-a076-b86ed8609a14';
     const excerpt = String(body || '').trim().slice(0, 240);
     await Promise.all((profiles.results || []).flatMap(profile => {
       let data = {};
       try { data = profile.data ? JSON.parse(profile.data) : {}; } catch {}
       if (!profile.email || data?.nibi_notifications?.message_updates !== true) return [];
       const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#0f172a;line-height:1.5"><p>Det er en ny melding i NIBI FELLES.</p><p>${escapeHtml(excerpt)}</p><p><a href="https://minside.nibi.no/" style="display:inline-block;padding:10px 18px;background:#17634b;color:#fff;border-radius:6px;text-decoration:none">Åpne Min side</a></p><p style="color:#64748b;font-size:13px">Du mottar dette fordi du har slått på relevante chatmeldinger i Innstillinger.</p></div>`;
-      return [sendAlertEmail(env, sender, profile.email, 'NIBI: Ny relevant chatmelding', html).catch(error => console.warn('[NIBI alert] message email failed:', error?.message || error))];
+      return [sendAlertEmailViaCfService(env, senderUserEmail, senderAccountId, profile.email, 'NIBI: Ny relevant chatmelding', html).then(result => {
+        if (!result.ok) console.warn('[NIBI alert] message email failed:', result.error);
+      })];
     }));
   } catch (error) {
     console.warn('[NIBI alert] message notification failed:', error?.message || error);
