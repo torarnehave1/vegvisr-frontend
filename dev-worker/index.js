@@ -1120,16 +1120,38 @@ async function validateAuth(request, env) {
   }
 
   // Method 2: Session-based authentication (logged-in web user)
-  // If x-user-role header is present, the user is authenticated via the web app
+  // A bare x-user-role header is SELF-ASSERTED by the client and must never be trusted
+  // alone (2026-09-26: a request with only x-user-role: Superadmin, no token, no email,
+  // succeeded and wrote to a graph as Superadmin — confirmed exploitable from any origin).
+  // Session auth now requires a session token (the same emailVerificationToken the
+  // magic-link flow issues, sent as X-Session-Token by window.vegvisrPatchNode) that
+  // resolves to a real row in `config`. Role/email are read from THAT row — never from
+  // the client-supplied x-user-role/x-user-email headers, which are advisory only.
   if (userRole) {
-    // Logged-in users have full access to their own operations
-    // The frontend is responsible for sending the correct user context
-    return {
-      valid: true,
-      userId: null, // User ID comes from request body for session-based auth
-      scopes: ['all'], // Logged-in users have full access
-      rateLimit: null,
-      authMethod: 'session'
+    const sessionToken = request.headers.get('X-Session-Token')
+    if (!sessionToken || sessionToken === 'null' || sessionToken === 'undefined' || sessionToken.trim() === '') {
+      return { valid: false, error: 'Session authentication requires a session token (X-Session-Token) — a role header alone is not sufficient. Log in again to obtain one.', status: 401 }
+    }
+    try {
+      const row = await env.vegvisr_org
+        .prepare('SELECT email, role FROM config WHERE emailVerificationToken = ? LIMIT 1')
+        .bind(sessionToken)
+        .first()
+      if (!row) {
+        return { valid: false, error: 'Invalid or expired session token.', status: 401 }
+      }
+      return {
+        valid: true,
+        userId: row.email,
+        userEmail: row.email,
+        userRole: row.role || row.Role || 'User',
+        scopes: ['all'],
+        rateLimit: null,
+        authMethod: 'session_token'
+      }
+    } catch (error) {
+      console.error('Session token verification failed:', error)
+      return { valid: false, error: 'Session token verification failed.', status: 500 }
     }
   }
 
