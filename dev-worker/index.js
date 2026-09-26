@@ -1938,7 +1938,7 @@ export default {
       'Access-Control-Allow-Origin': request.headers.get('Origin') || '*',
       'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers':
-        'Content-Type, Authorization, x-user-role, x-user-id, x-user-email, x-plugin-authenticated, X-API-Token, X-Email, Accept, Origin, Cache-Control',
+        'Content-Type, Authorization, x-user-role, x-user-id, x-user-email, x-plugin-authenticated, X-API-Token, X-Session-Token, X-Email, Accept, Origin, Cache-Control',
       'Access-Control-Allow-Credentials': 'true',
       'Access-Control-Max-Age': '86400',
     }
