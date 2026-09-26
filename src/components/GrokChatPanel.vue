@@ -2959,7 +2959,7 @@ async function executeGraphManipulationTool(toolName, args) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': userStore.role || 'Superadmin',
+          'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
         },
         body: JSON.stringify({
           id: newGraphId,
@@ -3190,7 +3190,7 @@ async function executeGraphManipulationTool(toolName, args) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': userStore.role || 'Superadmin',
+          'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
         },
         body: JSON.stringify({
           id: currentGraphId,
@@ -3363,7 +3363,7 @@ async function executeGraphManipulationTool(toolName, args) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': userStore.role || 'Superadmin',
+          'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
         },
         body: JSON.stringify({
           id: currentGraphId,
@@ -3430,7 +3430,7 @@ async function executeGraphManipulationTool(toolName, args) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': userStore.role || 'Superadmin',
+          'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
         },
         body: JSON.stringify({
           id: currentGraphId,
@@ -3627,7 +3627,7 @@ const fetchToolTemplates = async ({ force = false } = {}) => {
     const response = await fetch(TOOL_TEMPLATES_ENDPOINT, {
       headers: {
         'X-API-Token': userStore.emailVerificationToken || '',
-        'x-user-role': userStore.role || '',
+        'x-user-role': userStore.role || '', 'X-Session-Token': userStore.emailVerificationToken,
         Accept: 'application/json',
       },
       mode: 'cors',
@@ -3743,7 +3743,7 @@ async function executeTemplateTool(toolName, args) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': userStore.role || 'Superadmin',
+          'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
         },
         body: JSON.stringify({
           id: currentGraphId,
@@ -6301,7 +6301,7 @@ const createHtmlImportGraph = async () => {
       headers: {
         'Content-Type': 'application/json',
         'X-API-Token': userStore.emailVerificationToken || '',
-        'x-user-role': userStore.role || '',
+        'x-user-role': userStore.role || '', 'X-Session-Token': userStore.emailVerificationToken,
       },
       body: JSON.stringify({
         id: graphId,

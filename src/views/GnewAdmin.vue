@@ -449,7 +449,7 @@ const createNewGraph = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-user-role': userStore.role || 'Superadmin',
+        'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
       },
       body: JSON.stringify({
         id: newGraphId,
@@ -526,7 +526,7 @@ const saveGraph = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-user-role': userStore.role || 'Superadmin',
+        'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
       },
       body: JSON.stringify({
         id: currentGraph.value.id,

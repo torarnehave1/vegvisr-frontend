@@ -3164,7 +3164,7 @@ onMounted(() => {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'x-user-role': userStore.role || 'Superadmin',
+              'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
             },
             body: JSON.stringify({
               id: currentGraphId.value,
@@ -3243,7 +3243,7 @@ onMounted(() => {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'x-user-role': userStore.role || 'Superadmin'
+                'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken
               },
               body: JSON.stringify({
                 userId,
@@ -3258,14 +3258,14 @@ onMounted(() => {
           case 'load':
             result = await fetch(
               `https://api.vegvisr.org/api/user-app/data/get?userId=${userId}&appId=${payload.appId}&key=${payload.key}`,
-              { headers: { 'x-user-role': userStore.role || 'Superadmin' } }
+              { headers: { 'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken } }
             ).then(r => r.json())
             break
 
           case 'loadAll':
             result = await fetch(
               `https://api.vegvisr.org/api/user-app/data/list?userId=${userId}&appId=${payload.appId}`,
-              { headers: { 'x-user-role': userStore.role || 'Superadmin' } }
+              { headers: { 'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken } }
             ).then(r => r.json())
             break
 
@@ -3274,7 +3274,7 @@ onMounted(() => {
               method: 'DELETE',
               headers: {
                 'Content-Type': 'application/json',
-                'x-user-role': userStore.role || 'Superadmin'
+                'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken
               },
               body: JSON.stringify({
                 userId,
@@ -5957,7 +5957,7 @@ const handleBatchNodeInsert = async (payload) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-user-role': userStore.role || 'Superadmin',
+            'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
           },
           body: JSON.stringify({
             id: knowledgeGraphStore.currentGraphId,
@@ -6464,7 +6464,7 @@ const saveImageQuote = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-user-role': userStore.role || 'Superadmin',
+        'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
       },
       body: payloadString,
     })
@@ -8192,7 +8192,7 @@ const saveGraphAfterOperation = async (nodeCount) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': userStore.role || 'Superadmin',
+          'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
         },
         body: payloadString,
       },
@@ -8797,7 +8797,7 @@ const saveNodeChanges = async () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-user-role': userStore.role || 'Superadmin',
+            'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
           },
           body: payloadString,
         },
@@ -8889,7 +8889,7 @@ const handleCssExtraction = async (payload) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': userStore.role || 'Superadmin',
+          'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
         },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
@@ -8971,7 +8971,7 @@ const handleNodeUpdated = async (updatedNode) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': userStore.role || 'Superadmin',
+          'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
         },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
@@ -9072,7 +9072,7 @@ const handleNodeDeleted = async (nodeId) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': userStore.role || 'Superadmin',
+          'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
         },
         body: payloadString,
       },
@@ -9152,7 +9152,7 @@ const handleNodeCreated = async (newNode) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': userStore.role || 'Superadmin',
+          'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
         },
         body: payloadString,
       },
@@ -9658,7 +9658,7 @@ const handleImageReplaced = async (replacementData) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': userStore.role || 'Superadmin',
+          'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
         },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
@@ -9792,7 +9792,7 @@ const handleGooglePhotoSelected = async (selectionData) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': userStore.role || 'Superadmin',
+          'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
         },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
@@ -10138,7 +10138,7 @@ const handleTemplateAdded = async ({ template, node }) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': userStore.role || 'Superadmin',
+          'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
         },
         body: payloadString,
       },
@@ -10339,7 +10339,7 @@ const saveNodeOrder = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-user-role': userStore.role || 'Superadmin',
+        'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
       },
       body: payloadString,
     })
@@ -10776,7 +10776,7 @@ const saveAttribution = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-user-role': userStore.role || 'Superadmin',
+        'x-user-role': userStore.role || 'Superadmin', 'X-Session-Token': userStore.emailVerificationToken,
       },
       body: payloadString
     })

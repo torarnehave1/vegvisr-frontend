@@ -2628,7 +2628,7 @@ const generateMetaAreas = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-user-role': userStore.role || '',
+        'x-user-role': userStore.role || '', 'X-Session-Token': userStore.emailVerificationToken,
       },
       body: JSON.stringify({}),
     })
@@ -2649,7 +2649,7 @@ const resetMetaAreas = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-user-role': userStore.role || '',
+        'x-user-role': userStore.role || '', 'X-Session-Token': userStore.emailVerificationToken,
       },
       body: JSON.stringify({}),
     })
