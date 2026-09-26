@@ -1746,6 +1746,13 @@ var email_worker_default = {
           try {
             const crow = await env2.vegvisr_org.prepare("SELECT emailVerificationToken FROM config WHERE email = ?").bind(record.email).first();
             apiToken = crow?.emailVerificationToken || null;
+            if (!apiToken) {
+              // Every verified session must carry a real, server-checkable token (the KG
+              // worker's /patchNode now requires one instead of trusting a bare x-user-role
+              // header) — backfill accounts that predate the token column being populated.
+              apiToken = crypto.randomUUID();
+              await env2.vegvisr_org.prepare("UPDATE config SET emailVerificationToken = ? WHERE email = ?").bind(apiToken, record.email).run();
+            }
           } catch (err) {
             console.warn("Failed to resolve apiToken:", err);
           }

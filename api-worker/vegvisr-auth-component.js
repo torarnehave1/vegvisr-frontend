@@ -14,8 +14,10 @@ export const VEGVISR_AUTH_COMPONENT = `/**
  *   3. a <vegvisr-auth> element rendering a 3-state bar (logged out / inbox-sent / logged in)
  *
  * Auth = email magic-link. On verify the durable token is captured into per-origin localStorage
- * and replayed as X-API-Token to resolve identity; graph WRITES send x-user-role + x-user-email
- * (KG session auth, works from any origin). No .vegvisr.org cookie dependency.
+ * and replayed as X-API-Token to resolve identity; graph WRITES send X-Session-Token (the same
+ * token) plus x-user-role + x-user-email for logging — the KG worker verifies the token against
+ * the user's row server-side and derives role/email from THAT, never from the headers alone.
+ * Works from any origin. No .vegvisr.org cookie dependency.
  *
  * Usage:
  *   <script src="https://api.vegvisr.org/components/vegvisr-auth.js"></script>
@@ -109,7 +111,8 @@ export const VEGVISR_AUTH_COMPONENT = `/**
       if (!nodeId) throw new Error('vegvisrPatchNode: no nodeId');
       var s = readStore();
       if (!s || !s.email) throw new Error('Not signed in to Vegvisr — log in to save.');
-      var headers = { 'Content-Type': 'application/json', 'x-user-role': s.role || 'User', 'x-user-email': s.email };
+      if (!s.token) throw new Error('Session has no verifiable token — log out and log in again to save.');
+      var headers = { 'Content-Type': 'application/json', 'x-user-role': s.role || 'User', 'x-user-email': s.email, 'X-Session-Token': s.token };
       async function ver() {
         var r = await fetch(KG + '/getknowgraph?id=' + encodeURIComponent(gId));
         if (!r.ok) throw new Error('Could not read graph version (' + r.status + ')');
