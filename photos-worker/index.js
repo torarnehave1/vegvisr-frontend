@@ -466,7 +466,12 @@ const handleUpload = async (request, env) => {
     return createErrorResponse(auth.error, 401)
   }
 
-  const formData = await request.formData()
+  let formData
+  try {
+    formData = await request.formData()
+  } catch {
+    return createErrorResponse('Expected a multipart/form-data body', 400)
+  }
   const files = formData.getAll('file').filter((entry) => entry instanceof File)
   const customFilename = formData.get('filename')
   const albumName = normalizeAlbumName(formData.get('album'))
@@ -719,7 +724,17 @@ const handleSuggestImageMetadata = async (request, env) => {
 }
 
 const handleUploadFavicon = async (request, env) => {
-  const formData = await request.formData()
+  const auth = await validateAuth(request, env)
+  if (!auth.valid) {
+    return createErrorResponse(auth.error, 401)
+  }
+
+  let formData
+  try {
+    formData = await request.formData()
+  } catch {
+    return createErrorResponse('Expected a multipart/form-data body', 400)
+  }
   const files = formData.getAll('file').filter((entry) => entry instanceof File)
   const customFilename = formData.get('filename')
   const baseUrl = resolveBaseUrl(env.FAVICONS_BASE_URL, '')
@@ -1065,6 +1080,7 @@ export default {
             },
             '/upload-favicon': {
               post: {
+                security: [{ ApiToken: [] }],
                 summary: 'Upload favicon',
                 description: 'Upload one or more favicon files to the FAVICONS_BUCKET.',
                 requestBody: {
