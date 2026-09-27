@@ -25,6 +25,18 @@ const normalizeAlbumName = (rawName) => {
 const buildAlbumKey = (name) => `${PHOTO_ALBUM_PREFIX}${name}`
 const buildImageMetadataKey = (key) => `${IMAGE_METADATA_PREFIX}${key}`
 
+// Same shape and trim as albums-worker's helpers of these names. /upload writes album records too,
+// so it has to append to the same logs in the same way or the two writers disagree about history.
+const appendAuditEntry = (existing, entry) => {
+  const log = Array.isArray(existing?.auditLog) ? existing.auditLog : []
+  return [...log, entry].slice(-100)
+}
+
+const appendSuperadminAuditEntry = (existing, entry) => {
+  const log = Array.isArray(existing?.superadminAuditLog) ? existing.superadminAuditLog : []
+  return [...log, entry].slice(-100)
+}
+
 const normalizeTags = (value) => {
   const rawTags = Array.isArray(value)
     ? value
@@ -298,7 +310,12 @@ const handleListR2Images = async (request, env) => {
   return createResponse(JSON.stringify({ images }), 200)
 }
 
-const handleListTrashImages = async (_request, env) => {
+const handleListTrashImages = async (request, env) => {
+  const auth = await validateAuth(request, env)
+  if (!auth.valid) {
+    return createErrorResponse(auth.error, 401)
+  }
+
   const list = await env.PHOTOS_BUCKET.list({ prefix: 'trash/' })
   const baseUrl = resolveBaseUrl(env.PHOTOS_BASE_URL, 'https://vegvisr.imgix.net/')
   const items = []
@@ -332,6 +349,11 @@ const handleListTrashImages = async (_request, env) => {
 }
 
 const handleRestoreTrashImage = async (request, env) => {
+  const auth = await validateAuth(request, env)
+  if (!auth.valid) {
+    return createErrorResponse(auth.error, 401)
+  }
+
   let body
   try {
     body = await request.json()
@@ -372,6 +394,11 @@ const handleRestoreTrashImage = async (request, env) => {
 }
 
 const handleDeleteTrashImage = async (request, env) => {
+  const auth = await validateAuth(request, env)
+  if (!auth.valid) {
+    return createErrorResponse(auth.error, 401)
+  }
+
   let body
   try {
     body = await request.json()
@@ -387,6 +414,11 @@ const handleDeleteTrashImage = async (request, env) => {
 }
 
 const handleDeleteR2Image = async (request, env) => {
+  const auth = await validateAuth(request, env)
+  if (!auth.valid) {
+    return createErrorResponse(auth.error, 401)
+  }
+
   const url = new URL(request.url)
   const key = url.searchParams.get('key')
   if (!key) {
@@ -429,6 +461,11 @@ const handleDeleteR2Image = async (request, env) => {
 }
 
 const handleUpload = async (request, env) => {
+  const auth = await validateAuth(request, env)
+  if (!auth.valid) {
+    return createErrorResponse(auth.error, 401)
+  }
+
   const formData = await request.formData()
   const files = formData.getAll('file').filter((entry) => entry instanceof File)
   const customFilename = formData.get('filename')
@@ -446,6 +483,20 @@ const handleUpload = async (request, env) => {
   }
   if (albumName && !env.PHOTO_ALBUMS) {
     return createErrorResponse('Album storage is not configured', 500)
+  }
+
+  // Read the album and run the owner check BEFORE writing any bytes. albums-worker applies this
+  // rule to every album mutate; without it here, /upload is a way around it. Checking after the
+  // R2 writes would leave orphaned objects behind on a 403.
+  const existingAlbum = albumName ? (await readPhotoAlbum(env, albumName)) || { name: albumName, images: [] } : null
+  if (
+    existingAlbum &&
+    auth.role !== 'Superadmin' &&
+    existingAlbum.createdBy &&
+    existingAlbum.createdBy !== auth.userId &&
+    existingAlbum.createdBy !== auth.email
+  ) {
+    return createErrorResponse('Unauthorized to modify this album', 403)
   }
 
   const uploadedKeys = []
@@ -474,12 +525,32 @@ const handleUpload = async (request, env) => {
   }
 
   if (albumName) {
-    const existing = (await readPhotoAlbum(env, albumName)) || { name: albumName, images: [] }
-    const merged = [...new Set([...existing.images, ...uploadedKeys])]
+    const merged = [...new Set([...(existingAlbum.images || []), ...uploadedKeys])]
+    const auditEntry = {
+      action: 'add_images',
+      actor: auth.email || auth.userId,
+      actorRole: auth.role || null,
+      at: new Date().toISOString(),
+      details: { added: uploadedKeys.length }
+    }
+    // Spread the existing record first. The previous version rebuilt it from three fields, which
+    // silently dropped createdBy, the seo* fields, isShared, shareId, hiddenImages and both audit
+    // logs — so an upload into a published album unpublished it.
     const album = {
+      ...existingAlbum,
       name: albumName,
       images: merged,
-      updatedAt: new Date().toISOString()
+      createdAt: existingAlbum.createdAt || auditEntry.at,
+      createdBy: existingAlbum.createdBy ?? (auth.email || auth.userId),
+      updatedAt: auditEntry.at,
+      lastModifiedBy: auditEntry.actor,
+      lastModifiedRole: auditEntry.actorRole,
+      lastModifiedAction: auditEntry.action,
+      auditLog: appendAuditEntry(existingAlbum, auditEntry),
+      superadminAuditLog:
+        auth.role === 'Superadmin'
+          ? appendSuperadminAuditEntry(existingAlbum, auditEntry)
+          : existingAlbum.superadminAuditLog || []
     }
     await env.PHOTO_ALBUMS.put(buildAlbumKey(albumName), JSON.stringify(album))
   }
@@ -725,7 +796,17 @@ export default {
           info: {
             title: 'Photos Worker API',
             version: '1.0.0',
-            description: 'Cloudflare Worker for managing photos, albums, favicons, and trash in R2 storage.'
+            description: 'Cloudflare Worker for managing photos, albums, favicons, and trash in R2 storage. Every write endpoint, and every endpoint that reads a non-shared album or image metadata, requires an X-API-Token header carrying the caller\'s emailVerificationToken.'
+          },
+          components: {
+            securitySchemes: {
+              ApiToken: {
+                type: 'apiKey',
+                in: 'header',
+                name: 'X-API-Token',
+                description: "The caller's emailVerificationToken from the D1 config table."
+              }
+            }
           },
           paths: {
             '/health': {
@@ -805,6 +886,7 @@ export default {
             },
             '/upload': {
               post: {
+                security: [{ ApiToken: [] }],
                 summary: 'Upload images',
                 description: 'Upload one or more image files to R2 storage, optionally adding them to an album and storing semantic metadata.',
                 requestBody: {
@@ -850,6 +932,7 @@ export default {
             },
             '/image-metadata': {
               get: {
+                security: [{ ApiToken: [] }],
                 summary: 'Get image metadata',
                 description: 'Fetch semantic metadata for a single image key.',
                 parameters: [
@@ -933,6 +1016,7 @@ export default {
             },
             '/suggest-image-metadata': {
               post: {
+                security: [{ ApiToken: [] }],
                 summary: 'Suggest image metadata',
                 description: 'Analyze an image with the OpenAI worker and return a suggested label and tags.',
                 requestBody: {
@@ -1054,6 +1138,7 @@ export default {
             },
             '/delete-r2-image': {
               delete: {
+                security: [{ ApiToken: [] }],
                 summary: 'Delete an image (move to trash)',
                 description: 'Soft-deletes an image by moving it to the trash/ prefix in R2 and removing it from any albums.',
                 parameters: [
@@ -1082,6 +1167,7 @@ export default {
             },
             '/trash/list': {
               get: {
+                security: [{ ApiToken: [] }],
                 summary: 'List trashed images',
                 description: 'List all soft-deleted images in the trash/ prefix.',
                 responses: {
@@ -1114,6 +1200,7 @@ export default {
             },
             '/trash/restore': {
               post: {
+                security: [{ ApiToken: [] }],
                 summary: 'Restore a trashed image',
                 description: 'Restore an image from trash back to its original key.',
                 requestBody: {
@@ -1155,6 +1242,7 @@ export default {
             },
             '/trash/delete': {
               delete: {
+                security: [{ ApiToken: [] }],
                 summary: 'Permanently delete a trashed image',
                 description: 'Permanently removes an image from the trash.',
                 requestBody: {
