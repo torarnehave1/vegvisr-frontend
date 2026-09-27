@@ -17,6 +17,9 @@ const CHATGPT_CLIENT = 'https://chatgpt.com/oauth/client.json'
 const CLAUDE_CLIENT = 'https://claude.ai/api/mcp/client.json'
 /** What a client registered through /register gets: opaque, with a self-chosen name. */
 const DCR_CLIENT = 'pFW1UQtQFMbjZ7YI'
+/** Grok registered through /register: opaque id, but a redirect URI that names it. */
+const GROK_CLIENT = 'COnxwYLKLhxkB4P0'
+const GROK_RECORD = { clientId: GROK_CLIENT, clientName: 'Grok', redirectUris: ['https://grok.com/connectors-oauth-exchange-code/'] }
 
 const alice = gs.normalizeActor({ valid: true, userId: 'alice@example.com', userEmail: 'alice@example.com', userRole: 'User', scopes: ['chat:write'] })
 const bob = gs.normalizeActor({ valid: true, userId: 'bob@example.com', userEmail: 'bob@example.com', userRole: 'User', scopes: ['chat:write'] })
@@ -200,8 +203,9 @@ describe('input handling', () => {
 describe('each client posts as its own bot, and cannot borrow another\'s', () => {
   test('a verified CIMD host maps to its bot', () => {
     const { env } = setup()
-    assert.deepEqual(chat.botUsernameForClient(env, CHATGPT_CLIENT), { username: 'chatgpt', verified: true })
-    assert.deepEqual(chat.botUsernameForClient(env, CLAUDE_CLIENT), { username: 'claude', verified: true })
+    // `via` records WHICH rule identified the client, which is the thing worth auditing.
+    assert.deepEqual(chat.botUsernameForClient(env, CHATGPT_CLIENT), { username: 'chatgpt', verified: true, via: 'cimd' })
+    assert.deepEqual(chat.botUsernameForClient(env, CLAUDE_CLIENT), { username: 'claude', verified: true, via: 'cimd' })
   })
 
   test('subdomains of a mapped host count; unrelated hosts do not', () => {
@@ -274,7 +278,7 @@ describe('each client posts as its own bot, and cannot borrow another\'s', () =>
   test('a broken MCP_CHAT_BOT_MAP falls back to the built-in map instead of failing open', () => {
     const { env } = setup()
     env.MCP_CHAT_BOT_MAP = '{not json'
-    assert.deepEqual(chat.botUsernameForClient(env, CHATGPT_CLIENT), { username: 'chatgpt', verified: true })
+    assert.deepEqual(chat.botUsernameForClient(env, CHATGPT_CLIENT), { username: 'chatgpt', verified: true, via: 'cimd' })
   })
 })
 
@@ -362,5 +366,81 @@ describe('list_chat_groups — where can this assistant speak', () => {
     for (const l of [0, -1, 9999, 'nonsense']) {
       assert.equal((await chat.listPostableGroups(env, { actor: alice, clientId: CHATGPT_CLIENT, limit: l })).ok, true)
     }
+  })
+})
+
+describe('a client with an opaque id is identified by its redirect URI', () => {
+  test('Grok maps to @grok through its redirect host, not its name', () => {
+    const { env } = setup()
+    const r = chat.botUsernameForClient(env, GROK_CLIENT, GROK_RECORD)
+    assert.deepEqual(r, { username: 'grok', verified: true, via: 'redirect' })
+  })
+
+  test('the NAME alone proves nothing — without redirects it falls back', () => {
+    const { env } = setup()
+    const r = chat.botUsernameForClient(env, GROK_CLIENT, { clientName: 'Grok', redirectUris: [] })
+    assert.equal(r.verified, false)
+    assert.equal(r.username, 'ai-assistant')
+  })
+
+  test('an impostor claiming the name but redirecting elsewhere gets nothing', () => {
+    const { env } = setup()
+    const r = chat.botUsernameForClient(env, 'someOpaqueId', {
+      clientName: 'Grok',
+      redirectUris: ['https://attacker.example/cb'],
+    })
+    assert.equal(r.verified, false)
+    assert.notEqual(r.username, 'grok')
+  })
+
+  test('mixing a real host with its own address does NOT map — every redirect must agree', () => {
+    const { env } = setup()
+    // The attack the single-host rule exists for: registered at grok.com AND at the attacker's
+    // address, so codes come to the attacker while the messages read "Grok".
+    const r = chat.botUsernameForClient(env, 'opaque', {
+      redirectUris: ['https://grok.com/cb', 'https://attacker.example/cb'],
+    })
+    assert.equal(r.verified, false)
+    assert.equal(r.username, 'ai-assistant')
+  })
+
+  test('an http redirect is not trusted', () => {
+    const { env } = setup()
+    assert.equal(chat.botUsernameForClient(env, 'opaque', { redirectUris: ['http://grok.com/cb'] }).verified, false)
+  })
+
+  test('an unparseable redirect is refused rather than ignored', () => {
+    const { env } = setup()
+    assert.equal(chat.botUsernameForClient(env, 'opaque', { redirectUris: ['not a url'] }).verified, false)
+  })
+
+  test('a CIMD client id still wins and never consults redirects', () => {
+    const { env } = setup()
+    // Even a client id at claude.ai carrying grok.com redirects maps by its id.
+    const r = chat.botUsernameForClient(env, CLAUDE_CLIENT, { redirectUris: ['https://grok.com/cb'] })
+    assert.deepEqual(r, { username: 'claude', verified: true, via: 'cimd' })
+  })
+
+  test('Grok can post once its bot exists and is in the group', async () => {
+    const { env, raw, worker } = setup()
+    raw.prepare('INSERT INTO chat_bots (id, name, username, is_active) VALUES (?,?,?,1)').run('bot-grok', 'Grok', 'grok')
+    raw.prepare('INSERT INTO group_bot_members (group_id, bot_id, added_by, added_at) VALUES (?,?,?,0)').run('g1', 'bot-grok', 'a human')
+
+    const r = await chat.postChatMessage(env, { groupId: 'g1', text: 'Hello', actor: alice, clientId: GROK_CLIENT, client: GROK_RECORD })
+    assert.equal(r.ok, true)
+    assert.equal(r.botName, 'Grok')
+    assert.match(worker.posted.at(-1).body, /— skrevet av Grok på vegne av alice@example\.com/)
+  })
+
+  test('list_chat_groups is per client here too', async () => {
+    const { env, raw } = setup()
+    raw.prepare('INSERT INTO chat_bots (id, name, username, is_active) VALUES (?,?,?,1)').run('bot-grok', 'Grok', 'grok')
+    const before = await chat.listPostableGroups(env, { actor: alice, clientId: GROK_CLIENT, client: GROK_RECORD })
+    assert.deepEqual(before.groups, [], 'the grok bot is not in any group yet')
+
+    raw.prepare('INSERT INTO group_bot_members (group_id, bot_id, added_by, added_at) VALUES (?,?,?,0)').run('g1', 'bot-grok', 'x')
+    const after = await chat.listPostableGroups(env, { actor: alice, clientId: GROK_CLIENT, client: GROK_RECORD })
+    assert.deepEqual(after.groups.map((g) => g.groupId), ['g1'])
+    assert.equal(after.bot.name, 'Grok')
   })
 })

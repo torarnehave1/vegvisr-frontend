@@ -122,6 +122,24 @@ function requireScope(auth, needed) {
 }
 
 
+
+/**
+ * The registered OAuth client record, when the provider can supply it.
+ *
+ * Needed because a client registered through /register has an opaque id, and its redirect URIs
+ * are the only non-forgeable thing about it. The provider injects env.OAUTH_PROVIDER before
+ * calling this handler, so lookupClient is reachable here; a failure is not fatal, it just means
+ * the caller falls back to the neutral bot.
+ */
+async function lookupClient(env, clientId) {
+  try {
+    return (await env.OAUTH_PROVIDER?.lookupClient?.(clientId)) || null
+  } catch (e) {
+    console.error('[mcp] client lookup failed:', e.message)
+    return null
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Annotations and output schemas
 // ─────────────────────────────────────────────────────────────────────────────
@@ -508,7 +526,8 @@ export function registerTools(server, getContext) {
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
-      const result = await chat.postChatMessage(env, { groupId, text, actor, clientId: auth.clientId })
+      const client = await lookupClient(env, auth.clientId)
+      const result = await chat.postChatMessage(env, { groupId, text, actor, clientId: auth.clientId, client })
       if (!result.ok) return fromService(result)
 
       const { ok: _o, ...payload } = result
@@ -570,7 +589,8 @@ export function registerTools(server, getContext) {
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
-      const result = await chat.listPostableGroups(env, { actor, clientId: auth.clientId, limit })
+      const client = await lookupClient(env, auth.clientId)
+      const result = await chat.listPostableGroups(env, { actor, clientId: auth.clientId, client, limit })
       if (!result.ok) return fromService(result)
 
       const { ok: _o, ...payload } = result

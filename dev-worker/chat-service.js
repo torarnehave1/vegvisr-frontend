@@ -61,6 +61,7 @@ export async function isGroupMember(env, groupId, userId) {
 const DEFAULT_CLIENT_BOT_MAP = {
   'chatgpt.com': 'chatgpt',
   'claude.ai': 'claude',
+  'grok.com': 'grok',
 }
 
 /** Used when the client's identity is not verifiable. Never one of the named assistants. */
@@ -91,28 +92,61 @@ function clientBotMap(env) {
  *
  * Returns { username, verified }.
  */
-export function botUsernameForClient(env, clientId) {
+export function botUsernameForClient(env, clientId, client = null) {
   const fallback = String(env.MCP_CHAT_BOT_FALLBACK_USERNAME || DEFAULT_FALLBACK_BOT_USERNAME)
     .trim()
     .toLowerCase()
+  const map = clientBotMap(env)
 
-  let host = null
+  const lookup = (host) => {
+    for (const [key, username] of Object.entries(map)) {
+      const k = String(key).toLowerCase()
+      if (host === k || host.endsWith(`.${k}`)) return String(username).toLowerCase()
+    }
+    return null
+  }
+
+  // 1. A client id that is an https URL is a Client ID Metadata Document, which the provider
+  //    fetched to register the client. The host is verified by that fetch.
   try {
     const url = new URL(String(clientId || ''))
-    if (url.protocol === 'https:') host = url.hostname.toLowerCase()
+    if (url.protocol === 'https:') {
+      const hit = lookup(url.hostname.toLowerCase())
+      if (hit) return { username: hit, verified: true, via: 'cimd' }
+      return { username: fallback, verified: false, via: 'cimd-unmapped' }
+    }
   } catch {
-    /* not a URL: an opaque DCR client id */
+    /* not a URL: a client registered through /register */
   }
-  if (!host) return { username: fallback, verified: false }
 
-  const map = clientBotMap(env)
-  for (const [key, username] of Object.entries(map)) {
-    const k = String(key).toLowerCase()
-    if (host === k || host.endsWith(`.${k}`)) {
-      return { username: String(username).toLowerCase(), verified: true }
+  // 2. Otherwise fall back to the registered redirect URIs — and this is a real signal, not a
+  //    claim. The authorization code is delivered to that address, so registering as "Grok"
+  //    with a redirect to grok.com sends the code TO grok.com; borrowing someone's redirect
+  //    host makes the flow useless to the borrower rather than useful. clientName, by contrast,
+  //    is self-asserted and would let anyone call themselves Grok.
+  //
+  //    EVERY redirect must agree on the host. A client registering one redirect at grok.com and
+  //    another at its own address would otherwise be mapped to @grok while receiving codes
+  //    itself — which is exactly the attack the CIMD rule exists to prevent.
+  const uris = Array.isArray(client?.redirectUris) ? client.redirectUris : []
+  if (uris.length) {
+    const hosts = new Set()
+    for (const uri of uris) {
+      try {
+        const u = new URL(String(uri))
+        if (u.protocol !== 'https:') return { username: fallback, verified: false, via: 'redirect-insecure' }
+        hosts.add(u.hostname.toLowerCase())
+      } catch {
+        return { username: fallback, verified: false, via: 'redirect-unparseable' }
+      }
+    }
+    if (hosts.size === 1) {
+      const hit = lookup([...hosts][0])
+      if (hit) return { username: hit, verified: true, via: 'redirect' }
     }
   }
-  return { username: fallback, verified: false }
+
+  return { username: fallback, verified: false, via: 'unmapped' }
 }
 
 /**
@@ -121,8 +155,8 @@ export function botUsernameForClient(env, clientId) {
  * Two distinct failures, reported distinctly, because they need different fixes: the bot does
  * not exist at all (create it), or it exists but is not in this group (add it there).
  */
-export async function resolveMcpBot(env, groupId, clientId = null) {
-  const { username, verified } = botUsernameForClient(env, clientId)
+export async function resolveMcpBot(env, groupId, clientId = null, client = null) {
+  const { username, verified } = botUsernameForClient(env, clientId, client)
 
   const bot = await env.CHAT_DB.prepare(
     'SELECT id, name, username FROM chat_bots WHERE LOWER(username) = ? AND is_active = 1 LIMIT 1',
@@ -176,7 +210,7 @@ function attribution(actor, bot) {
  * which does its own checks on top of ours: the bot must be a group member and active, and the
  * message type is whitelisted.
  */
-export async function postChatMessage(env, { groupId, text, actor, clientId = null }) {
+export async function postChatMessage(env, { groupId, text, actor, clientId = null, client = null }) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   if (!groupId || !String(groupId).trim()) return fail(ERR.INVALID_INPUT, 'groupId is required.')
 
@@ -203,7 +237,7 @@ export async function postChatMessage(env, { groupId, text, actor, clientId = nu
     )
   }
 
-  const resolved = await resolveMcpBot(env, groupId, clientId)
+  const resolved = await resolveMcpBot(env, groupId, clientId, client)
   if (!resolved.ok) return resolved
 
   const message = body + attribution(actor, resolved.bot)
@@ -250,13 +284,13 @@ export const CHAT_LIMITS = { MAX_MESSAGE_LENGTH, DEFAULT_CLIENT_BOT_MAP, DEFAULT
  * client's bot is present. A group the user belongs to but has not added the bot to is not
  * listed, because naming it would invite a post that would then be refused.
  */
-export async function listPostableGroups(env, { actor, clientId = null, limit = 50 }) {
+export async function listPostableGroups(env, { actor, clientId = null, client = null, limit = 50 }) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   if (!actor.userId) {
     return fail(ERR.FORBIDDEN_GRAPH, 'This token has no user identity, so it belongs to no groups.')
   }
 
-  const { username, verified } = botUsernameForClient(env, clientId)
+  const { username, verified } = botUsernameForClient(env, clientId, client)
 
   const bot = await env.CHAT_DB.prepare(
     'SELECT id, name, username FROM chat_bots WHERE LOWER(username) = ? AND is_active = 1 LIMIT 1',
