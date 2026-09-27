@@ -1024,6 +1024,30 @@ async function validateAuth(request, env) {
   const pluginAuthenticated = request.headers.get('x-plugin-authenticated') === 'true'
   const origin = request.headers.get('Origin')
 
+  // Service-binding calls (worker-to-worker, e.g. Agent-Builder's env.KG_WORKER) address this
+  // worker by its BINDING NAME rather than a public hostname:
+  // `env.KG_WORKER.fetch('https://knowledge-graph-worker/addNode')`.
+  // That hostname is not reachable from the internet — Cloudflare only delivers requests on
+  // routes mapped to this worker (knowledge.vegvisr.org, *.workers.dev), and such a request
+  // always carries that public hostname instead. A caller outside Cloudflare cannot make a
+  // request arrive here with hostname 'knowledge-graph-worker', so unlike the absent-Origin
+  // check this replaces, the signal cannot be forged. (That old check was removed 2026-09-26
+  // after an unauthenticated `curl` with no headers at all proved it granted full graph:write
+  // access to any graph from anywhere.) Trust boundary: any worker on this Cloudflare account
+  // holding a service binding to this one. Each such caller authorizes its own end users.
+  const INTERNAL_SERVICE_HOSTS = new Set(['knowledge-graph-worker'])
+  try {
+    if (INTERNAL_SERVICE_HOSTS.has(new URL(request.url).hostname)) {
+      return {
+        valid: true,
+        userId: null,
+        scopes: ['all'],
+        rateLimit: null,
+        authMethod: 'service_binding'
+      }
+    }
+  } catch { /* an unparseable URL just falls through to the normal auth methods */ }
+
   // Define trusted origins early so we can use them in fallback logic
   const trustedOrigins = [
     'https://www.vegvisr.org',
@@ -1165,19 +1189,18 @@ async function validateAuth(request, env) {
     }
   }
 
-  // Method 3: Service binding calls (worker-to-worker)
-  // These come from trusted internal services like helloworld's save-hello.js
-  // Service binding calls typically have no Origin header or use internal URLs
-  if (!origin || origin.startsWith('https://knowledge-graph-worker')) {
-    // Internal service call - the calling worker is responsible for auth
-    return {
-      valid: true,
-      userId: null,
-      scopes: ['all'],
-      rateLimit: null,
-      authMethod: 'service_binding'
-    }
-  }
+  // Method 3 REMOVED (2026-09-26, critical): used to grant full scopes:['all'] to any
+  // request with no Origin header (or an Origin merely starting with
+  // 'https://knowledge-graph-worker') on the theory that only trusted internal
+  // service-binding calls look like that. Origin is entirely client-controlled — a plain
+  // `curl` sends no Origin by default, and a forged Origin header defeats the startsWith
+  // check too. Verified exploitable: an unauthenticated `curl -X POST .../addNode` with no
+  // headers at all passed this check and reached business logic with full scopes. The one
+  // known caller relying on the old fallback, helloworld's save-hello.js, only calls
+  // /saveGraphWithHistory, which does not require auth in the first place — so removing
+  // this does not break it. Any genuine internal service call now needs to authenticate
+  // like everything else (X-API-Token, session token, or a real shared secret — see
+  // GRAPH_WORKER_SERVICE_TOKEN in realtime-worker for that pattern).
 
   // Method 4: Trusted origin authentication (web app users)
   // Requests from the main Vegvisr sites are trusted - the user is authenticated
@@ -1205,6 +1228,63 @@ function hasScope(userScopes, requiredScope) {
   // 'all' scope grants access to everything
   if (userScopes.includes('all')) return true
   return userScopes.includes(requiredScope)
+}
+
+// Insert one node, bump the graph's version, write history, trim old history.
+async function insertNodeIntoGraph(env, graphId, node) {
+  const result = await env.vegvisr_org
+    .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
+    .bind(graphId)
+    .first()
+  if (!result) return { ok: false, status: 404, error: 'Graph not found.' }
+
+  const graphData = JSON.parse(result.data)
+
+  const existingNode = graphData.nodes.find(n => n.id === node.id)
+  if (existingNode) {
+    return { ok: false, status: 409, error: `Node with id ${node.id} already exists in graph ${graphId}.` }
+  }
+
+  if (node.type === 'data-node' && node.info && env.ENCRYPTION_MASTER_KEY) {
+    node.info = await encryptDataNodeInfo(node.info, env.ENCRYPTION_MASTER_KEY)
+    if (!node.metadata) node.metadata = {}
+    node.metadata.encrypted = true
+  }
+
+  graphData.nodes.push(node)
+
+  const currentVersionResult = await env.vegvisr_org
+    .prepare('SELECT MAX(version) AS version FROM knowledge_graph_history WHERE graph_id = ?')
+    .bind(graphId)
+    .first()
+  const currentVersion = currentVersionResult?.version || 0
+  const newVersion = currentVersion + 1
+  if (!graphData.metadata) graphData.metadata = {}
+  graphData.metadata.version = newVersion
+
+  const now = new Date().toISOString()
+  await env.vegvisr_org
+    .prepare('UPDATE knowledge_graphs SET data = ?, updated_at = ? WHERE id = ?')
+    .bind(JSON.stringify(graphData), now, graphId)
+    .run()
+
+  await env.vegvisr_org
+    .prepare('INSERT INTO knowledge_graph_history (id, graph_id, version, data) VALUES (?, ?, ?, ?)')
+    .bind(crypto.randomUUID(), graphId, newVersion, JSON.stringify(graphData))
+    .run()
+
+  const countResult = await env.vegvisr_org
+    .prepare('SELECT COUNT(*) AS count FROM knowledge_graph_history WHERE graph_id = ?')
+    .bind(graphId)
+    .first()
+  if (countResult?.count > 20) {
+    await env.vegvisr_org
+      .prepare('DELETE FROM knowledge_graph_history WHERE graph_id = ? AND version = (SELECT MIN(version) FROM knowledge_graph_history WHERE graph_id = ?)')
+      .bind(graphId, graphId)
+      .run()
+  }
+
+  return { ok: true, currentVersion, newVersion }
 }
 
 const THEME_OWNER_PREFIX = 'theme:owner:'
@@ -8068,79 +8148,14 @@ export default {
           }
 
           console.log(`[Worker] addNode: graph=${graphId} nodeId=${node.id}`)
-
-          // 1. Read graph from D1
-          const result = await env.vegvisr_org
-            .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
-            .bind(graphId)
-            .first()
-
-          if (!result) {
-            return new Response(
-              JSON.stringify({ error: 'Graph not found.' }),
-              { status: 404, headers: corsHeaders }
-            )
+          const inserted = await insertNodeIntoGraph(env, graphId, node)
+          if (!inserted.ok) {
+            return new Response(JSON.stringify({ error: inserted.error }), { status: inserted.status, headers: corsHeaders })
           }
 
-          const graphData = JSON.parse(result.data)
-
-          // 2. Check if node ID already exists
-          const existingNode = graphData.nodes.find(n => n.id === node.id)
-          if (existingNode) {
-            return new Response(
-              JSON.stringify({ error: `Node with id ${node.id} already exists in graph ${graphId}.` }),
-              { status: 409, headers: corsHeaders }
-            )
-          }
-
-          // 3. Encrypt data-node info before storing
-          if (node.type === 'data-node' && node.info && env.ENCRYPTION_MASTER_KEY) {
-            node.info = await encryptDataNodeInfo(node.info, env.ENCRYPTION_MASTER_KEY)
-            if (!node.metadata) node.metadata = {}
-            node.metadata.encrypted = true
-          }
-
-          // 4. Add the new node
-          graphData.nodes.push(node)
-
-          // 4. Bump version
-          const currentVersionResult = await env.vegvisr_org
-            .prepare('SELECT MAX(version) AS version FROM knowledge_graph_history WHERE graph_id = ?')
-            .bind(graphId)
-            .first()
-          const currentVersion = currentVersionResult?.version || 0
-          const newVersion = currentVersion + 1
-          if (!graphData.metadata) graphData.metadata = {}
-          graphData.metadata.version = newVersion
-
-          // 5. Write back to D1
-          const now = new Date().toISOString()
-          await env.vegvisr_org
-            .prepare('UPDATE knowledge_graphs SET data = ?, updated_at = ? WHERE id = ?')
-            .bind(JSON.stringify(graphData), now, graphId)
-            .run()
-
-          // 6. Save history
-          await env.vegvisr_org
-            .prepare('INSERT INTO knowledge_graph_history (id, graph_id, version, data) VALUES (?, ?, ?, ?)')
-            .bind(crypto.randomUUID(), graphId, newVersion, JSON.stringify(graphData))
-            .run()
-
-          // 7. Trim history to 20 versions
-          const countResult = await env.vegvisr_org
-            .prepare('SELECT COUNT(*) AS count FROM knowledge_graph_history WHERE graph_id = ?')
-            .bind(graphId)
-            .first()
-          if (countResult?.count > 20) {
-            await env.vegvisr_org
-              .prepare('DELETE FROM knowledge_graph_history WHERE graph_id = ? AND version = (SELECT MIN(version) FROM knowledge_graph_history WHERE graph_id = ?)')
-              .bind(graphId, graphId)
-              .run()
-          }
-
-          console.log(`[Worker] addNode: success, version ${currentVersion} → ${newVersion}`)
+          console.log(`[Worker] addNode: success, version ${inserted.currentVersion} → ${inserted.newVersion}`)
           return new Response(
-            JSON.stringify({ ok: true, graphId, nodeId: node.id, newVersion }),
+            JSON.stringify({ ok: true, graphId, nodeId: node.id, newVersion: inserted.newVersion }),
             { status: 200, headers: corsHeaders }
           )
         } catch (error) {
