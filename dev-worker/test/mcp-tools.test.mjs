@@ -18,19 +18,38 @@ import { freshDb } from './d1-adapter.mjs'
 import { registerTools, TOOL_NAMES } from '../mcp/tools.js'
 import * as gs from '../graph-service.js'
 
-/** A connected client/server pair whose tools see `auth` as the verified caller. */
-async function connect(env, auth) {
+/**
+ * A connected client/server pair whose tools see `auth` as the verified caller.
+ *
+ * The context is assembled exactly as mcp/server.js assembles it from the Workers request:
+ * `auth` is ctx.auth, which is OAuthResourceAuth and carries NO props, and `props` is ctx.props,
+ * which is what completeAuthorization() stored. An earlier version of this helper passed
+ * `props: auth.props` and the fixtures carried a props key on auth — so the tests modelled the
+ * assumption rather than the contract, and every tool shipped returning UNAUTHENTICATED in
+ * production while 47 assertions stayed green.
+ */
+async function connect(env, { auth, props }) {
   const server = new McpServer({ name: 'test', version: '0.0.0' })
-  registerTools(server, () => ({ auth, env, props: auth.props }))
+  registerTools(server, () => ({ auth, env, props }))
   const client = new Client({ name: 'test-client', version: '0.0.0' })
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
   await Promise.all([server.connect(serverSide), client.connect(clientSide)])
   return { client, server }
 }
 
+/**
+ * The real shapes. auth is what OAuthProvider hands the handler after validating the bearer
+ * token; props is the application data it stored at authorization time. They are separate
+ * objects and the tools must read the identity from props.
+ */
 const authFor = (email, scope, role = 'User') => ({
-  clientId: 'test-client-id',
-  scope,
+  auth: {
+    token: 'redacted',
+    audience: 'https://knowledge.vegvisr.org/mcp',
+    scope,
+    userId: email,
+    clientId: 'https://chatgpt.com/oauth/client.json',
+  },
   props: { userId: email, email, role, authMethod: 'oauth_otp' },
 })
 
@@ -377,7 +396,7 @@ describe('results are readable by a model and by a program', () => {
 describe('an unauthenticated call cannot reach a tool', () => {
   test('no props means UNAUTHENTICATED, whatever the scopes claim', async () => {
     const { env } = freshDb()
-    const { client } = await connect(env, { clientId: 'c', scope: ['graph:read', 'graph:write'], props: null })
+    const { client } = await connect(env, { auth: { token: 't', audience: 'a', scope: ['graph:read', 'graph:write'] }, props: null })
     assert.equal((await callErr(client, 'create_graph', { title: 'T', metaArea: '#X' })).code, gs.ERR.UNAUTHENTICATED)
   })
 })
@@ -581,5 +600,58 @@ describe('annotations tell the client the truth about each tool', () => {
     await callOk(client, 'list_my_graphs', {})
     await callOk(client, 'search', { query: 'T' })
     await callOk(client, 'fetch', { id: g.graphId })
+  })
+})
+
+
+describe('the auth context is read the way the runtime actually supplies it', () => {
+  test('identity comes from ctx.props, which is NOT a field of ctx.auth', async () => {
+    const { env } = freshDb()
+    // Exactly what OAuthProvider passes: auth with no props, props alongside it.
+    const { client } = await connect(env, {
+      auth: { token: 'redacted', audience: 'https://knowledge.vegvisr.org/mcp', scope: ['graph:read', 'graph:write'], userId: 'alice@example.com', clientId: 'c' },
+      props: { userId: 'alice@example.com', email: 'alice@example.com', role: 'User', authMethod: 'oauth_otp' },
+    })
+    // This call returned UNAUTHENTICATED in production for every tool until 2026-09-27.
+    const r = await callOk(client, 'list_my_graphs', {})
+    assert.equal(r.success, true)
+  })
+
+  test('every tool resolves an actor from that shape, not just the first one', async () => {
+    const { env } = freshDb()
+    const ctx = {
+      auth: { token: 'redacted', audience: 'a', scope: ['graph:read', 'graph:write'], userId: 'alice@example.com', clientId: 'c' },
+      props: { userId: 'alice@example.com', email: 'alice@example.com', role: 'User' },
+    }
+    const { client } = await connect(env, ctx)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X' })
+    for (const [name, args] of [
+      ['get_graph', { graphId: g.graphId }],
+      ['add_node', { graphId: g.graphId, node: { label: 'n' } }],
+      ['get_graph_links', { graphId: g.graphId }],
+      ['search_graphs', {}],
+      ['list_my_graphs', {}],
+      ['search', { query: 'T' }],
+      ['fetch', { id: g.graphId }],
+    ]) {
+      const r = await client.callTool({ name, arguments: args })
+      assert.notEqual(r.isError, true, `${name} failed: ${JSON.stringify(r.structuredContent || r.content)}`)
+    }
+  })
+
+  test('no props at all still means UNAUTHENTICATED', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, { auth: { token: 't', audience: 'a', scope: ['graph:read'] }, props: null })
+    assert.equal((await callErr(client, 'list_my_graphs', {})).code, gs.ERR.UNAUTHENTICATED)
+  })
+
+  test('scopes are read from auth, identity from props — mixing them up breaks one or the other', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, {
+      auth: { token: 't', audience: 'a', scope: ['graph:read'] },           // read only
+      props: { userId: 'alice@example.com', email: 'alice@example.com', role: 'User' },
+    })
+    await callOk(client, 'list_my_graphs', {})                               // identity works
+    assert.equal((await callErr(client, 'create_graph', { title: 'T', metaArea: '#X' })).code, gs.ERR.INSUFFICIENT_SCOPE)
   })
 })

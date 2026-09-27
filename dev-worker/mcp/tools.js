@@ -90,15 +90,21 @@ function fromService(result) {
  * The actor for this call, built from the verified token only.
  * `auth.props` was set by completeAuthorization(); `auth.scope` is what the token really carries.
  */
-export function actorFromAuth(auth) {
-  if (!auth?.props) return null
+export function actorFromAuth(auth, props) {
+  // props is NOT a field of auth. ctx.auth is OAuthResourceAuth — {token, audience, expiresAt,
+  // scope, userId, clientId} — and the application data completeAuthorization() stored arrives
+  // separately on ctx.props. An earlier version read auth.props, which is always undefined, so
+  // every tool call resolved to no actor and returned UNAUTHENTICATED. It passed the tests
+  // because the test fixture built auth objects with a props key: the fixture encoded the
+  // assumption instead of the contract, which is exactly what a fixture must never do.
+  if (!props) return null
   return gs.normalizeActor({
     valid: true,
-    userId: auth.props.userId || auth.props.email || null,
-    userEmail: auth.props.email || null,
-    userRole: auth.props.role || 'User',
-    scopes: Array.isArray(auth.scope) ? auth.scope : [],
-    authMethod: auth.props.authMethod || 'oauth',
+    userId: props.userId || props.email || auth?.userId || null,
+    userEmail: props.email || null,
+    userRole: props.role || 'User',
+    scopes: Array.isArray(auth?.scope) ? auth.scope : [],
+    authMethod: props.authMethod || 'oauth',
   })
 }
 
@@ -198,11 +204,11 @@ export function registerTools(server, getContext) {
       annotations: ADDITIVE_WRITE,
     },
     async ({ title, description, metaArea, nodes, edges }) => {
-      const { auth, env } = getContext()
+      const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:write')
       if (scopeErr) return scopeErr
 
-      const actor = actorFromAuth(auth)
+      const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
       const result = await gs.createGraph(env, {
@@ -241,11 +247,11 @@ export function registerTools(server, getContext) {
       annotations: READ_ONLY,
     },
     async ({ graphId, nodeId }) => {
-      const { auth, env } = getContext()
+      const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:read')
       if (scopeErr) return scopeErr
 
-      const actor = actorFromAuth(auth)
+      const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
       // Ownership first: a missing graph and a graph belonging to someone else are answered
@@ -323,11 +329,11 @@ export function registerTools(server, getContext) {
       annotations: ADDITIVE_WRITE,
     },
     async ({ graphId, node, expectedVersion }) => {
-      const { auth, env } = getContext()
+      const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:write')
       if (scopeErr) return scopeErr
 
-      const actor = actorFromAuth(auth)
+      const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
       const access = await gs.checkAccess(env, actor, graphId, 'write')
@@ -365,11 +371,11 @@ export function registerTools(server, getContext) {
       annotations: READ_ONLY,
     },
     async ({ graphId }) => {
-      const { auth, env } = getContext()
+      const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:read')
       if (scopeErr) return scopeErr
 
-      const actor = actorFromAuth(auth)
+      const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
       const access = await gs.checkAccess(env, actor, graphId, 'read')
@@ -404,10 +410,10 @@ export function registerTools(server, getContext) {
       annotations: READ_ONLY,
     },
     async ({ query, metaArea, nodeType, limit, offset }) => {
-      const { auth, env } = getContext()
+      const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:read')
       if (scopeErr) return scopeErr
-      const actor = actorFromAuth(auth)
+      const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
       const r = await gs.searchGraphs(env, { query, metaArea, nodeType, limit, offset, actor })
@@ -440,10 +446,10 @@ export function registerTools(server, getContext) {
       annotations: READ_ONLY,
     },
     async ({ metaArea, limit, offset }) => {
-      const { auth, env } = getContext()
+      const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:read')
       if (scopeErr) return scopeErr
-      const actor = actorFromAuth(auth)
+      const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
       const r = await gs.listMyGraphs(env, { metaArea, limit, offset, actor })
@@ -485,10 +491,10 @@ export function registerTools(server, getContext) {
       annotations: READ_ONLY,
     },
     async ({ query }) => {
-      const { auth, env } = getContext()
+      const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:read')
       if (scopeErr) return scopeErr
-      const actor = actorFromAuth(auth)
+      const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
       const r = await gs.searchGraphs(env, { query, limit: 20, actor })
@@ -527,10 +533,10 @@ export function registerTools(server, getContext) {
       annotations: READ_ONLY,
     },
     async ({ id }) => {
-      const { auth, env } = getContext()
+      const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:read')
       if (scopeErr) return scopeErr
-      const actor = actorFromAuth(auth)
+      const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
       const access = await gs.checkAccess(env, actor, id, 'read')
