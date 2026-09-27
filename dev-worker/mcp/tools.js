@@ -508,14 +508,14 @@ export function registerTools(server, getContext) {
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
-      const result = await chat.postChatMessage(env, { groupId, text, actor })
+      const result = await chat.postChatMessage(env, { groupId, text, actor, clientId: auth.clientId })
       if (!result.ok) return fromService(result)
 
       const { ok: _o, ...payload } = result
       return ok(
         { success: true, ...payload },
         `Posted to "${result.groupName || result.groupId}" as ${result.botName || 'the group bot'}. ` +
-          `The message carries a line saying an AI assistant wrote it on the user's behalf.`,
+          `The message carries a line naming that assistant and the user it was written for.`,
       )
     },
   )

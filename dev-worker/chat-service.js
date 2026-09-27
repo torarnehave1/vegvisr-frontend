@@ -58,10 +58,61 @@ export async function isGroupMember(env, groupId, userId) {
  * act by a human in the chat UI, per group, and it is revoked by removing the bot again — no
  * code change, no deploy, no scope juggling.
  */
-const DEFAULT_MCP_BOT_USERNAME = 'chatgpt'
+const DEFAULT_CLIENT_BOT_MAP = {
+  'chatgpt.com': 'chatgpt',
+  'claude.ai': 'claude',
+}
 
-export function mcpBotUsername(env) {
-  return String(env.MCP_CHAT_BOT_USERNAME || DEFAULT_MCP_BOT_USERNAME).trim().toLowerCase()
+/** Used when the client's identity is not verifiable. Never one of the named assistants. */
+const DEFAULT_FALLBACK_BOT_USERNAME = 'ai-assistant'
+
+function clientBotMap(env) {
+  if (!env.MCP_CHAT_BOT_MAP) return DEFAULT_CLIENT_BOT_MAP
+  try {
+    const parsed = JSON.parse(env.MCP_CHAT_BOT_MAP)
+    return parsed && typeof parsed === 'object' ? parsed : DEFAULT_CLIENT_BOT_MAP
+  } catch {
+    console.error('[chat] MCP_CHAT_BOT_MAP is not valid JSON; using the built-in map')
+    return DEFAULT_CLIENT_BOT_MAP
+  }
+}
+
+/**
+ * Which bot should THIS client post as?
+ *
+ * Keyed on the host of the client id, and ONLY when that id is a URL — because then it is a
+ * Client ID Metadata Document, which the provider fetched over HTTPS to register the client.
+ * The host is therefore verified: nobody can claim `chatgpt.com` without controlling it.
+ *
+ * A client registered through /register gets an opaque id and a SELF-CHOSEN name. Mapping on
+ * that would let anyone register as "Claude" and post under the Claude bot — a lie about who
+ * wrote the message, which is the one thing this whole feature exists to prevent. So an
+ * unverifiable client falls back to a neutral bot and never borrows a named assistant's identity.
+ *
+ * Returns { username, verified }.
+ */
+export function botUsernameForClient(env, clientId) {
+  const fallback = String(env.MCP_CHAT_BOT_FALLBACK_USERNAME || DEFAULT_FALLBACK_BOT_USERNAME)
+    .trim()
+    .toLowerCase()
+
+  let host = null
+  try {
+    const url = new URL(String(clientId || ''))
+    if (url.protocol === 'https:') host = url.hostname.toLowerCase()
+  } catch {
+    /* not a URL: an opaque DCR client id */
+  }
+  if (!host) return { username: fallback, verified: false }
+
+  const map = clientBotMap(env)
+  for (const [key, username] of Object.entries(map)) {
+    const k = String(key).toLowerCase()
+    if (host === k || host.endsWith(`.${k}`)) {
+      return { username: String(username).toLowerCase(), verified: true }
+    }
+  }
+  return { username: fallback, verified: false }
 }
 
 /**
@@ -70,8 +121,8 @@ export function mcpBotUsername(env) {
  * Two distinct failures, reported distinctly, because they need different fixes: the bot does
  * not exist at all (create it), or it exists but is not in this group (add it there).
  */
-export async function resolveMcpBot(env, groupId) {
-  const username = mcpBotUsername(env)
+export async function resolveMcpBot(env, groupId, clientId = null) {
+  const { username, verified } = botUsernameForClient(env, clientId)
 
   const bot = await env.CHAT_DB.prepare(
     'SELECT id, name, username FROM chat_bots WHERE LOWER(username) = ? AND is_active = 1 LIMIT 1',
@@ -82,8 +133,8 @@ export async function resolveMcpBot(env, groupId) {
   if (!bot) {
     return fail(
       ERR.INVALID_INPUT,
-      `No active chat bot with username "${username}" exists. Create it in the chat app first — it is the identity every AI-posted message appears under.`,
-      { expectedBotUsername: username },
+      `No active chat bot with username "${username}" exists. Create it in the chat app first — it is the identity this client's messages appear under.`,
+      { expectedBotUsername: username, clientVerified: verified },
     )
   }
 
@@ -101,7 +152,7 @@ export async function resolveMcpBot(env, groupId) {
     )
   }
 
-  return { ok: true, bot }
+  return { ok: true, bot, verified }
 }
 
 /**
@@ -110,9 +161,12 @@ export async function resolveMcpBot(env, groupId) {
  * Not configurable by the caller: a model that could choose its own signature could choose to
  * have none, and the whole point is that a reader can tell where the message came from.
  */
-function attribution(actor) {
+function attribution(actor, bot) {
   const who = actor.email || actor.userId || 'en VEGR.AI-bruker'
-  return `\n\n— skrevet av en AI-assistent på vegne av ${who}`
+  // The assistant is named from OUR database row, never from anything the client sent, so the
+  // line cannot be used to claim an identity the client does not have.
+  const what = bot?.name || 'en AI-assistent'
+  return `\n\n— skrevet av ${what} på vegne av ${who}`
 }
 
 /**
@@ -122,7 +176,7 @@ function attribution(actor) {
  * which does its own checks on top of ours: the bot must be a group member and active, and the
  * message type is whitelisted.
  */
-export async function postChatMessage(env, { groupId, text, actor }) {
+export async function postChatMessage(env, { groupId, text, actor, clientId = null }) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   if (!groupId || !String(groupId).trim()) return fail(ERR.INVALID_INPUT, 'groupId is required.')
 
@@ -149,10 +203,10 @@ export async function postChatMessage(env, { groupId, text, actor }) {
     )
   }
 
-  const resolved = await resolveMcpBot(env, groupId)
+  const resolved = await resolveMcpBot(env, groupId, clientId)
   if (!resolved.ok) return resolved
 
-  const message = body + attribution(actor)
+  const message = body + attribution(actor, resolved.bot)
 
   const res = await env.CHAT_WORKER.fetch('https://group-chat-worker/bot-message', {
     method: 'POST',
@@ -182,4 +236,4 @@ export async function postChatMessage(env, { groupId, text, actor }) {
   }
 }
 
-export const CHAT_LIMITS = { MAX_MESSAGE_LENGTH }
+export const CHAT_LIMITS = { MAX_MESSAGE_LENGTH, DEFAULT_CLIENT_BOT_MAP, DEFAULT_FALLBACK_BOT_USERNAME }

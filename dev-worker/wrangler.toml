@@ -91,7 +91,12 @@ MCP_PUBLIC_ORIGIN = "https://knowledge.vegvisr.org"
 # The chat bot every AI-posted message appears as. Adding this bot to a group is what permits
 # post_chat_message to post there, so a group's bot list is the access control — set and revoked
 # by a human in the chat app, with no deploy.
-MCP_CHAT_BOT_USERNAME = "chatgpt"
+# Which chat bot each MCP client posts as, keyed by the HOST of its client id — and only when
+# that id is a URL, i.e. a Client ID Metadata Document the provider actually fetched. A client
+# registered through /register has an opaque id and a self-chosen name, so it cannot claim a
+# named assistant's bot; it falls back to MCP_CHAT_BOT_FALLBACK_USERNAME.
+MCP_CHAT_BOT_MAP = """{"chatgpt.com":"chatgpt","claude.ai":"claude"}"""
+MCP_CHAT_BOT_FALLBACK_USERNAME = "ai-assistant"
 
 # group-chat-worker, for the MCP post_chat_message tool. brand-worker binds the same worker
 # under the same name. Posting goes through its /bot-message endpoint, which checks that the
