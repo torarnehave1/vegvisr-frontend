@@ -20,6 +20,9 @@ import {
   encryptDataNodeInfo,
   decryptDataNodeInfo,
 } from './graph-service.js'
+import { OAuthProvider } from '@cloudflare/workers-oauth-provider'
+import { handleAuthorize, ISSUER, MCP_RESOURCE, SUPPORTED_SCOPES } from './oauth/authorize.js'
+import { mcpHandler } from './mcp/server.js'
 
 /**
  * @typedef {Object} Env
@@ -2005,7 +2008,12 @@ async function notifyNibiGraphUpdate(env, graphId, graphData) {
   }
 }
 
-export default {
+/**
+ * The existing worker, untouched. It sits behind OAuthProvider now (see the default export at the
+ * bottom of this file): every request that is not an OAuth endpoint and not /mcp arrives here
+ * exactly as before, so all 58 REST routes keep their behaviour.
+ */
+const restHandler = {
   async fetch(request, env, ctx) {
     const corsHeaders = {
       'Access-Control-Allow-Origin': request.headers.get('Origin') || '*',
@@ -10934,4 +10942,101 @@ async function handleRequest(request) {
     }
   })
 }`
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OAuth 2.1 + MCP
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The worker's entry point is now the OAuth provider rather than the router above.
+ *
+ * What that changes: the provider owns /authorize, /token, /register and the two
+ * .well-known discovery documents, and it protects /mcp. Everything else — all 58 existing REST
+ * routes — is handed to `defaultHandler` untouched. None of the paths the provider claims
+ * existed in this worker before, so nothing is shadowed.
+ *
+ * What the provider does for us, so it is not hand-rolled here: RFC 8414 authorization-server
+ * metadata, RFC 9728 protected-resource metadata, the Bearer challenge that points an MCP client
+ * at that metadata, PKCE (S256) enforcement, exact redirect_uri matching, short-lived
+ * authorization codes, rotating refresh tokens, revocation, and hashed storage of all token
+ * material in OAUTH_KV.
+ *
+ * What stays ours, because only this application can do it: authenticating the person and taking
+ * consent. `defaultHandler` routes /authorize into oauth/authorize.js, which runs the magic-link
+ * then SMS-code flow and finishes with completeAuthorization().
+ */
+/**
+ * OAuthProvider hands everything that is not an OAuth endpoint and not /mcp to `defaultHandler`,
+ * so this is where /authorize is served: the provider owns the protocol endpoints, the
+ * application owns signing the person in and taking consent.
+ */
+const defaultHandler = {
+  async fetch(request, env, ctx) {
+    if (new URL(request.url).pathname === '/authorize') {
+      // env.OAUTH_PROVIDER is injected by the provider before it delegates here, so
+      // parseAuthRequest() and completeAuthorization() are reachable from the login flow.
+      return handleAuthorize(request, env, ctx)
+    }
+    return restHandler.fetch(request, env, ctx)
+  },
+}
+
+/**
+ * The provider is built lazily, on the first request, because its canonical resource identifier
+ * has to come from configuration and `env` does not exist at module scope.
+ *
+ * WHY THE RESOURCE CANNOT JUST BE HARD-CODED: RFC 9728 makes the resource identifier the
+ * audience of every token, and the provider refuses to serve the protected-resource document,
+ * or to name it in the Bearer challenge, for a request that arrives on a different origin. With
+ * the production URL compiled in, `wrangler dev` on localhost got an empty 404 for the document
+ * and a challenge with no resource_metadata — correct behaviour, but it makes the endpoint
+ * untestable outside production. MCP_PUBLIC_ORIGIN lets local dev point it at localhost while
+ * production keeps knowledge.vegvisr.org.
+ */
+let providerInstance = null
+
+function getProvider(env) {
+  if (providerInstance) return providerInstance
+
+  const origin = (env.MCP_PUBLIC_ORIGIN || ISSUER).replace(/\/+$/, '')
+  const resource = `${origin}/mcp`
+
+  providerInstance = new OAuthProvider({
+    // /mcp is the one protected route. Every protected route must be the canonical resource path
+    // or a descendant of it; the provider refuses to construct otherwise.
+    apiRoute: '/mcp',
+    apiHandler: mcpHandler,
+    defaultHandler,
+
+    authorizeEndpoint: '/authorize',
+    tokenEndpoint: '/token',
+    clientRegistrationEndpoint: '/register',
+
+    scopesSupported: SUPPORTED_SCOPES,
+
+    resourceMetadata: {
+      resource,
+      authorization_servers: [origin],
+      scopes_supported: SUPPORTED_SCOPES,
+      resource_name: 'VEGR.AI Knowledge Graph',
+      bearer_methods_supported: ['header'],
+    },
+
+    // Client ID Metadata Documents are how a client with no prior relationship registers under
+    // the 2026 MCP spec, which deprecates Dynamic Client Registration for new clients. Both are
+    // on: CIMD for new clients, /register as the compatibility path for existing ones.
+    clientIdMetadataDocumentEnabled: true,
+
+    // Short-lived access tokens so a leaked one expires on its own; refresh tokens rotate on use.
+    accessTokenTTL: 3600,
+  })
+  return providerInstance
+}
+
+export default {
+  fetch(request, env, ctx) {
+    return getProvider(env).fetch(request, env, ctx)
+  },
 }

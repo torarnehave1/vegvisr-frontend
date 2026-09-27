@@ -80,3 +80,64 @@ export function freshDb() {
   `)
   return { env: { vegvisr_org: new D1Like(db) }, raw: db }
 }
+
+/**
+ * A KV stub with the surface otp.js uses: get / put (with expirationTtl) / delete.
+ * TTLs are honoured against a clock the test controls, because expiry is half of what the OTP
+ * rules are — a stub that ignored expirationTtl would let the expiry tests pass vacuously.
+ */
+export class KVLike {
+  constructor(now = () => Date.now()) {
+    this.map = new Map()
+    this.now = now
+  }
+  async get(key) {
+    const e = this.map.get(key)
+    if (!e) return null
+    if (e.expiresAt != null && this.now() > e.expiresAt) {
+      this.map.delete(key)
+      return null
+    }
+    return e.value
+  }
+  async put(key, value, opts = {}) {
+    const ttl = opts.expirationTtl
+    this.map.set(key, { value: String(value), expiresAt: ttl ? this.now() + ttl * 1000 : null })
+  }
+  async delete(key) {
+    this.map.delete(key)
+  }
+}
+
+/** Records what was "sent" instead of calling a real SMS gateway. */
+export class FakeSmsGateway {
+  constructor({ ok = true } = {}) {
+    this.sent = []
+    this.ok = ok
+  }
+  async fetch(url, init) {
+    const body = JSON.parse(init.body)
+    this.sent.push(body)
+    return new Response(JSON.stringify({ success: this.ok }), { status: this.ok ? 200 : 502 })
+  }
+  /** The 6-digit code out of the last message — the test's only way to learn it. */
+  lastCode() {
+    const m = /(\d{6})/.exec(this.sent.at(-1)?.message || '')
+    return m ? m[1] : null
+  }
+}
+
+/** Adds the config rows the OAuth OTP flow reads. */
+export function seedUsers(raw) {
+  raw.exec(`CREATE TABLE IF NOT EXISTS config (
+    user_id TEXT, data TEXT NOT NULL DEFAULT '{}', email TEXT PRIMARY KEY,
+    emailVerificationToken TEXT, Role TEXT, phone TEXT,
+    phone_verification_code TEXT, phone_verification_expires_at INTEGER, phone_verified_at INTEGER
+  )`)
+  const ins = raw.prepare(
+    "INSERT OR REPLACE INTO config (user_id, data, email, emailVerificationToken, Role, phone) VALUES (?,'{}',?,?,?,?)",
+  )
+  ins.run('u-alice', 'alice@example.com', 'sess-alice', 'User', '+4790000001')
+  ins.run('u-bob', 'bob@example.com', 'sess-bob', 'User', '+4790000002')
+  ins.run('u-nophone', 'nophone@example.com', 'sess-nophone', 'User', null)
+}

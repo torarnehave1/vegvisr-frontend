@@ -3,6 +3,12 @@ name = "knowledge-graph-worker"          # Change this to your desired worker na
 main = "index.js"                # Path relative to the wrangler.toml file (here, same folder)
 compatibility_date = "2025-02-14"
 
+# Required for Client ID Metadata Documents, which is how an MCP client with no pre-existing
+# relationship registers under the 2026 spec. Without it the provider logs
+# "CIMD is disabled" at startup and clientIdMetadataDocumentEnabled has no effect — caught from
+# the wrangler dev log, not from the docs.
+compatibility_flags = ["global_fetch_strictly_public"]
+
 # Optionally, if you plan to deploy to Workers.dev:
 workers_dev = true
 
@@ -27,6 +33,18 @@ id = "c1489b0abee34a9d82f326b1b8f89c15"
 # Read-only. brand-worker writes html:<hostname> here on every html-node publish;
 # this worker reads the registry so graph listings can report which site a graph
 # publishes to without trusting the node-level publishedDomain stamp.
+# OAuth 2.1 + MCP state, written by @cloudflare/workers-oauth-provider: registered clients,
+# grants, authorization codes and tokens (hashed), plus the short-lived OTP challenges bound to
+# an in-flight authorization under the oauthtx: prefix.
+#
+# PLACEHOLDER ID — replace before deploying. Create the namespace with:
+#   wrangler kv namespace create OAUTH_KV
+# and paste the id it prints here. Local `wrangler dev --local` fabricates its own storage from
+# the binding name, so development works without the remote namespace existing.
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "REPLACE_ME_oauth_kv_namespace_id"
+
 [[kv_namespaces]]
 binding = "HTML_PAGES"
 id = "2b8ce05731454bcf82b790b91392bee8"
@@ -58,3 +76,16 @@ environment = "production"
 [[services]]
 binding = "EMAIL_WORKER"
 service = "email-worker"
+
+# SMS gateway for the OAuth OTP step. brand-worker binds the same worker as SMS_GATEWAY;
+# dev-worker/oauth/otp.js falls back to the public workers.dev URL if this is missing.
+[[services]]
+binding = "SMS_GATEWAY"
+service = "sms-gateway"
+
+# The public origin this worker is reached on. It becomes the OAuth issuer and the RFC 9728
+# resource identifier (`<origin>/mcp`), which is the audience of every access token. Override it
+# in .dev.vars for local testing; the protected-resource document is only served for a request
+# that arrives on this origin.
+[vars]
+MCP_PUBLIC_ORIGIN = "https://knowledge.vegvisr.org"

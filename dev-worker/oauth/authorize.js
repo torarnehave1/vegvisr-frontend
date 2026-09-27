@@ -1,0 +1,427 @@
+/**
+ * authorize.js — the interactive half of OAuth 2.1. The library owns discovery, /token,
+ * revocation and registration; authenticating the person and taking consent is ours, because
+ * only this application knows what a VEGR.AI user is.
+ *
+ * FLOW (decision A3, 2026-09-27): magic link first, then OTP — the same order
+ * src/views/LoginView.vue already uses in production, where the e-mail link establishes who
+ * you are and the phone code confirms it. It was chosen over phone-only because 33 of the 46
+ * users in `config` have no phone number on record (13 have one, 12 verified), so a phone-only
+ * gate would lock most of the user base out of MCP entirely.
+ *
+ *   GET  /authorize?<oauth params>        → parse, open a transaction, ask for the e-mail
+ *   POST action=send-magic                → e-mail a link back to ?tx=<id>&magic=<token>
+ *   GET  /authorize?tx=<id>&magic=<token> → verify the link, identify the user, ask for phone
+ *   POST action=send-otp                  → SMS a code bound to this transaction
+ *   POST action=verify-otp                → spend the code
+ *   POST action=approve                   → completeAuthorization() → redirect with the code
+ *
+ * The transaction id is unguessable, lives in KV with a 15-minute TTL, and is the CSRF token
+ * for every POST: a cross-site form post cannot know it.
+ */
+
+import { createTx, getTx, putTx, deleteTx, sendChallenge, verifyChallenge, OTP_ERR, OTP_LIMITS } from './otp.js'
+import { AuthorizationError } from '@cloudflare/workers-oauth-provider'
+
+export const ISSUER = 'https://knowledge.vegvisr.org'
+export const MCP_RESOURCE = `${ISSUER}/mcp`
+
+/** Scopes this server will grant. graph:delete exists but is never offered (v1 decision). */
+export const SUPPORTED_SCOPES = ['graph:read', 'graph:write', 'graph:publish']
+
+const SCOPE_TEXT = {
+  'graph:read': 'Lese kunnskapsgrafene dine',
+  'graph:write': 'Opprette og endre grafer og noder',
+  'graph:publish': 'Publisere en graf offentlig',
+  'graph:delete': 'Slette grafer',
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pages
+// ─────────────────────────────────────────────────────────────────────────────
+
+const esc = (s) =>
+  String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+
+function page(title, body, { status = 200 } = {}) {
+  return new Response(
+    `<!doctype html><html lang="no"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>${esc(title)} — VEGR.AI</title>
+<style>
+:root{--bg:#0f1720;--card:#16212c;--text:#e8eef4;--muted:#93a4b3;--line:#24323f;--accent:#4aa3df;--bad:#e06c75}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+ background:var(--bg);color:var(--text);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:28px;width:100%;max-width:420px}
+h1{margin:0 0 4px;font-size:20px}
+.sub{color:var(--muted);font-size:14px;margin:0 0 20px}
+label{display:block;font-size:13px;color:var(--muted);margin:16px 0 6px}
+input{width:100%;padding:11px 12px;border-radius:8px;border:1px solid var(--line);background:#0e1620;color:var(--text);font-size:16px}
+input:focus{outline:2px solid var(--accent);outline-offset:1px}
+button{width:100%;margin-top:20px;padding:12px;border:0;border-radius:8px;background:var(--accent);color:#05121c;font-size:15px;font-weight:600;cursor:pointer}
+button.secondary{background:transparent;color:var(--muted);border:1px solid var(--line);margin-top:10px;font-weight:400}
+.err{margin:14px 0 0;padding:10px 12px;border-radius:8px;background:rgba(224,108,117,.12);border:1px solid rgba(224,108,117,.35);color:#f2b8bd;font-size:14px}
+.ok{margin:14px 0 0;padding:10px 12px;border-radius:8px;background:rgba(74,163,223,.1);border:1px solid rgba(74,163,223,.3);font-size:14px}
+ul.scopes{list-style:none;padding:0;margin:16px 0}
+ul.scopes li{padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;font-size:14px}
+.client{font-weight:600}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;color:var(--muted)}
+.foot{margin-top:22px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+.otp{letter-spacing:.35em;text-align:center;font-size:22px}
+</style></head><body><div class="card">${body}<div class="foot">VEGR.AI · knowledge.vegvisr.org</div></div></body></html>`,
+    { status, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } },
+  )
+}
+
+function emailForm(tx, error) {
+  return page('Logg inn', `
+<h1>Logg inn</h1>
+<p class="sub"><span class="client">${esc(tx.clientName || tx.clientId)}</span> vil koble seg til kunnskapsgrafene dine.</p>
+${error ? `<div class="err">${esc(error)}</div>` : ''}
+<form method="POST" action="/authorize">
+  <input type="hidden" name="tx" value="${esc(tx.txId)}">
+  <input type="hidden" name="action" value="send-magic">
+  <label for="email">E-postadresse</label>
+  <input id="email" name="email" type="email" autocomplete="email" required autofocus placeholder="deg@example.com">
+  <button type="submit">Send innloggingslenke</button>
+</form>
+<p class="sub" style="margin-top:18px">Du får en lenke på e-post. Etterpå bekrefter du med en SMS-kode.</p>`)
+}
+
+function magicSentPage(email) {
+  return page('Sjekk e-posten', `
+<h1>Sjekk e-posten din</h1>
+<p class="sub">Vi har sendt en innloggingslenke til <strong>${esc(email)}</strong>.</p>
+<div class="ok">Åpne lenken i denne nettleseren for å fortsette. Lenken kan bare brukes én gang.</div>
+<p class="sub" style="margin-top:18px">Fant du den ikke? Se i søppelpost, eller lukk dette vinduet og prøv igjen.</p>`)
+}
+
+function phoneForm(tx, error) {
+  return page('Bekreft med SMS', `
+<h1>Bekreft med SMS</h1>
+<p class="sub">Innlogget som <strong>${esc(tx.email)}</strong>. Bekreft med mobilnummeret registrert på kontoen.</p>
+${error ? `<div class="err">${esc(error)}</div>` : ''}
+<form method="POST" action="/authorize">
+  <input type="hidden" name="tx" value="${esc(tx.txId)}">
+  <input type="hidden" name="action" value="send-otp">
+  <label for="phone">Mobilnummer</label>
+  <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" required autofocus placeholder="+47 000 00 000">
+  <button type="submit">Send kode</button>
+</form>`)
+}
+
+function codeForm(tx, error, notice) {
+  return page('Skriv koden', `
+<h1>Skriv koden</h1>
+<p class="sub">Vi har sendt en 6-sifret kode på SMS. Den er gyldig i ${OTP_LIMITS.CODE_TTL_SECONDS / 60} minutter.</p>
+${error ? `<div class="err">${esc(error)}</div>` : ''}
+${notice ? `<div class="ok">${esc(notice)}</div>` : ''}
+<form method="POST" action="/authorize">
+  <input type="hidden" name="tx" value="${esc(tx.txId)}">
+  <input type="hidden" name="action" value="verify-otp">
+  <label for="code">Kode</label>
+  <input id="code" name="code" class="otp" inputmode="numeric" autocomplete="one-time-code"
+         pattern="[0-9]{6}" maxlength="6" required autofocus>
+  <button type="submit">Bekreft</button>
+</form>
+<form method="POST" action="/authorize">
+  <input type="hidden" name="tx" value="${esc(tx.txId)}">
+  <input type="hidden" name="action" value="send-otp">
+  <input type="hidden" name="phone" value="${esc(tx.phone || '')}">
+  <button class="secondary" type="submit">Send ny kode</button>
+</form>`)
+}
+
+function consentForm(tx, scopes) {
+  return page('Gi tilgang', `
+<h1>Gi tilgang</h1>
+<p class="sub"><span class="client">${esc(tx.clientName || tx.clientId)}</span> ber om tilgang til kontoen
+<strong>${esc(tx.email)}</strong>.</p>
+<ul class="scopes">
+  ${scopes.map((s) => `<li>${esc(SCOPE_TEXT[s] || s)}<br><code>${esc(s)}</code></li>`).join('')}
+</ul>
+<form method="POST" action="/authorize">
+  <input type="hidden" name="tx" value="${esc(tx.txId)}">
+  <input type="hidden" name="action" value="approve">
+  <button type="submit">Godkjenn tilgang</button>
+</form>
+<form method="POST" action="/authorize">
+  <input type="hidden" name="tx" value="${esc(tx.txId)}">
+  <input type="hidden" name="action" value="deny">
+  <button class="secondary" type="submit">Avslå</button>
+</form>
+<p class="sub" style="margin-top:18px">Du kan trekke tilgangen tilbake senere. Tilgangen gjelder bare grafene du selv eier.</p>`)
+}
+
+const OTP_MESSAGES = {
+  [OTP_ERR.BAD_PHONE]: 'Oppgi et gyldig norsk mobilnummer.',
+  [OTP_ERR.RATE_LIMITED]: 'For mange kodeforespørsler. Prøv igjen senere.',
+  [OTP_ERR.NO_CHALLENGE]: 'Ingen aktiv kode. Be om en ny.',
+  [OTP_ERR.EXPIRED]: 'Koden er utløpt. Be om en ny.',
+  [OTP_ERR.TOO_MANY_ATTEMPTS]: 'For mange forsøk. Be om en ny kode.',
+  [OTP_ERR.WRONG_CODE]: 'Feil kode.',
+  [OTP_ERR.SMS_FAILED]: 'Kunne ikke sende SMS. Prøv igjen.',
+  [OTP_ERR.TX_NOT_FOUND]: 'Innloggingen er utløpt. Start på nytt fra appen.',
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Handler
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function handleAuthorize(request, env, ctx) {
+  const url = new URL(request.url)
+  if (request.method === 'GET') return handleGet(request, env, url)
+  if (request.method === 'POST') return handlePost(request, env, url)
+  return page('Feil', '<h1>Metoden støttes ikke</h1>', { status: 405 })
+}
+
+async function handleGet(request, env, url) {
+  const txId = url.searchParams.get('tx')
+  const magic = url.searchParams.get('magic')
+
+  // Return leg of the magic link.
+  if (txId && magic) {
+    const tx = await getTx(env, txId)
+    if (!tx) return page('Utløpt', `<h1>Innloggingen er utløpt</h1><p class="sub">${esc(OTP_MESSAGES[OTP_ERR.TX_NOT_FOUND])}</p>`, { status: 400 })
+
+    const verified = await verifyMagicToken(env, magic)
+    if (!verified.ok) {
+      return emailForm(tx, verified.error || 'Lenken er ugyldig eller brukt. Prøv igjen.')
+    }
+
+    // Identity comes from the e-mail the link proved, and role from the config ROW — never
+    // from anything the browser sent.
+    const row = await env.vegvisr_org
+      .prepare('SELECT user_id, email, Role FROM config WHERE email = ? LIMIT 1')
+      .bind(verified.email)
+      .first()
+    if (!row) {
+      return emailForm(tx, 'Ingen VEGR.AI-konto på denne e-postadressen.')
+    }
+
+    tx.email = row.email
+    tx.userId = row.user_id || row.email
+    tx.role = row.Role || 'User'
+    tx.stage = 'phone'
+    await putTx(env, tx)
+    return phoneForm(tx, null)
+  }
+
+  // Resuming a transaction already in flight.
+  if (txId) {
+    const tx = await getTx(env, txId)
+    if (!tx) return page('Utløpt', `<h1>Innloggingen er utløpt</h1><p class="sub">${esc(OTP_MESSAGES[OTP_ERR.TX_NOT_FOUND])}</p>`, { status: 400 })
+    return renderStage(env, tx)
+  }
+
+  // A fresh authorization request from an MCP client.
+  const oauth = env.OAUTH_PROVIDER
+  let authRequest
+  try {
+    authRequest = await oauth.parseAuthRequest(request)
+  } catch (error) {
+    if (!(error instanceof AuthorizationError)) throw error
+    // Without a validated redirect URI there is nothing safe to redirect to, so the error is
+    // rendered here rather than bounced to a caller-supplied address.
+    if (!error.redirectUri) {
+      return page('Ugyldig forespørsel', `<h1>Ugyldig forespørsel</h1><p class="sub">${esc(error.description)}</p><p><code>${esc(error.code)}</code></p>`, { status: 400 })
+    }
+    const redirect = new URL(error.redirectUri)
+    redirect.searchParams.set('error', error.code)
+    redirect.searchParams.set('error_description', error.description)
+    if (error.state) redirect.searchParams.set('state', error.state)
+    if (error.issuer) redirect.searchParams.set('iss', error.issuer)
+    return Response.redirect(redirect.href, 302)
+  }
+
+  const client = await oauth.lookupClient(authRequest.clientId)
+  if (!client) return page('Ukjent klient', '<h1>Ukjent OAuth-klient</h1>', { status: 400 })
+
+  const tx = await createTx(env, {
+    authRequest,
+    clientId: authRequest.clientId,
+    clientName: client.clientName,
+  })
+  return emailForm(tx, null)
+}
+
+function renderStage(env, tx) {
+  if (tx.stage === 'consent') return consentForm(tx, grantableScopes(tx))
+  if (tx.stage === 'otp') return codeForm(tx, null, null)
+  if (tx.stage === 'phone') return phoneForm(tx, null)
+  return emailForm(tx, null)
+}
+
+/** Only scopes the client asked for AND this server supports are ever granted. */
+function grantableScopes(tx) {
+  const requested = Array.isArray(tx.authRequest?.scope) ? tx.authRequest.scope : []
+  const granted = requested.filter((s) => SUPPORTED_SCOPES.includes(s))
+  // A client that asks for nothing recognisable still gets a usable read-only connection
+  // rather than a token with no scopes at all.
+  return granted.length ? granted : ['graph:read']
+}
+
+async function handlePost(request, env, url) {
+  let form
+  try {
+    form = await request.formData()
+  } catch {
+    return page('Feil', '<h1>Ugyldig skjema</h1>', { status: 400 })
+  }
+  const action = String(form.get('action') || '')
+  const txId = String(form.get('tx') || '')
+
+  // The transaction id doubles as the CSRF token: it is 128 bits of randomness that only this
+  // server and this browser have seen, so a cross-site form post cannot produce it.
+  const tx = await getTx(env, txId)
+  if (!tx) {
+    return page('Utløpt', `<h1>Innloggingen er utløpt</h1><p class="sub">${esc(OTP_MESSAGES[OTP_ERR.TX_NOT_FOUND])}</p>`, { status: 400 })
+  }
+
+  const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown'
+
+  if (action === 'send-magic') {
+    const email = String(form.get('email') || '').trim().toLowerCase()
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      return emailForm(tx, 'Oppgi en gyldig e-postadresse.')
+    }
+    const returnUrl = `${ISSUER}/authorize?tx=${encodeURIComponent(tx.txId)}`
+    const sent = await sendMagicLink(env, email, returnUrl)
+    // Answered the same way whether or not the address has an account, so the page cannot be
+    // used to test which e-mail addresses are registered.
+    if (!sent.ok) {
+      console.error('[OAuth] magic link send failed:', sent.error)
+      return emailForm(tx, 'Kunne ikke sende e-post akkurat nå. Prøv igjen.')
+    }
+    return magicSentPage(email)
+  }
+
+  // Every step past this point requires the e-mail leg to have completed.
+  if (!tx.email) return emailForm(tx, 'Start innloggingen på nytt.')
+
+  if (action === 'send-otp') {
+    const result = await sendChallenge(env, { tx, phoneRaw: form.get('phone'), clientIp })
+    if (!result.ok) {
+      const msg = OTP_MESSAGES[result.code] || 'Kunne ikke sende kode.'
+      return tx.stage === 'otp' ? codeForm(tx, msg, null) : phoneForm(tx, msg)
+    }
+    // result.sent is false when the number does not match the account. The page must not say
+    // so — it would reveal which number is on the account.
+    if (tx.stage !== 'otp') {
+      tx.stage = 'otp'
+      await putTx(env, tx)
+    }
+    return codeForm(tx, null, 'Kode sendt, hvis nummeret stemmer med kontoen.')
+  }
+
+  if (action === 'verify-otp') {
+    const result = await verifyChallenge(env, { tx, codeRaw: form.get('code') })
+    if (!result.ok) {
+      const base = OTP_MESSAGES[result.code] || 'Feil kode.'
+      const msg = result.remaining ? `${base} ${result.remaining} forsøk igjen.` : base
+      return result.code === OTP_ERR.WRONG_CODE ? codeForm(tx, msg, null) : phoneForm(tx, msg)
+    }
+    return consentForm(tx, grantableScopes(tx))
+  }
+
+  if (action === 'deny') {
+    const redirectUri = tx.authRequest?.redirectUri
+    await deleteTx(env, tx.txId)
+    if (!redirectUri) return page('Avslått', '<h1>Tilgang avslått</h1><p class="sub">Du kan lukke dette vinduet.</p>')
+    const redirect = new URL(redirectUri)
+    redirect.searchParams.set('error', 'access_denied')
+    redirect.searchParams.set('error_description', 'The user denied the request.')
+    if (tx.authRequest?.state) redirect.searchParams.set('state', tx.authRequest.state)
+    return Response.redirect(redirect.href, 302)
+  }
+
+  if (action === 'approve') {
+    if (tx.stage !== 'consent') return renderStage(env, tx)
+
+    const scope = grantableScopes(tx)
+    const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
+      request: tx.authRequest,
+      userId: tx.userId,
+      metadata: { clientName: tx.clientName, authenticatedAt: new Date().toISOString() },
+      scope,
+      // props is what every MCP tool call will see as its caller. It carries the identity the
+      // magic link and the OTP established — never anything a tool argument could set.
+      props: {
+        userId: tx.userId,
+        email: tx.email,
+        role: tx.role,
+        authMethod: 'oauth_otp',
+      },
+    })
+
+    // The transaction has served its purpose; leaving it in KV would leave a replayable
+    // consent sitting around for the rest of its TTL.
+    await deleteTx(env, tx.txId)
+    console.log(`[OAuth] authorization granted to client=${tx.clientId} scopes=${scope.join(',')}`)
+    return Response.redirect(redirectTo, 302)
+  }
+
+  return page('Feil', '<h1>Ukjent handling</h1>', { status: 400 })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// email-worker integration (contract read from email-worker/index.js, not from memory)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The EMAIL_WORKER service binding is REQUIRED, with no public-URL fallback.
+ *
+ * A fallback to https://email-worker.torarnehave.workers.dev looked harmless and was not: a
+ * missing binding would have silently sent real login e-mails to real addresses from a local
+ * `wrangler dev` session, where the binding shows as [not connected]. A misconfigured binding
+ * should fail loudly, not quietly reach out to the internet on a login path.
+ */
+async function emailWorkerFetch(env, path, init) {
+  if (!env.EMAIL_WORKER?.fetch) {
+    throw new Error('EMAIL_WORKER service binding is not configured; refusing to send login mail over the public internet.')
+  }
+  return env.EMAIL_WORKER.fetch(`https://email-worker${path}`, init)
+}
+
+/**
+ * POST /login/magic/send takes { email, redirectUrl } and mails a link built as
+ * `<redirectUrl>?magic=<token>` (buildMagicLink sets the param on the parsed URL, so an
+ * existing query string like ?tx=… survives). isLoginAllowed() waves through any host ending
+ * in vegvisr.org, so knowledge.vegvisr.org needs no invite-list entry.
+ */
+async function sendMagicLink(env, email, redirectUrl) {
+  try {
+    const res = await emailWorkerFetch(env, '/login/magic/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, redirectUrl }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || data.success === false) {
+      return { ok: false, error: data.error || `status ${res.status}` }
+    }
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+}
+
+/** POST /login/magic/verify marks the token used (single-use) and returns the e-mail. */
+async function verifyMagicToken(env, token) {
+  try {
+    const res = await emailWorkerFetch(env, '/login/magic/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || data.success === false || !data.email) {
+      return { ok: false, error: data.error || 'Lenken er ugyldig eller brukt.' }
+    }
+    return { ok: true, email: String(data.email).toLowerCase() }
+  } catch (e) {
+    return { ok: false, error: e.message }
+  }
+}
