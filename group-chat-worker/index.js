@@ -1985,7 +1985,7 @@ var index_default = {
                   transcript_text, transcript_lang, transcription_status,
                   media_url, media_object_key, media_content_type, media_size,
                   video_thumbnail_url, video_duration_ms,
-                  sender_avatar_url, reply_to_id,
+                  sender_avatar_url, sender_name, reply_to_id,
                   forwarded_from_message_id, forwarded_from_user_id, forwarded_from_user_name
             FROM group_messages`;
           const where = before > 0 ? ` WHERE group_id = ? AND id < ?` : ` WHERE group_id = ?`;
@@ -2013,7 +2013,7 @@ var index_default = {
                   transcript_text, transcript_lang, transcription_status,
                   media_url, media_object_key, media_content_type, media_size,
                   video_thumbnail_url, video_duration_ms,
-                  sender_avatar_url, reply_to_id,
+                  sender_avatar_url, sender_name, reply_to_id,
                   forwarded_from_message_id, forwarded_from_user_id, forwarded_from_user_name
            FROM group_messages
            WHERE group_id = ? AND id > ?
@@ -2491,7 +2491,7 @@ var index_default = {
                   transcript_text, transcript_lang, transcription_status,
                   media_url, media_object_key, media_content_type, media_size,
                   video_thumbnail_url, video_duration_ms,
-                  sender_avatar_url, reply_to_id,
+                  sender_avatar_url, sender_name, reply_to_id,
                   forwarded_from_message_id, forwarded_from_user_id, forwarded_from_user_name
            FROM group_messages WHERE id = ?`
         ).bind(result.meta.last_row_id).first();
@@ -3369,9 +3369,14 @@ var index_default = {
           finalMessageId = placeholderId;
         } else {
           const result = await env.CHAT_DB.prepare(
-            `INSERT INTO group_messages (group_id, user_id, body, created_at, message_type, sender_avatar_url)
-             VALUES (?, ?, ?, ?, ?, ?)`
-          ).bind(groupId, botUserId, text, createdAt, botMessageType, bot.avatar_url || null).run();
+            // sender_name travels with the message, like sender_avatar_url already does. A
+            // bot-posted message otherwise carries only 'bot:<uuid>', so a client whose cached
+            // bot list predates the bot renders a raw id — adding the Claude bot and posting
+            // immediately showed up as "bot:8d8f". Captured at send time, so it reflects what
+            // the bot was called when it spoke.
+            `INSERT INTO group_messages (group_id, user_id, body, created_at, message_type, sender_avatar_url, sender_name)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+          ).bind(groupId, botUserId, text, createdAt, botMessageType, bot.avatar_url || null, bot.name || null).run();
           finalMessageId = result.meta.last_row_id;
         }
         await env.CHAT_DB.prepare("UPDATE groups SET updated_at = ? WHERE id = ?").bind(createdAt, groupId).run();

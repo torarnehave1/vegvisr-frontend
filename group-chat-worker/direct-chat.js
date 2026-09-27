@@ -25,7 +25,7 @@ const EXTENSIONS = {
 };
 export const MESSAGE_COLUMNS = `id, group_id, user_id, body, created_at, message_type, audio_url, audio_duration_ms,
   transcript_text, transcript_lang, transcription_status, media_url, media_object_key, media_content_type, media_size,
-  video_thumbnail_url, video_duration_ms, sender_avatar_url, reply_to_id,
+  video_thumbnail_url, video_duration_ms, sender_avatar_url, sender_name, reply_to_id,
   forwarded_from_message_id, forwarded_from_user_id, forwarded_from_user_name`;
 
 /** Group id owning a chat media object key (media/<groupId>/<file>), or null. */
