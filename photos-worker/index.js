@@ -147,6 +147,56 @@ const validateAuth = async (request, env) => {
   }
 }
 
+// Which storage a caller's photos belong in. A World Founder whose config row carries a complete
+// photos_* registry (written by Agent-Builder's provision_world_photos) owns an R2 bucket and a
+// delivery proxy inside their OWN Cloudflare account; everyone else stays on the shared bucket.
+//
+// Fails closed to 'shared': any missing column, any D1 error, and the caller behaves exactly as
+// before. No existing user can be affected by this until their own row is filled in.
+const resolvePhotoStorage = async (auth, env) => {
+  const shared = { mode: 'shared', owner: auth?.email || null, deliveryBase: null, bucket: null }
+  if (!auth?.valid || !auth.email) return shared
+  try {
+    const row = await env.vegvisr_org.prepare(
+      'SELECT photos_delivery_base, photos_bucket_name, photos_status FROM config WHERE email = ?'
+    ).bind(auth.email).first()
+    if (!row?.photos_delivery_base || !row?.photos_bucket_name) return shared
+    return {
+      mode: 'world',
+      owner: auth.email,
+      deliveryBase: String(row.photos_delivery_base).replace(/\/+$/, ''),
+      bucket: row.photos_bucket_name,
+      status: row.photos_status || null
+    }
+  } catch {
+    return shared
+  }
+}
+
+// Borrow a credential for the caller's own proxy. The proxies' upload secret lives in agent-worker
+// and stays there: this asks for a scoped token that expires in five minutes and is bound, by a
+// hostname claim the proxy verifies, to this founder's cdn host alone. Service binding, not a
+// public fetch — a same-zone Worker subrequest to agent.vegvisr.org loopback-fails (Lesson 37).
+const mintProxyToken = async (request, env, scope) => {
+  if (!env.AGENT_WORKER) return { error: 'AGENT_WORKER service binding is not configured' }
+  const apiToken = request.headers.get('X-API-Token') || ''
+  if (!apiToken) return { error: 'Missing X-API-Token header' }
+  try {
+    const res = await env.AGENT_WORKER.fetch('https://agent.vegvisr.org/world-photos/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiToken}` },
+      body: JSON.stringify({ scope })
+    })
+    const body = await res.json().catch(() => null)
+    if (!res.ok || !body?.token) {
+      return { error: `token mint failed (${res.status}): ${(body && body.error) || 'unknown'}` }
+    }
+    return { token: body.token, deliveryBase: String(body.deliveryBase || '').replace(/\/+$/, '') }
+  } catch (error) {
+    return { error: `token mint failed: ${error.message}` }
+  }
+}
+
 const readPhotoAlbum = async (env, rawName) => {
   if (!env.PHOTO_ALBUMS) return null
   const name = normalizeAlbumName(rawName)
@@ -287,6 +337,43 @@ const handleListR2Images = async (request, env) => {
       uploaded: null
     })))
     return createResponse(JSON.stringify({ images, album: album.name }), 200)
+  }
+
+  // A World Founder's gallery lists THEIR bucket. Without this the upload lands in their own
+  // account and the app keeps showing the shared bucket — they would upload into a void.
+  // The plain listing has never required a token, so a caller without one keeps the old behaviour.
+  const listAuth = await validateAuth(request, env)
+  if (listAuth.valid) {
+    const storage = await resolvePhotoStorage(listAuth, env)
+    if (storage.mode === 'world') {
+      const proxy = await mintProxyToken(request, env, ['read'])
+      if (proxy.error) {
+        return createErrorResponse(`Own-account gallery unavailable: ${proxy.error}`, 502)
+      }
+      const images = []
+      let listCursor = ''
+      do {
+        const listUrl = `${storage.deliveryBase}/photos/list${listCursor ? `?cursor=${encodeURIComponent(listCursor)}` : ''}`
+        const res = await fetch(listUrl, { headers: { Authorization: `Bearer ${proxy.token}` } })
+        const body = await res.json().catch(() => null)
+        if (!res.ok || !Array.isArray(body?.objects)) {
+          return createErrorResponse(
+            `Listing ${storage.deliveryBase} failed (${res.status}): ${(body && body.error) || 'unknown'}`,
+            502
+          )
+        }
+        for (const obj of body.objects) {
+          if (!/\.(png|jpe?g|gif|webp|svg)$/i.test(obj.key)) continue
+          images.push(await enrichImageWithMetadata(env, {
+            key: obj.key,
+            url: obj.url || `${storage.deliveryBase}/photos/${obj.key}`,
+            uploaded: obj.uploaded || null
+          }))
+        }
+        listCursor = body.cursor || ''
+      } while (listCursor)
+      return createResponse(JSON.stringify({ images, storage: 'world' }), 200)
+    }
   }
 
   // R2 list() returns max 1000 objects per call — paginate with cursor to get all
@@ -504,6 +591,19 @@ const handleUpload = async (request, env) => {
     return createErrorResponse('Unauthorized to modify this album', 403)
   }
 
+  // A World Founder's bytes go into their own account, never into the shared bucket.
+  const storage = await resolvePhotoStorage(auth, env)
+  let proxy = null
+  if (storage.mode === 'world') {
+    proxy = await mintProxyToken(request, env, ['upload', 'album'])
+    if (proxy.error) {
+      // Refuse rather than quietly writing this founder's photo into the shared bucket. A silent
+      // fallback here is how a tenancy boundary rots: nobody notices until the data is in the
+      // wrong account.
+      return createErrorResponse(`Own-account upload unavailable: ${proxy.error}`, 502)
+    }
+  }
+
   const uploadedKeys = []
   const baseTimestamp = Date.now()
   for (let index = 0; index < files.length; index += 1) {
@@ -520,6 +620,30 @@ const handleUpload = async (request, env) => {
     const fileName = `${baseName}.${fileExtension}`
     const contentType = fileExtension === 'svg' ? 'image/svg+xml' : file.type
 
+    if (storage.mode === 'world') {
+      // The proxy takes one file per request. Keys are built here either way, so a photo is named
+      // the same whichever account it lands in.
+      const forward = new FormData()
+      forward.append('file', new File([await file.arrayBuffer()], fileName, { type: contentType }))
+      forward.append('key', fileName)
+      if (albumName) forward.append('album', albumName)
+      if (auth.email) forward.append('actor', auth.email)
+      const res = await fetch(`${storage.deliveryBase}/photos/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${proxy.token}` },
+        body: forward
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok || !body?.key) {
+        return createErrorResponse(
+          `Upload to ${storage.deliveryBase} failed (${res.status}): ${(body && body.error) || 'unknown'}`,
+          502
+        )
+      }
+      uploadedKeys.push(body.key)
+      continue
+    }
+
     await env.PHOTOS_BUCKET.put(fileName, file.stream(), {
       httpMetadata: { contentType }
     })
@@ -529,7 +653,11 @@ const handleUpload = async (request, env) => {
     uploadedKeys.push(fileName)
   }
 
-  if (albumName) {
+  // In world mode the proxy already wrote the album record into the founder's own KV from the
+  // `album` field above. Writing it centrally too would split the same album across two stores.
+  // The app's album panel still reads the central namespace, so a world-mode album is not visible
+  // there yet — that is the next slice, not a silent loss: her own storage holds the truth.
+  if (albumName && storage.mode !== 'world') {
     const merged = [...new Set([...(existingAlbum.images || []), ...uploadedKeys])]
     const auditEntry = {
       action: 'add_images',
@@ -560,8 +688,14 @@ const handleUpload = async (request, env) => {
     await env.PHOTO_ALBUMS.put(buildAlbumKey(albumName), JSON.stringify(album))
   }
 
-  const urls = uploadedKeys.map((key) => `${baseUrl}${key}`)
-  return createResponse(JSON.stringify({ urls, keys: uploadedKeys, album: albumName || null }), 200)
+  const origin = storage.mode === 'world' ? `${storage.deliveryBase}/photos/` : baseUrl
+  const urls = uploadedKeys.map((key) => `${origin}${key}`)
+  return createResponse(JSON.stringify({
+    urls,
+    keys: uploadedKeys,
+    album: albumName || null,
+    storage: storage.mode
+  }), 200)
 }
 
 const handleImageMetadata = async (request, env) => {
