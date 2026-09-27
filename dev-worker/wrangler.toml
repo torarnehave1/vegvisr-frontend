@@ -37,13 +37,11 @@ id = "c1489b0abee34a9d82f326b1b8f89c15"
 # grants, authorization codes and tokens (hashed), plus the short-lived OTP challenges bound to
 # an in-flight authorization under the oauthtx: prefix.
 #
-# PLACEHOLDER ID — replace before deploying. Create the namespace with:
-#   wrangler kv namespace create OAUTH_KV
-# and paste the id it prints here. Local `wrangler dev --local` fabricates its own storage from
-# the binding name, so development works without the remote namespace existing.
+# Created 2026-09-27 with `wrangler kv namespace create OAUTH_KV`. Local `wrangler dev --local`
+# fabricates its own storage from the binding name and never touches this namespace.
 [[kv_namespaces]]
 binding = "OAUTH_KV"
-id = "REPLACE_ME_oauth_kv_namespace_id"
+id = "62c2d3110e4244daa8be5b31c0e59fd7"
 
 [[kv_namespaces]]
 binding = "HTML_PAGES"
