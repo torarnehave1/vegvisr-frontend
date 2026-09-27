@@ -141,3 +141,41 @@ export function seedUsers(raw) {
   ins.run('u-bob', 'bob@example.com', 'sess-bob', 'User', '+4790000002')
   ins.run('u-nophone', 'nophone@example.com', 'sess-nophone', 'User', null)
 }
+
+/** The chat tables post_chat_message touches, with the real production shapes. */
+export function seedChat(raw, { groupId = 'g1', memberId = 'alice@example.com' } = {}) {
+  raw.exec(`
+    CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, name TEXT, updated_at INTEGER);
+    CREATE TABLE IF NOT EXISTS group_members (
+      group_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member',
+      joined_at INTEGER NOT NULL, alerts_enabled INTEGER DEFAULT 0,
+      PRIMARY KEY (group_id, user_id)
+    );
+    CREATE TABLE IF NOT EXISTS group_bot_members (
+      group_id TEXT NOT NULL, bot_id TEXT NOT NULL, added_by TEXT NOT NULL,
+      added_at INTEGER NOT NULL, PRIMARY KEY (group_id, bot_id)
+    );
+    CREATE TABLE IF NOT EXISTS chat_bots (
+      id TEXT PRIMARY KEY, name TEXT, username TEXT, avatar_url TEXT, is_active INTEGER DEFAULT 1
+    );
+  `)
+  raw.prepare('INSERT OR REPLACE INTO groups (id, name, updated_at) VALUES (?,?,?)').run(groupId, 'Test Group', 0)
+  raw.prepare('INSERT OR REPLACE INTO group_members (group_id, user_id, joined_at) VALUES (?,?,0)').run(groupId, memberId)
+  raw.prepare('INSERT OR REPLACE INTO chat_bots (id, name, username, is_active) VALUES (?,?,?,1)').run('bot-1', 'Test Bot', 'test-bot')
+  raw.prepare('INSERT OR REPLACE INTO group_bot_members (group_id, bot_id, added_by, added_at) VALUES (?,?,?,0)').run(groupId, 'bot-1', 'someone')
+}
+
+/** Captures what would have been posted instead of calling group-chat-worker. */
+export class FakeChatWorker {
+  constructor({ ok = true } = {}) {
+    this.posted = []
+    this.ok = ok
+  }
+  async fetch(url, init) {
+    const body = JSON.parse(init.body)
+    this.posted.push(body)
+    return new Response(JSON.stringify(this.ok ? { message: { id: 42 } } : { error: 'refused' }), {
+      status: this.ok ? 200 : 403,
+    })
+  }
+}

@@ -33,3 +33,11 @@ CREATE TABLE IF NOT EXISTS mcp_audit_log (
 CREATE INDEX IF NOT EXISTS idx_mcp_audit_user_ts ON mcp_audit_log(user_id, ts);
 CREATE INDEX IF NOT EXISTS idx_mcp_audit_graph ON mcp_audit_log(graph_id);
 CREATE INDEX IF NOT EXISTS idx_mcp_audit_ts ON mcp_audit_log(ts);
+
+-- 3. chat:write (added 2026-09-27 with the post_chat_message tool).
+--
+-- Different in kind from the graph scopes: every one of those touches the caller's own data,
+-- while this one sends a message to OTHER PEOPLE and cannot be taken back. It is deliberately
+-- absent from the advertised CONNECT_SCOPES, so no ordinary connection can ask for it.
+INSERT OR IGNORE INTO api_scopes (id, scope_name, description, category, is_active, requires_admin)
+VALUES ('scope_chat_write', 'chat:write', 'Post messages to chat groups the user belongs to', 'Chat', 1, 0);

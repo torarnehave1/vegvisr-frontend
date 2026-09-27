@@ -87,3 +87,10 @@ service = "sms-gateway"
 # that arrives on this origin.
 [vars]
 MCP_PUBLIC_ORIGIN = "https://knowledge.vegvisr.org"
+
+# group-chat-worker, for the MCP post_chat_message tool. brand-worker binds the same worker
+# under the same name. Posting goes through its /bot-message endpoint, which checks that the
+# BOT is a group member; chat-service.js additionally checks that the CALLER is one.
+[[services]]
+binding = "CHAT_WORKER"
+service = "group-chat-worker"

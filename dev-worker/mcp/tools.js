@@ -21,6 +21,7 @@
 
 import { z } from 'zod'
 import * as gs from '../graph-service.js'
+import * as chat from '../chat-service.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared schemas
@@ -464,6 +465,61 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── post_chat_message ─────────────────────────────────────────────────────
+  //
+  // The only tool here that reaches other people. Everything else touches the caller's own
+  // graphs, where a mistake is private and undoable; a message in a group is neither. It needs
+  // chat:write, which the discovery document does not advertise, so an ordinary connection
+  // cannot obtain it.
+  server.registerTool(
+    'post_chat_message',
+    {
+      title: 'Post a message to a chat group',
+      description:
+        'Post a text message into a VEGR.AI chat group the authenticated user belongs to. THIS ' +
+        'SENDS A MESSAGE TO OTHER PEOPLE AND CANNOT BE UNDONE — confirm the exact wording and the ' +
+        'group with the user before calling it. The message is posted by the group\'s bot and ' +
+        'always carries a line saying an AI assistant wrote it on that user\'s behalf. You cannot ' +
+        'post to a group the user is not a member of. Requires the chat:write scope, which a ' +
+        'normal connection does not have.',
+      inputSchema: {
+        groupId: z.string().min(1).describe('The group to post in. The user must be a member of it.'),
+        text: z.string().min(1).describe('The message. An attribution line is appended automatically; do not write your own.'),
+        botId: z.string().optional().describe('Which bot posts, when the group has more than one. Omit when it has exactly one.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        groupId: z.string(),
+        groupName: z.string().nullable(),
+        botId: z.string(),
+        botName: z.string().nullable(),
+        messageId: z.union([z.string(), z.number()]).nullable(),
+        characters: z.number(),
+      },
+      // openWorldHint is TRUE here and false everywhere else: this is the one tool whose effect
+      // leaves the caller's own data and lands in front of other people.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ groupId, text, botId }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await chat.postChatMessage(env, { groupId, text, botId: botId || null, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `Posted to "${result.groupName || result.groupId}" as ${result.botName || 'the group bot'}. ` +
+          `The message carries a line saying an AI assistant wrote it on the user's behalf.`,
+      )
+    },
+  )
+
   // ── search_graphs ─────────────────────────────────────────────────────────
   server.registerTool(
     'search_graphs',
@@ -656,6 +712,7 @@ export const TOOL_NAMES = [
   'add_node',
   'get_graph_links',
   'update_node',
+  'post_chat_message',
   'search_graphs',
   'list_my_graphs',
   'search',

@@ -22,8 +22,12 @@ export const CONNECT_SCOPES = ['graph:read', 'graph:write']
  * carries both rows and graphService.publishGraph() is implemented and tested — but nothing
  * advertises them, nothing requests them, and no tool uses them. They are what a step-up
  * authorization will ask for once a publish tool exists.
+ *
+ * chat:write is different in kind, not just in degree. Every graph scope touches the caller's
+ * own data; chat:write sends a message to OTHER PEOPLE, and it cannot be taken back. It is
+ * deliberately absent from CONNECT_SCOPES so no ordinary connection can even ask for it.
  */
-export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'graph:delete']
+export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'graph:delete', 'chat:write']
 
 /** Human text for the consent screen. Covers every known scope, advertised or not. */
 export const SCOPE_TEXT = {
@@ -31,6 +35,7 @@ export const SCOPE_TEXT = {
   'graph:write': 'Opprette og endre grafer og noder',
   'graph:publish': 'Publisere en graf offentlig',
   'graph:delete': 'Slette grafer',
+  'chat:write': 'Poste meldinger i chattegrupper du er medlem av',
 }
 
 /**

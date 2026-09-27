@@ -570,11 +570,14 @@ describe('annotations tell the client the truth about each tool', () => {
     assert.equal(c.annotations.destructiveHint, false)
   })
 
-  test('nothing claims to reach outside this system', async () => {
+  test('every graph tool stays inside this system; only chat reaches out', async () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RW)
     const { tools } = await client.listTools()
-    for (const t of tools) assert.equal(t.annotations?.openWorldHint, false, `${t.name}`)
+    for (const t of tools) {
+      const expected = t.name === 'post_chat_message'
+      assert.equal(t.annotations?.openWorldHint, expected, `${t.name} openWorldHint`)
+    }
   })
 
   test('every tool declares an output schema, so results are typed not opaque', async () => {
@@ -800,5 +803,40 @@ describe('update_node', () => {
     assert.equal(u.annotations.readOnlyHint, false)
     assert.equal(u.annotations.destructiveHint, true)
     assert.equal(u.annotations.idempotentHint, true)
+  })
+})
+
+describe('post_chat_message is gated harder than everything else', () => {
+  test('graph:write is not enough — it needs chat:write', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const e = await callErr(client, 'post_chat_message', { groupId: 'g1', text: 'hei' })
+    assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+    assert.equal(e.requiredScope, 'chat:write')
+  })
+
+  test('it is the only tool flagged as reaching outside this system', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const outward = tools.filter((t) => t.annotations?.openWorldHint === true).map((t) => t.name)
+    assert.deepEqual(outward, ['post_chat_message'])
+  })
+
+  test('its description warns that the action cannot be undone', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'post_chat_message')
+    assert.match(t.description, /CANNOT BE UNDONE/)
+    assert.match(t.description, /other people/i)
+  })
+
+  test('the schema gives no way to write or suppress the attribution line', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const props = Object.keys(tools.find((x) => x.name === 'post_chat_message').inputSchema.properties)
+    assert.deepEqual(props.sort(), ['botId', 'groupId', 'text'])
   })
 })
