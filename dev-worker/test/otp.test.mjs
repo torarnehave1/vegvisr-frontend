@@ -23,6 +23,7 @@ function setup({ smsOk = true } = {}) {
   return { env, sms, raw }
 }
 
+/** A transaction that already knows who you are — the session-cookie path. */
 async function txFor(env, email) {
   const tx = await otp.createTx(env, { authRequest: { clientId: 'c1', scope: ['graph:read'] }, clientId: 'c1', clientName: 'Test client' })
   tx.email = email
@@ -30,6 +31,11 @@ async function txFor(env, email) {
   tx.role = 'User'
   await otp.putTx(env, tx)
   return tx
+}
+
+/** A transaction with no identity yet — the phone-only path, where the number is the claim. */
+async function anonTx(env) {
+  return otp.createTx(env, { authRequest: { clientId: 'c1', scope: ['graph:read'] }, clientId: 'c1', clientName: 'Test client' })
 }
 
 describe('phone normalisation (same rule as the contact form)', () => {
@@ -239,6 +245,73 @@ describe('no enumeration of phone numbers or accounts', () => {
     const tx = await txFor(env, 'nobody@example.com')
     assert.equal((await otp.sendChallenge(env, { tx, phoneRaw: '90000001', clientIp: '1.1.1.1' })).ok, true)
     assert.equal(sms.sent.length, 0)
+  })
+})
+
+describe('phone-only login: the number is the identity claim', () => {
+  test('a known number identifies the account, and the identity lands only after the code', async () => {
+    const { env, sms } = setup()
+    const tx = await anonTx(env)
+    assert.equal(tx.email, null)
+
+    const sent = await otp.sendChallenge(env, { tx, phoneRaw: '90000001', clientIp: '1.1.1.1' })
+    assert.equal(sent.sent, true)
+
+    // Provisional until proven: a transaction mid-flight must not carry a usable identity.
+    const pending = await otp.getTx(env, tx.txId)
+    assert.equal(pending.email, null, 'identity was promoted before the code was verified')
+    assert.equal(pending.pendingEmail, 'alice@example.com')
+
+    const r = await otp.verifyChallenge(env, { tx: pending, codeRaw: sms.lastCode() })
+    assert.equal(r.ok, true)
+
+    const done = await otp.getTx(env, tx.txId)
+    assert.equal(done.email, 'alice@example.com')
+    assert.equal(done.userId, 'u-alice')
+    assert.equal(done.stage, 'consent')
+    assert.equal(done.pendingEmail, null)
+  })
+
+  test('an unregistered number is answered exactly like a registered one, and sends nothing', async () => {
+    const { env, sms } = setup()
+    const tx = await anonTx(env)
+    const r = await otp.sendChallenge(env, { tx, phoneRaw: '99999999', clientIp: '1.1.1.1' })
+    assert.equal(r.ok, true)
+    assert.equal(sms.sent.length, 0)
+    assert.equal((await otp.getTx(env, tx.txId)).pendingEmail, undefined)
+  })
+
+  test('a wrong code leaves the identity unpromoted', async () => {
+    const { env, sms } = setup()
+    const tx = await anonTx(env)
+    await otp.sendChallenge(env, { tx, phoneRaw: '90000001', clientIp: '1.1.1.1' })
+    const real = sms.lastCode()
+    const wrong = String((Number(real) + 3) % 1000000).padStart(6, '0')
+    await otp.verifyChallenge(env, { tx: await otp.getTx(env, tx.txId), codeRaw: wrong })
+    assert.equal((await otp.getTx(env, tx.txId)).email, null)
+  })
+
+  test('with a session already established, a number belonging to someone else is refused silently', async () => {
+    const { env, sms } = setup()
+    const tx = await txFor(env, 'alice@example.com')   // signed in as alice
+    const r = await otp.sendChallenge(env, { tx, phoneRaw: '90000002', clientIp: '1.1.1.1' }) // bob's number
+    assert.equal(r.ok, true)
+    assert.equal(sms.sent.length, 0, 'a code was sent to a number not on the signed-in account')
+  })
+})
+
+describe('the SMS carries the WebOTP binding', () => {
+  test('the last line is @<domain> #<code>, which is what lets a phone auto-fill it', async () => {
+    const { env, sms } = setup()
+    const tx = await anonTx(env)
+    await otp.sendChallenge(env, { tx, phoneRaw: '90000001', clientIp: '1.1.1.1' })
+    const msg = sms.sent.at(-1).message
+    const lines = msg.split('\n')
+    const last = lines[lines.length - 1]
+    assert.match(last, /^@knowledge\.vegvisr\.org #\d{6}$/, `last line was: ${JSON.stringify(last)}`)
+    // Domain only — a scheme or port breaks the binding.
+    assert.equal(last.includes('https'), false)
+    assert.equal(last.includes(':'), false)
   })
 })
 

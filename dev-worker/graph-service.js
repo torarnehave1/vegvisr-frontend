@@ -762,3 +762,191 @@ export function graphResult(env, { graphId, title, metaArea, publicationState, v
     ...graphLinks(graphId),
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Discovery: search and list
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The SQL fragment that limits a result set to what `actor` may see: their own graphs, plus
+ * anything published. A Superadmin sees everything.
+ *
+ * Applied IN THE QUERY, never by filtering rows afterwards — a client-side filter over a
+ * paginated result silently drops matches and reports a wrong total. The production schema has
+ * `creator_email` and `publication_state` as generated columns over the JSON, so this costs no
+ * extra parsing.
+ */
+function visibilityClause(actor) {
+  if (actor?.isSuperadmin) return { sql: null, bindings: [] }
+  if (!actor?.email) {
+    // No identity at all: published graphs only.
+    return { sql: `publication_state = 'published'`, bindings: [] }
+  }
+  return {
+    sql: `(LOWER(COALESCE(creator_email, '')) = ? OR publication_state = 'published')`,
+    bindings: [actor.email],
+  }
+}
+
+const SEARCH_MAX_LIMIT = 50
+
+function clampLimit(limit, fallback = 20) {
+  const n = Number.parseInt(limit ?? '', 10)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(Math.max(n, 1), SEARCH_MAX_LIMIT)
+}
+
+/**
+ * Free-text search across titles, descriptions, meta areas and node content, restricted to what
+ * the actor may see. Mirrors the columns GET /searchGraphs matches on.
+ */
+export async function searchGraphs(env, { query, metaArea = null, nodeType = null, limit = 20, offset = 0, actor }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+
+  const lim = clampLimit(limit)
+  const off = Math.max(Number.parseInt(offset ?? '', 10) || 0, 0)
+
+  const dataSql = `CASE WHEN json_valid(data) THEN data END`
+  const nodesSql = `COALESCE(json_extract(${dataSql}, '$.nodes'), '[]')`
+
+  const conditions = []
+  const bindings = []
+
+  const vis = visibilityClause(actor)
+  if (vis.sql) {
+    conditions.push(vis.sql)
+    bindings.push(...vis.bindings)
+  }
+
+  const q = String(query || '').trim()
+  if (q) {
+    const pattern = `%${q.toLowerCase().replace(/\*/g, '%')}%`
+    conditions.push(`(
+      LOWER(COALESCE(json_extract(${dataSql}, '$.metadata.title'), title, '')) LIKE ?
+      OR LOWER(COALESCE(json_extract(${dataSql}, '$.metadata.description'), '')) LIKE ?
+      OR LOWER(COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '')) LIKE ?
+      OR EXISTS (
+        SELECT 1 FROM json_each(${nodesSql})
+        WHERE LOWER(COALESCE(json_extract(value, '$.label'), '')) LIKE ?
+           OR LOWER(COALESCE(json_extract(value, '$.info'), '')) LIKE ?
+      )
+    )`)
+    bindings.push(pattern, pattern, pattern, pattern, pattern)
+  }
+
+  if (metaArea) {
+    conditions.push(`LOWER(COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '')) LIKE ?`)
+    bindings.push(`%${String(metaArea).toLowerCase()}%`)
+  }
+
+  if (nodeType) {
+    conditions.push(`EXISTS (SELECT 1 FROM json_each(${nodesSql}) WHERE json_extract(value, '$.type') = ?)`)
+    bindings.push(String(nodeType))
+  }
+
+  const whereSql = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+
+  const totalRow = await env.vegvisr_org
+    .prepare(`SELECT COUNT(*) AS total FROM knowledge_graphs ${whereSql}`)
+    .bind(...bindings)
+    .first()
+  const total = Number(totalRow?.total || 0)
+
+  if (total === 0) return { ok: true, results: [], total: 0, limit: lim, offset: off, hasMore: false }
+
+  const rows = await env.vegvisr_org
+    .prepare(`
+      SELECT
+        id,
+        COALESCE(json_extract(${dataSql}, '$.metadata.title'), title, '') AS title,
+        COALESCE(json_extract(${dataSql}, '$.metadata.description'), '') AS description,
+        COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '') AS meta_area,
+        COALESCE(json_extract(${dataSql}, '$.metadata.publicationState'), 'private') AS publication_state,
+        COALESCE(json_extract(${dataSql}, '$.metadata.version'), 0) AS version,
+        COALESCE(json_extract(${dataSql}, '$.metadata.createdBy'), created_by, '') AS created_by,
+        COALESCE(json_array_length(${nodesSql}), 0) AS node_count,
+        updated_at
+      FROM knowledge_graphs
+      ${whereSql}
+      ORDER BY updated_at DESC
+      LIMIT ? OFFSET ?
+    `)
+    .bind(...bindings, lim, off)
+    .all()
+
+  const results = (rows.results || []).map((r) => ({
+    graphId: r.id,
+    title: r.title || null,
+    description: r.description || null,
+    metaArea: r.meta_area || null,
+    publicationState: r.publication_state || 'private',
+    version: r.version ?? null,
+    nodeCount: r.node_count ?? 0,
+    updatedAt: r.updated_at || null,
+    isMine: Boolean(actor.email && String(r.created_by || '').toLowerCase() === actor.email),
+    ...graphLinks(r.id),
+  }))
+
+  return { ok: true, results, total, limit: lim, offset: off, hasMore: off + results.length < total }
+}
+
+/** The actor's own graphs, newest first. A thin, explicit case of searchGraphs. */
+export async function listMyGraphs(env, { limit = 20, offset = 0, metaArea = null, actor }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!actor.email) {
+    return fail(ERR.FORBIDDEN_GRAPH, 'This token has no user identity, so it owns no graphs.')
+  }
+
+  const lim = clampLimit(limit)
+  const off = Math.max(Number.parseInt(offset ?? '', 10) || 0, 0)
+  const dataSql = `CASE WHEN json_valid(data) THEN data END`
+  const nodesSql = `COALESCE(json_extract(${dataSql}, '$.nodes'), '[]')`
+
+  const conditions = [`LOWER(COALESCE(creator_email, '')) = ?`]
+  const bindings = [actor.email]
+  if (metaArea) {
+    conditions.push(`LOWER(COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '')) LIKE ?`)
+    bindings.push(`%${String(metaArea).toLowerCase()}%`)
+  }
+  const whereSql = `WHERE ${conditions.join(' AND ')}`
+
+  const totalRow = await env.vegvisr_org
+    .prepare(`SELECT COUNT(*) AS total FROM knowledge_graphs ${whereSql}`)
+    .bind(...bindings)
+    .first()
+  const total = Number(totalRow?.total || 0)
+
+  const rows = await env.vegvisr_org
+    .prepare(`
+      SELECT
+        id,
+        COALESCE(json_extract(${dataSql}, '$.metadata.title'), title, '') AS title,
+        COALESCE(json_extract(${dataSql}, '$.metadata.description'), '') AS description,
+        COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '') AS meta_area,
+        COALESCE(json_extract(${dataSql}, '$.metadata.publicationState'), 'private') AS publication_state,
+        COALESCE(json_extract(${dataSql}, '$.metadata.version'), 0) AS version,
+        COALESCE(json_array_length(${nodesSql}), 0) AS node_count,
+        updated_at
+      FROM knowledge_graphs
+      ${whereSql}
+      ORDER BY updated_at DESC
+      LIMIT ? OFFSET ?
+    `)
+    .bind(...bindings, lim, off)
+    .all()
+
+  const results = (rows.results || []).map((r) => ({
+    graphId: r.id,
+    title: r.title || null,
+    description: r.description || null,
+    metaArea: r.meta_area || null,
+    publicationState: r.publication_state || 'private',
+    version: r.version ?? null,
+    nodeCount: r.node_count ?? 0,
+    updatedAt: r.updated_at || null,
+    isMine: true,
+    ...graphLinks(r.id),
+  }))
+
+  return { ok: true, results, total, limit: lim, offset: off, hasMore: off + results.length < total }
+}

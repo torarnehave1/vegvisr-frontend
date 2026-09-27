@@ -3,18 +3,27 @@
  * revocation and registration; authenticating the person and taking consent is ours, because
  * only this application knows what a VEGR.AI user is.
  *
- * FLOW (decision A3, 2026-09-27): magic link first, then OTP — the same order
- * src/views/LoginView.vue already uses in production, where the e-mail link establishes who
- * you are and the phone code confirms it. It was chosen over phone-only because 33 of the 46
- * users in `config` have no phone number on record (13 have one, 12 verified), so a phone-only
- * gate would lock most of the user base out of MCP entirely.
+ * FLOW (revised 2026-09-27): phone code only, with a shortcut for an existing session.
  *
- *   GET  /authorize?<oauth params>        → parse, open a transaction, ask for the e-mail
- *   POST action=send-magic                → e-mail a link back to ?tx=<id>&magic=<token>
- *   GET  /authorize?tx=<id>&magic=<token> → verify the link, identify the user, ask for phone
- *   POST action=send-otp                  → SMS a code bound to this transaction
- *   POST action=verify-otp                → spend the code
- *   POST action=approve                   → completeAuthorization() → redirect with the code
+ * The first version signed the user in with a magic link and THEN asked for an SMS code, which
+ * is the order src/views/LoginView.vue uses. In a browser that is what people expect; inside an
+ * OAuth popup it is two round trips through two different apps before anyone has approved
+ * anything, and it was rejected in use as too heavy. It is gone.
+ *
+ *   GET  /authorize?<oauth params>  → if the browser carries a valid vegvisr.org session cookie,
+ *                                     straight to consent; otherwise ask for a mobile number
+ *   POST action=send-otp            → SMS a code bound to this transaction
+ *   POST action=verify-otp          → spend the code; the number is the identity claim
+ *   POST action=approve             → completeAuthorization() → redirect with the code
+ *
+ * The session shortcut costs nothing and removes all typing for the common case: userStore
+ * already sets `vegvisr_token` on `.vegvisr.org` with a 30-day lifetime, holding the same
+ * emailVerificationToken the worker validates everywhere else. SameSite=Lax means it rides along
+ * on the top-level navigation into /authorize. Consent is still shown — a session says who you
+ * are, not that you agreed to hand an AI client your graphs.
+ *
+ * A phone number nobody has registered is answered exactly like one that is registered, so this
+ * page cannot be used to find out who has an account.
  *
  * The transaction id is unguessable, lives in KV with a 15-minute TTL, and is the CSRF token
  * for every POST: a cross-site form post cannot know it.
@@ -75,41 +84,21 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;colo
   )
 }
 
-function emailForm(tx, error) {
+function phoneForm(tx, error, hint) {
   return page('Logg inn', `
 <h1>Logg inn</h1>
 <p class="sub"><span class="client">${esc(tx.clientName || tx.clientId)}</span> vil koble seg til kunnskapsgrafene dine.</p>
 ${error ? `<div class="err">${esc(error)}</div>` : ''}
-<form method="POST" action="/authorize">
-  <input type="hidden" name="tx" value="${esc(tx.txId)}">
-  <input type="hidden" name="action" value="send-magic">
-  <label for="email">E-postadresse</label>
-  <input id="email" name="email" type="email" autocomplete="email" required autofocus placeholder="deg@example.com">
-  <button type="submit">Send innloggingslenke</button>
-</form>
-<p class="sub" style="margin-top:18px">Du får en lenke på e-post. Etterpå bekrefter du med en SMS-kode.</p>`)
-}
-
-function magicSentPage(email) {
-  return page('Sjekk e-posten', `
-<h1>Sjekk e-posten din</h1>
-<p class="sub">Vi har sendt en innloggingslenke til <strong>${esc(email)}</strong>.</p>
-<div class="ok">Åpne lenken i denne nettleseren for å fortsette. Lenken kan bare brukes én gang.</div>
-<p class="sub" style="margin-top:18px">Fant du den ikke? Se i søppelpost, eller lukk dette vinduet og prøv igjen.</p>`)
-}
-
-function phoneForm(tx, error) {
-  return page('Bekreft med SMS', `
-<h1>Bekreft med SMS</h1>
-<p class="sub">Innlogget som <strong>${esc(tx.email)}</strong>. Bekreft med mobilnummeret registrert på kontoen.</p>
-${error ? `<div class="err">${esc(error)}</div>` : ''}
+${hint ? `<div class="ok">${esc(hint)}</div>` : ''}
 <form method="POST" action="/authorize">
   <input type="hidden" name="tx" value="${esc(tx.txId)}">
   <input type="hidden" name="action" value="send-otp">
   <label for="phone">Mobilnummer</label>
-  <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" required autofocus placeholder="+47 000 00 000">
+  <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" required autofocus
+         placeholder="+47 000 00 000">
   <button type="submit">Send kode</button>
-</form>`)
+</form>
+<p class="sub" style="margin-top:18px">Du får en 6-sifret kode på SMS. Nummeret må være registrert på VEGR.AI-kontoen din.</p>`)
 }
 
 function codeForm(tx, error, notice) {
@@ -118,7 +107,7 @@ function codeForm(tx, error, notice) {
 <p class="sub">Vi har sendt en 6-sifret kode på SMS. Den er gyldig i ${OTP_LIMITS.CODE_TTL_SECONDS / 60} minutter.</p>
 ${error ? `<div class="err">${esc(error)}</div>` : ''}
 ${notice ? `<div class="ok">${esc(notice)}</div>` : ''}
-<form method="POST" action="/authorize">
+<form method="POST" action="/authorize" id="codeform">
   <input type="hidden" name="tx" value="${esc(tx.txId)}">
   <input type="hidden" name="action" value="verify-otp">
   <label for="code">Kode</label>
@@ -131,7 +120,33 @@ ${notice ? `<div class="ok">${esc(notice)}</div>` : ''}
   <input type="hidden" name="action" value="send-otp">
   <input type="hidden" name="phone" value="${esc(tx.phone || '')}">
   <button class="secondary" type="submit">Send ny kode</button>
-</form>`)
+</form>
+<p class="sub" style="margin-top:14px">Får du ingen kode? Nummeret må være registrert på kontoen din.
+Legg det inn under profilen din på vegvisr.org, og prøv igjen.</p>
+<script>
+// WebOTP: on Chrome for Android the browser reads the code out of the SMS itself, because the
+// message ends with "@knowledge.vegvisr.org #<code>". Safari does the same through
+// autocomplete="one-time-code" above. Both need the SMS to land on the SAME device as this
+// page, so on a desktop OAuth window neither fires and the user types six digits.
+//
+// Progressive enhancement only: every branch is guarded, and a failure is silent.
+(function () {
+  if (!('OTPCredential' in window)) return;
+  var input = document.getElementById('code');
+  var form = document.getElementById('codeform');
+  if (!input || !form) return;
+  var ac = new AbortController();
+  form.addEventListener('submit', function () { ac.abort(); });
+  navigator.credentials
+    .get({ otp: { transport: ['sms'] }, signal: ac.signal })
+    .then(function (otp) {
+      if (!otp || !otp.code) return;
+      input.value = otp.code;
+      form.submit();
+    })
+    .catch(function () { /* declined, unsupported or aborted — the field still works */ });
+})();
+</script>`)
 }
 
 function consentForm(tx, scopes) {
@@ -153,6 +168,19 @@ function consentForm(tx, scopes) {
   <button class="secondary" type="submit">Avslå</button>
 </form>
 <p class="sub" style="margin-top:18px">Du kan trekke tilgangen tilbake senere. Tilgangen gjelder bare grafene du selv eier.</p>`)
+}
+
+/**
+ * An expired transaction used to be a dead end that said "start on nytt fra appen". The client
+ * is an MCP connector, so "the app" is a settings screen the user has to find again; the OAuth
+ * request is still in the URL that got them here, so reloading is the actual recovery.
+ */
+function expiredPage() {
+  return page('Utløpt', `
+<h1>Innloggingen er utløpt</h1>
+<p class="sub">Det tok for lang tid. Start på nytt — det tar noen sekunder.</p>
+<button type="button" onclick="history.length > 1 ? history.go(-(history.length - 1)) : window.close()">Prøv igjen</button>
+<p class="sub" style="margin-top:18px">Hvis ingenting skjer, lukk vinduet og koble til på nytt fra ChatGPT.</p>`, { status: 400 })
 }
 
 const OTP_MESSAGES = {
@@ -177,42 +205,45 @@ export async function handleAuthorize(request, env, ctx) {
   return page('Feil', '<h1>Metoden støttes ikke</h1>', { status: 405 })
 }
 
+/**
+ * Resolve the vegvisr.org session cookie to a user, or null.
+ *
+ * `vegvisr_token` is set by src/stores/userStore.js on `.vegvisr.org` with a 30-day lifetime and
+ * holds the same emailVerificationToken the worker's session auth validates everywhere else.
+ * SameSite=Lax, so it is sent on the top-level navigation into /authorize but not on a
+ * cross-site POST — which is why it is only read here, on a GET, and never treated as consent.
+ */
+async function userFromSessionCookie(request, env) {
+  const header = request.headers.get('Cookie') || ''
+  let token = null
+  for (const part of header.split(';')) {
+    const [k, ...rest] = part.trim().split('=')
+    if (k === 'vegvisr_token' && rest.length) {
+      token = decodeURIComponent(rest.join('='))
+      break
+    }
+  }
+  if (!token || token === 'null' || token === 'undefined' || !token.trim()) return null
+  try {
+    const row = await env.vegvisr_org
+      .prepare('SELECT user_id, email, Role FROM config WHERE emailVerificationToken = ? LIMIT 1')
+      .bind(token)
+      .first()
+    if (!row) return null
+    return { userId: row.user_id || row.email, email: row.email, role: row.Role || 'User' }
+  } catch (e) {
+    console.error('[OAuth] session cookie lookup failed:', e.message)
+    return null
+  }
+}
+
 async function handleGet(request, env, url) {
   const txId = url.searchParams.get('tx')
-  const magic = url.searchParams.get('magic')
-
-  // Return leg of the magic link.
-  if (txId && magic) {
-    const tx = await getTx(env, txId)
-    if (!tx) return page('Utløpt', `<h1>Innloggingen er utløpt</h1><p class="sub">${esc(OTP_MESSAGES[OTP_ERR.TX_NOT_FOUND])}</p>`, { status: 400 })
-
-    const verified = await verifyMagicToken(env, magic)
-    if (!verified.ok) {
-      return emailForm(tx, verified.error || 'Lenken er ugyldig eller brukt. Prøv igjen.')
-    }
-
-    // Identity comes from the e-mail the link proved, and role from the config ROW — never
-    // from anything the browser sent.
-    const row = await env.vegvisr_org
-      .prepare('SELECT user_id, email, Role FROM config WHERE email = ? LIMIT 1')
-      .bind(verified.email)
-      .first()
-    if (!row) {
-      return emailForm(tx, 'Ingen VEGR.AI-konto på denne e-postadressen.')
-    }
-
-    tx.email = row.email
-    tx.userId = row.user_id || row.email
-    tx.role = row.Role || 'User'
-    tx.stage = 'phone'
-    await putTx(env, tx)
-    return phoneForm(tx, null)
-  }
 
   // Resuming a transaction already in flight.
   if (txId) {
     const tx = await getTx(env, txId)
-    if (!tx) return page('Utløpt', `<h1>Innloggingen er utløpt</h1><p class="sub">${esc(OTP_MESSAGES[OTP_ERR.TX_NOT_FOUND])}</p>`, { status: 400 })
+    if (!tx) return expiredPage()
     return renderStage(env, tx)
   }
 
@@ -244,14 +275,27 @@ async function handleGet(request, env, url) {
     clientId: authRequest.clientId,
     clientName: client.clientName,
   })
-  return emailForm(tx, null)
+
+  // Already signed in on vegvisr.org in this browser? Then there is nothing to prove and no
+  // reason to make anyone type a phone number and wait for an SMS. Consent is still required.
+  const session = await userFromSessionCookie(request, env)
+  if (session) {
+    tx.email = session.email
+    tx.userId = session.userId
+    tx.role = session.role
+    tx.stage = 'consent'
+    await putTx(env, tx)
+    console.log('[OAuth] existing vegvisr.org session recognised; skipping the code step')
+    return consentForm(tx, grantableScopes(tx))
+  }
+
+  return phoneForm(tx, null, null)
 }
 
 function renderStage(env, tx) {
   if (tx.stage === 'consent') return consentForm(tx, grantableScopes(tx))
   if (tx.stage === 'otp') return codeForm(tx, null, null)
-  if (tx.stage === 'phone') return phoneForm(tx, null)
-  return emailForm(tx, null)
+  return phoneForm(tx, null, null)
 }
 
 /** Only scopes the client asked for AND this server supports are ever granted. */
@@ -276,36 +320,15 @@ async function handlePost(request, env, url) {
   // The transaction id doubles as the CSRF token: it is 128 bits of randomness that only this
   // server and this browser have seen, so a cross-site form post cannot produce it.
   const tx = await getTx(env, txId)
-  if (!tx) {
-    return page('Utløpt', `<h1>Innloggingen er utløpt</h1><p class="sub">${esc(OTP_MESSAGES[OTP_ERR.TX_NOT_FOUND])}</p>`, { status: 400 })
-  }
+  if (!tx) return expiredPage()
 
   const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown'
-
-  if (action === 'send-magic') {
-    const email = String(form.get('email') || '').trim().toLowerCase()
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-      return emailForm(tx, 'Oppgi en gyldig e-postadresse.')
-    }
-    const returnUrl = `${ISSUER}/authorize?tx=${encodeURIComponent(tx.txId)}`
-    const sent = await sendMagicLink(env, email, returnUrl)
-    // Answered the same way whether or not the address has an account, so the page cannot be
-    // used to test which e-mail addresses are registered.
-    if (!sent.ok) {
-      console.error('[OAuth] magic link send failed:', sent.error)
-      return emailForm(tx, 'Kunne ikke sende e-post akkurat nå. Prøv igjen.')
-    }
-    return magicSentPage(email)
-  }
-
-  // Every step past this point requires the e-mail leg to have completed.
-  if (!tx.email) return emailForm(tx, 'Start innloggingen på nytt.')
 
   if (action === 'send-otp') {
     const result = await sendChallenge(env, { tx, phoneRaw: form.get('phone'), clientIp })
     if (!result.ok) {
       const msg = OTP_MESSAGES[result.code] || 'Kunne ikke sende kode.'
-      return tx.stage === 'otp' ? codeForm(tx, msg, null) : phoneForm(tx, msg)
+      return tx.stage === 'otp' ? codeForm(tx, msg, null) : phoneForm(tx, msg, null)
     }
     // result.sent is false when the number does not match the account. The page must not say
     // so — it would reveal which number is on the account.
@@ -321,7 +344,7 @@ async function handlePost(request, env, url) {
     if (!result.ok) {
       const base = OTP_MESSAGES[result.code] || 'Feil kode.'
       const msg = result.remaining ? `${base} ${result.remaining} forsøk igjen.` : base
-      return result.code === OTP_ERR.WRONG_CODE ? codeForm(tx, msg, null) : phoneForm(tx, msg)
+      return result.code === OTP_ERR.WRONG_CODE ? codeForm(tx, msg, null) : phoneForm(tx, msg, null)
     }
     return consentForm(tx, grantableScopes(tx))
   }
@@ -366,62 +389,3 @@ async function handlePost(request, env, url) {
   return page('Feil', '<h1>Ukjent handling</h1>', { status: 400 })
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// email-worker integration (contract read from email-worker/index.js, not from memory)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * The EMAIL_WORKER service binding is REQUIRED, with no public-URL fallback.
- *
- * A fallback to https://email-worker.torarnehave.workers.dev looked harmless and was not: a
- * missing binding would have silently sent real login e-mails to real addresses from a local
- * `wrangler dev` session, where the binding shows as [not connected]. A misconfigured binding
- * should fail loudly, not quietly reach out to the internet on a login path.
- */
-async function emailWorkerFetch(env, path, init) {
-  if (!env.EMAIL_WORKER?.fetch) {
-    throw new Error('EMAIL_WORKER service binding is not configured; refusing to send login mail over the public internet.')
-  }
-  return env.EMAIL_WORKER.fetch(`https://email-worker${path}`, init)
-}
-
-/**
- * POST /login/magic/send takes { email, redirectUrl } and mails a link built as
- * `<redirectUrl>?magic=<token>` (buildMagicLink sets the param on the parsed URL, so an
- * existing query string like ?tx=… survives). isLoginAllowed() waves through any host ending
- * in vegvisr.org, so knowledge.vegvisr.org needs no invite-list entry.
- */
-async function sendMagicLink(env, email, redirectUrl) {
-  try {
-    const res = await emailWorkerFetch(env, '/login/magic/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, redirectUrl }),
-    })
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok || data.success === false) {
-      return { ok: false, error: data.error || `status ${res.status}` }
-    }
-    return { ok: true }
-  } catch (e) {
-    return { ok: false, error: e.message }
-  }
-}
-
-/** POST /login/magic/verify marks the token used (single-use) and returns the e-mail. */
-async function verifyMagicToken(env, token) {
-  try {
-    const res = await emailWorkerFetch(env, '/login/magic/verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
-    })
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok || data.success === false || !data.email) {
-      return { ok: false, error: data.error || 'Lenken er ugyldig eller brukt.' }
-    }
-    return { ok: true, email: String(data.email).toLowerCase() }
-  } catch (e) {
-    return { ok: false, error: e.message }
-  }
-}

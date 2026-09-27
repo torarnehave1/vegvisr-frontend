@@ -381,3 +381,141 @@ describe('an unauthenticated call cannot reach a tool', () => {
     assert.equal((await callErr(client, 'create_graph', { title: 'T', metaArea: '#X' })).code, gs.ERR.UNAUTHENTICATED)
   })
 })
+
+describe('search, list and the deep-research pair', () => {
+  /** Alice owns two graphs (one published), Bob owns one private. */
+  async function corpus(env) {
+    const { client: a } = await connect(env, ALICE_RW)
+    const { client: b } = await connect(env, BOB_RW)
+    const g1 = await callOk(a, 'create_graph', {
+      title: 'Norsk historie', description: 'Vikingtid og middelalder', metaArea: '#HISTORY #NORWAY',
+      nodes: [{ label: 'Vikingtid', type: 'fulltext', info: 'Om langskip og handel' }],
+    })
+    const g2 = await callOk(a, 'create_graph', { title: 'Botanikk', description: 'Planter', metaArea: '#NATURE' })
+    const g3 = await callOk(b, 'create_graph', { title: 'Bobs hemmelige notater', metaArea: '#PRIVATE' })
+    const actor = gs.normalizeActor({ valid: true, userId: 'alice@example.com', userEmail: 'alice@example.com', userRole: 'User', scopes: ['graph:publish'] })
+    await gs.publishGraph(env, { graphId: g2.graphId, expectedVersion: g2.version, actor })
+    return { a, b, g1, g2, g3 }
+  }
+
+  test('search_graphs finds a graph by title, description and node content', async () => {
+    const { env } = freshDb()
+    const { a, g1 } = await corpus(env)
+    for (const q of ['historie', 'vikingtid', 'langskip', 'middelalder']) {
+      const r = await callOk(a, 'search_graphs', { query: q })
+      assert.ok(r.results.some((x) => x.graphId === g1.graphId), `"${q}" did not find the graph`)
+    }
+  })
+
+  test('search_graphs never returns another user\'s private graph', async () => {
+    const { env } = freshDb()
+    const { a, g3 } = await corpus(env)
+    const r = await callOk(a, 'search_graphs', { query: 'hemmelige' })
+    assert.equal(r.results.some((x) => x.graphId === g3.graphId), false, "Bob's private graph leaked into Alice's search")
+    assert.equal(r.total, 0)
+  })
+
+  test('a published graph IS visible to another user, and marked as not theirs', async () => {
+    const { env } = freshDb()
+    const { b, g2 } = await corpus(env)
+    const r = await callOk(b, 'search_graphs', { query: 'Botanikk' })
+    const hit = r.results.find((x) => x.graphId === g2.graphId)
+    assert.ok(hit, 'the published graph was not visible')
+    assert.equal(hit.isMine, false)
+    assert.equal(hit.publicationState, 'published')
+  })
+
+  test('the visibility filter is applied in SQL, so total matches the rows', async () => {
+    const { env } = freshDb()
+    const { b } = await corpus(env)
+    const r = await callOk(b, 'search_graphs', {})
+    // Bob sees his own one plus Alice's published one — never Alice's private one.
+    assert.equal(r.total, 2)
+    assert.equal(r.results.length, 2)
+    assert.equal(r.hasMore, false)
+  })
+
+  test('metaArea and nodeType narrow the result', async () => {
+    const { env } = freshDb()
+    const { a, g1 } = await corpus(env)
+    const byArea = await callOk(a, 'search_graphs', { metaArea: '#NORWAY' })
+    assert.deepEqual(byArea.results.map((x) => x.graphId), [g1.graphId])
+    const byType = await callOk(a, 'search_graphs', { nodeType: 'fulltext' })
+    assert.ok(byType.results.some((x) => x.graphId === g1.graphId))
+    const noMatch = await callOk(a, 'search_graphs', { nodeType: 'mermaid-diagram' })
+    assert.equal(noMatch.total, 0)
+  })
+
+  test('paging reports hasMore and does not repeat rows', async () => {
+    const { env } = freshDb()
+    const { a } = await corpus(env)
+    const p1 = await callOk(a, 'search_graphs', { limit: 1, offset: 0 })
+    const p2 = await callOk(a, 'search_graphs', { limit: 1, offset: 1 })
+    assert.equal(p1.total, 2)
+    assert.equal(p1.hasMore, true)
+    assert.equal(p2.hasMore, false)
+    assert.notEqual(p1.results[0].graphId, p2.results[0].graphId)
+  })
+
+  test('limit is clamped rather than trusted', async () => {
+    const { env } = freshDb()
+    const { a } = await corpus(env)
+    assert.equal((await callOk(a, 'search_graphs', { limit: 9999 })).limit, 50)
+    assert.equal((await callOk(a, 'search_graphs', { limit: -5 })).limit, 1)
+  })
+
+  test('list_my_graphs returns only what you own, private ones included', async () => {
+    const { env } = freshDb()
+    const { a, b, g1, g2, g3 } = await corpus(env)
+    const mine = await callOk(a, 'list_my_graphs', {})
+    assert.deepEqual(mine.results.map((x) => x.graphId).sort(), [g1.graphId, g2.graphId].sort())
+    assert.ok(mine.results.every((x) => x.isMine))
+
+    const bobs = await callOk(b, 'list_my_graphs', {})
+    assert.deepEqual(bobs.results.map((x) => x.graphId), [g3.graphId])
+  })
+
+  test('search and fetch return the deep-research shape ChatGPT requires', async () => {
+    const { env } = freshDb()
+    const { a, g1 } = await corpus(env)
+
+    const s = await callOk(a, 'search', { query: 'historie' })
+    assert.ok(Array.isArray(s.results))
+    const hit = s.results.find((x) => x.id === g1.graphId)
+    assert.ok(hit, 'search did not find the graph')
+    assert.deepEqual(Object.keys(hit).sort(), ['id', 'title', 'url'])
+    assert.equal(hit.url, `https://editor.vegvisr.org/view?graphId=${g1.graphId}`)
+
+    const f = await callOk(a, 'fetch', { id: g1.graphId })
+    for (const k of ['id', 'title', 'text', 'url', 'metadata']) assert.ok(k in f, `fetch is missing ${k}`)
+    assert.match(f.text, /Norsk historie/)
+    assert.match(f.text, /langskip/, 'node content should be in the flattened text')
+  })
+
+  test('search and fetch also emit the JSON text copy the compatibility schema wants', async () => {
+    const { env } = freshDb()
+    const { a, g1 } = await corpus(env)
+    const raw = await a.callTool({ name: 'search', arguments: { query: 'historie' } })
+    const parsed = JSON.parse(raw.content[0].text)
+    assert.deepEqual(parsed, raw.structuredContent)
+
+    const rawF = await a.callTool({ name: 'fetch', arguments: { id: g1.graphId } })
+    assert.deepEqual(JSON.parse(rawF.content[0].text), rawF.structuredContent)
+  })
+
+  test('fetch refuses another user\'s private graph', async () => {
+    const { env } = freshDb()
+    const { a, g3 } = await corpus(env)
+    assert.equal((await callErr(a, 'fetch', { id: g3.graphId })).code, gs.ERR.FORBIDDEN_GRAPH)
+  })
+
+  test('all four new tools need graph:read', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, authFor('alice@example.com', ['graph:write']))
+    for (const name of ['search_graphs', 'list_my_graphs']) {
+      assert.equal((await callErr(client, name, {})).code, gs.ERR.INSUFFICIENT_SCOPE, name)
+    }
+    assert.equal((await callErr(client, 'search', { query: 'x' })).code, gs.ERR.INSUFFICIENT_SCOPE)
+    assert.equal((await callErr(client, 'fetch', { id: 'x' })).code, gs.ERR.INSUFFICIENT_SCOPE)
+  })
+})

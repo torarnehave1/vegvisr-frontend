@@ -29,7 +29,10 @@
 const TX_PREFIX = 'oauthtx:'
 const RATE_PREFIX = 'oauthrate:'
 
-const TX_TTL_SECONDS = 15 * 60 // a whole authorization must finish inside this
+const TX_TTL_SECONDS = 30 * 60 // a whole authorization must finish inside this
+
+// The origin the WebOTP binding names. Must be the bare domain — no scheme, no port.
+const OTP_BOUND_DOMAIN = 'knowledge.vegvisr.org'
 const CODE_TTL_SECONDS = 5 * 60 // matches both existing implementations
 const MAX_VERIFY_ATTEMPTS = 5 // from brand-worker
 const MAX_SENDS_PER_PHONE_PER_HOUR = 3 // from brand-worker
@@ -159,34 +162,58 @@ export async function sendChallenge(env, { tx, phoneRaw, clientIp }) {
     return { ok: false, code: OTP_ERR.RATE_LIMITED }
   }
 
-  // The phone must belong to the email the magic link already proved. A mismatch is silent:
-  // the caller gets the same "code sent" answer and no code is issued.
-  let matches = false
+  // Who does this number belong to?
+  //
+  // Two entry paths reach here. When the browser already carried a valid vegvisr.org session
+  // cookie, tx.email is set and the number must belong to THAT account — otherwise anyone
+  // borrowing a signed-in browser could redirect the code to their own phone. When there is no
+  // session, the number itself is the identity claim and the account is looked up by it, the
+  // same way sms-worker's phone-only login does.
+  let row = null
   if (tx.email) {
-    const row = await env.vegvisr_org
-      .prepare('SELECT phone FROM config WHERE email = ? LIMIT 1')
+    const owner = await env.vegvisr_org
+      .prepare('SELECT user_id, email, Role, phone FROM config WHERE email = ? LIMIT 1')
       .bind(tx.email)
       .first()
-    matches = Boolean(row?.phone && normalizeNoPhone(row.phone) === phone)
+    if (owner?.phone && normalizeNoPhone(owner.phone) === phone) row = owner
+  } else {
+    row = await env.vegvisr_org
+      .prepare('SELECT user_id, email, Role, phone FROM config WHERE phone = ? LIMIT 1')
+      .bind(phone)
+      .first()
   }
 
-  if (!matches) {
-    // Deliberately indistinguishable from success, and deliberately cheap — no SMS is sent.
-    console.log('[OAuth OTP] challenge requested for a number that does not match the account')
+  if (!row) {
+    // Indistinguishable from success and deliberately cheap — no SMS is sent, nothing is
+    // stored, and the page says the same thing either way. sms-worker answers 404 "No account
+    // registered with this phone number" here, which lets anyone enumerate the user base one
+    // number at a time.
+    console.log('[OAuth OTP] challenge requested for a number with no matching account')
     return { ok: true, sent: false }
   }
 
   const code = sixDigitCode()
   tx.phone = phone
+  // Identity is provisional until the code is verified: it is written into the transaction now
+  // so verifyChallenge can promote it, but no tool can see a transaction, only a completed
+  // authorization.
+  tx.pendingEmail = row.email
+  tx.pendingUserId = row.user_id || row.email
+  tx.pendingRole = row.Role || 'User'
   tx.codeHash = await sha256hex(`${tx.txId}:${code}`) // salted with the tx: no cross-tx replay
   tx.codeExpiresAt = Date.now() + CODE_TTL_SECONDS * 1000
   tx.tries = 0
   tx.stage = 'otp'
   await putTx(env, tx)
 
+  // The last line is the WebOTP binding: `@<domain> #<code>`, domain only, no scheme or port,
+  // and it MUST be the final line. Chrome on Android uses it to fill the field automatically;
+  // Safari uses the same shape together with autocomplete="one-time-code". Neither can help
+  // when the SMS lands on a different device than the browser, which is the usual case for a
+  // desktop OAuth window — there the user still types six digits.
   const smsBody = {
     to: phone,
-    message: `Din VEGR.AI-innloggingskode: ${code}`,
+    message: `Din VEGR.AI-innloggingskode: ${code}\n\n@${OTP_BOUND_DOMAIN} #${code}`,
     sender: 'VEGR.AI',
   }
   const req = {
@@ -252,6 +279,15 @@ export async function verifyChallenge(env, { tx, codeRaw }) {
   // /api/save-graph treats as standing authorization would widen its meaning well past this
   // transaction.
   await clearChallenge()
+  // The code proved control of the number, so the provisional identity becomes the real one.
+  if (tx.pendingEmail) {
+    tx.email = tx.pendingEmail
+    tx.userId = tx.pendingUserId
+    tx.role = tx.pendingRole
+    tx.pendingEmail = null
+    tx.pendingUserId = null
+    tx.pendingRole = null
+  }
   tx.stage = 'consent'
   await putTx(env, tx)
   return { ok: true }

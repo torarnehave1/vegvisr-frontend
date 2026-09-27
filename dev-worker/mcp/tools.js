@@ -312,7 +312,184 @@ export function registerTools(server, getContext) {
       )
     },
   )
+
+  // ── search_graphs ─────────────────────────────────────────────────────────
+  server.registerTool(
+    'search_graphs',
+    {
+      title: 'Search knowledge graphs',
+      description:
+        'Free-text search across the graphs the authenticated user can see — their own graphs, ' +
+        'whatever their publication state, plus anything published by others. Matches titles, ' +
+        'descriptions, meta areas, node labels and node content. Returns summaries with ids and ' +
+        'links, not full content: follow up with get_graph. Requires the graph:read scope.',
+      inputSchema: {
+        query: z.string().optional().describe('Free text. Omit to list everything visible to you. * works as a wildcard.'),
+        metaArea: z.string().optional().describe('Narrow to a meta-area tag, e.g. "#HISTORY".'),
+        nodeType: z.string().optional().describe('Only graphs containing a node of this type, e.g. "fulltext".'),
+        limit: z.number().int().optional().describe('Results per page, 1–50. Default 20.'),
+        offset: z.number().int().optional().describe('How many results to skip, for paging.'),
+      },
+    },
+    async ({ query, metaArea, nodeType, limit, offset }) => {
+      const { auth, env } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await gs.searchGraphs(env, { query, metaArea, nodeType, limit, offset, actor })
+      if (!r.ok) return fromService(r)
+
+      const head = r.total === 0
+        ? 'No graphs matched.'
+        : `${r.total} graph${r.total === 1 ? '' : 's'} matched, showing ${r.results.length} from ${r.offset}.`
+      const lines = r.results.map(
+        (g) => `• ${g.title || '(untitled)'} — ${g.graphId} · ${g.nodeCount} nodes · ${g.publicationState}${g.isMine ? ' · yours' : ''}`,
+      )
+      return ok({ success: true, ...r, ok: undefined }, [head, ...lines].join('\n'))
+    },
+  )
+
+  // ── list_my_graphs ────────────────────────────────────────────────────────
+  server.registerTool(
+    'list_my_graphs',
+    {
+      title: 'List my knowledge graphs',
+      description:
+        'List the graphs the authenticated user owns, newest first, including private ones. ' +
+        'Requires the graph:read scope.',
+      inputSchema: {
+        metaArea: z.string().optional().describe('Narrow to a meta-area tag, e.g. "#HISTORY".'),
+        limit: z.number().int().optional().describe('Results per page, 1–50. Default 20.'),
+        offset: z.number().int().optional().describe('How many results to skip, for paging.'),
+      },
+    },
+    async ({ metaArea, limit, offset }) => {
+      const { auth, env } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await gs.listMyGraphs(env, { metaArea, limit, offset, actor })
+      if (!r.ok) return fromService(r)
+
+      const head = r.total === 0
+        ? 'You have no graphs yet.'
+        : `You own ${r.total} graph${r.total === 1 ? '' : 's'}, showing ${r.results.length} from ${r.offset}.`
+      const lines = r.results.map(
+        (g) => `• ${g.title || '(untitled)'} — ${g.graphId} · ${g.nodeCount} nodes · ${g.publicationState}`,
+      )
+      return ok({ success: true, ...r, ok: undefined }, [head, ...lines].join('\n'))
+    },
+  )
+
+  // ── search / fetch ────────────────────────────────────────────────────────
+  //
+  // These two names are not ours to choose. ChatGPT's deep research connectors call a tool
+  // literally named `search` and one named `fetch`, with a fixed result shape: search returns
+  // {id, title, url} and fetch returns {id, title, text, url, metadata}. Without them this
+  // server works in Developer Mode but never appears as a research source.
+  //
+  // They are thin projections of search_graphs and get_graph onto that shape, through the same
+  // graphService calls — not a second search implementation.
+
+  server.registerTool(
+    'search',
+    {
+      title: 'Search (deep research)',
+      description:
+        'Search the knowledge graphs available to the authenticated user and return matching ' +
+        'documents as {id, title, url}. Use fetch to read one. Requires the graph:read scope.',
+      inputSchema: {
+        query: z.string().describe('The search query.'),
+      },
+    },
+    async ({ query }) => {
+      const { auth, env } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await gs.searchGraphs(env, { query, limit: 20, actor })
+      if (!r.ok) return fromService(r)
+
+      const results = r.results.map((g) => ({
+        id: g.graphId,
+        title: g.title || '(untitled)',
+        url: g.viewerUrl,
+      }))
+      // The compatibility schema wants the structured payload AND a JSON-encoded text copy.
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ results }) }],
+        structuredContent: { results },
+      }
+    },
+  )
+
+  server.registerTool(
+    'fetch',
+    {
+      title: 'Fetch (deep research)',
+      description:
+        'Retrieve one knowledge graph by the id that search returned, as {id, title, text, url, ' +
+        'metadata}. The text is the graph rendered as readable markdown. Requires the graph:read scope.',
+      inputSchema: {
+        id: z.string().describe('The graph id, as returned by search.'),
+      },
+    },
+    async ({ id }) => {
+      const { auth, env } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const access = await gs.checkAccess(env, actor, id, 'read')
+      if (!access.ok) return fromService(access)
+
+      const read = await gs.getGraph(env, id)
+      if (!read.ok) return fromService(read)
+
+      const g = read.graph
+      const meta = g.metadata || {}
+      // Flatten the graph into something a research model can actually read.
+      const text = [
+        `# ${meta.title || '(untitled)'}`,
+        meta.description ? `\n${meta.description}` : '',
+        ...g.nodes.map((n) => `\n## ${n.label || n.id}\n${n.info || ''}`),
+      ].join('\n')
+
+      const doc = {
+        id,
+        title: meta.title || '(untitled)',
+        text,
+        url: gs.graphLinks(id).viewerUrl,
+        metadata: {
+          metaArea: meta.metaArea || null,
+          publicationState: meta.publicationState || 'private',
+          version: meta.version ?? null,
+          nodeCount: g.nodes.length,
+        },
+      }
+      return {
+        content: [{ type: 'text', text: JSON.stringify(doc) }],
+        structuredContent: doc,
+      }
+    },
+  )
 }
 
 /** Names of the tools this version registers — used by the tests and the audit log. */
-export const TOOL_NAMES = ['create_graph', 'get_graph', 'add_node', 'get_graph_links']
+export const TOOL_NAMES = [
+  'create_graph',
+  'get_graph',
+  'add_node',
+  'get_graph_links',
+  'search_graphs',
+  'list_my_graphs',
+  'search',
+  'fetch',
+]
