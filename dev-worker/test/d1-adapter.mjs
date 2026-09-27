@@ -158,6 +158,11 @@ export function seedChat(raw, { groupId = 'g1', memberId = 'alice@example.com' }
     CREATE TABLE IF NOT EXISTS chat_bots (
       id TEXT PRIMARY KEY, name TEXT, username TEXT, avatar_url TEXT, is_active INTEGER DEFAULT 1
     );
+    CREATE TABLE IF NOT EXISTS group_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, group_id TEXT NOT NULL, user_id TEXT NOT NULL,
+      body TEXT NOT NULL, created_at INTEGER NOT NULL,
+      message_type TEXT NOT NULL DEFAULT 'text', sender_avatar_url TEXT, sender_name TEXT
+    );
   `)
   raw.prepare('INSERT OR REPLACE INTO groups (id, name, updated_at) VALUES (?,?,?)').run(groupId, 'Test Group', 0)
   raw.prepare('INSERT OR REPLACE INTO group_members (group_id, user_id, joined_at) VALUES (?,?,0)').run(groupId, memberId)

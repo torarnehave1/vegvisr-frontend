@@ -841,3 +841,30 @@ describe('post_chat_message is gated harder than everything else', () => {
     // No botId either: the identity is designated by configuration, not chosen per call.
   })
 })
+
+describe('list_chat_groups is read-only but gated like posting', () => {
+  test('it needs chat:write, the same scope posting needs', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const e = await callErr(client, 'list_chat_groups', {})
+    assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+    assert.equal(e.requiredScope, 'chat:write')
+  })
+
+  test('it is read-only, unlike the tool it pairs with', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const l = tools.find((t) => t.name === 'list_chat_groups')
+    assert.equal(l.annotations.readOnlyHint, true)
+    assert.equal(l.annotations.openWorldHint, false)
+    assert.match(l.description, /Reading this list changes nothing/)
+  })
+
+  test('its description tells the model to use it instead of asking the user', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    assert.match(tools.find((t) => t.name === 'list_chat_groups').description, /rather than asking the user/)
+  })
+})

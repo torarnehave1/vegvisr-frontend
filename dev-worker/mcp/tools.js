@@ -520,6 +520,68 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── list_chat_groups ──────────────────────────────────────────────────────
+  //
+  // Read-only companion to post_chat_message. Both ChatGPT and Claude had to ask the user for a
+  // group id by hand because posting existed with no way to discover where — three times between
+  // them before this was written.
+  server.registerTool(
+    'list_chat_groups',
+    {
+      title: 'List chat groups you can post in',
+      description:
+        'List the VEGR.AI chat groups this assistant can post in: groups the authenticated user ' +
+        'belongs to AND that have this assistant\'s bot added. Use it to find a groupId before ' +
+        'calling post_chat_message, rather than asking the user to look one up. A group the user ' +
+        'is in but has not added the bot to is NOT listed — adding the bot is how a group opts in. ' +
+        'Reading this list changes nothing. Requires the chat:write scope, the same one posting needs.',
+      inputSchema: {
+        limit: z.number().int().optional().describe('Maximum groups to return, 1–100. Default 50.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        bot: z.object({
+          id: z.string().optional(),
+          name: z.string().nullable(),
+          username: z.string(),
+          verified: z.boolean(),
+        }),
+        groups: z.array(
+          z.object({
+            groupId: z.string(),
+            name: z.string().nullable(),
+            members: z.number(),
+            messages: z.number(),
+          }),
+        ),
+        note: z.string().optional(),
+      },
+      // Reading a list of groups changes nothing and leaves nothing — unlike posting, which is
+      // the openWorld tool next to it.
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ limit }) => {
+      const { auth, env, props } = getContext()
+      // Gated on chat:write rather than a read scope on purpose: this list describes where an
+      // assistant may speak, so it should not be visible to a connection that cannot speak.
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await chat.listPostableGroups(env, { actor, clientId: auth.clientId, limit })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      const head = result.groups.length
+        ? `${result.groups.length} group${result.groups.length === 1 ? '' : 's'} you can post in as ${result.bot.name}:`
+        : result.note || 'No groups available.'
+      const lines = result.groups.map((g) => `• ${g.name || '(unnamed)'} — ${g.groupId} · ${g.members} members · ${g.messages} messages`)
+      return ok({ success: true, ...payload }, [head, ...lines].join('\n'))
+    },
+  )
+
   // ── search_graphs ─────────────────────────────────────────────────────────
   server.registerTool(
     'search_graphs',
@@ -713,6 +775,7 @@ export const TOOL_NAMES = [
   'get_graph_links',
   'update_node',
   'post_chat_message',
+  'list_chat_groups',
   'search_graphs',
   'list_my_graphs',
   'search',

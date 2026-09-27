@@ -237,3 +237,73 @@ export async function postChatMessage(env, { groupId, text, actor, clientId = nu
 }
 
 export const CHAT_LIMITS = { MAX_MESSAGE_LENGTH, DEFAULT_CLIENT_BOT_MAP, DEFAULT_FALLBACK_BOT_USERNAME }
+
+/**
+ * The groups this caller can actually post in, with this client.
+ *
+ * Both ChatGPT and Claude had to ask the user for a group id by hand, three times between them,
+ * because posting existed without any way to discover where. This closes that — and answers a
+ * second question at the same time: since the bot is per client and its membership is the
+ * permission, the list IS "where have I let this assistant speak".
+ *
+ * Read-only, and deliberately narrow: only groups where the caller is a member AND this
+ * client's bot is present. A group the user belongs to but has not added the bot to is not
+ * listed, because naming it would invite a post that would then be refused.
+ */
+export async function listPostableGroups(env, { actor, clientId = null, limit = 50 }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!actor.userId) {
+    return fail(ERR.FORBIDDEN_GRAPH, 'This token has no user identity, so it belongs to no groups.')
+  }
+
+  const { username, verified } = botUsernameForClient(env, clientId)
+
+  const bot = await env.CHAT_DB.prepare(
+    'SELECT id, name, username FROM chat_bots WHERE LOWER(username) = ? AND is_active = 1 LIMIT 1',
+  )
+    .bind(username)
+    .first()
+
+  if (!bot) {
+    // Not an error: there is simply nowhere this client can post yet, and saying why is more
+    // useful than an empty list with no explanation.
+    return {
+      ok: true,
+      groups: [],
+      bot: { username, name: null, verified },
+      note: `No active chat bot with username "${username}" exists yet, so this client cannot post anywhere. Create it in the chat app, then add it to the groups it should be able to write in.`,
+    }
+  }
+
+  const lim = Math.min(Math.max(Number.parseInt(limit ?? '', 10) || 50, 1), 100)
+
+  const rows = await env.CHAT_DB.prepare(`
+    SELECT g.id, g.name,
+           (SELECT COUNT(*) FROM group_members gm2 WHERE gm2.group_id = g.id) AS members,
+           (SELECT COUNT(*) FROM group_messages m WHERE m.group_id = g.id) AS messages
+    FROM groups g
+    JOIN group_members me ON me.group_id = g.id AND me.user_id = ?
+    JOIN group_bot_members gb ON gb.group_id = g.id AND gb.bot_id = ?
+    ORDER BY g.name
+    LIMIT ?
+  `)
+    .bind(actor.userId, bot.id, lim)
+    .all()
+
+  const groups = (rows.results || []).map((r) => ({
+    groupId: r.id,
+    name: r.name || null,
+    members: r.members ?? 0,
+    messages: r.messages ?? 0,
+  }))
+
+  return {
+    ok: true,
+    groups,
+    bot: { id: bot.id, name: bot.name, username: bot.username, verified },
+    note:
+      groups.length === 0
+        ? `You are not in any group that has the "${bot.name}" bot. Add it to a group in the chat app to let this assistant post there.`
+        : undefined,
+  }
+}

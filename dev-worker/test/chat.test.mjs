@@ -277,3 +277,90 @@ describe('each client posts as its own bot, and cannot borrow another\'s', () =>
     assert.deepEqual(chat.botUsernameForClient(env, CHATGPT_CLIENT), { username: 'chatgpt', verified: true })
   })
 })
+
+describe('list_chat_groups — where can this assistant speak', () => {
+  test('lists a group you are in that has this client\'s bot', async () => {
+    const { env } = setup()
+    const r = await chat.listPostableGroups(env, { actor: alice, clientId: CHATGPT_CLIENT })
+    assert.equal(r.ok, true)
+    assert.deepEqual(r.groups.map((g) => g.groupId), ['g1'])
+    assert.equal(r.groups[0].name, 'Test Group')
+    assert.equal(r.bot.username, 'chatgpt')
+    assert.equal(r.bot.verified, true)
+  })
+
+  test('a group you are in WITHOUT the bot is not listed', async () => {
+    const { env, raw } = setup()
+    raw.prepare('INSERT INTO groups (id, name, updated_at) VALUES (?,?,0)').run('g2', 'No Bot Here')
+    raw.prepare('INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?,?,0)').run('g2', 'alice@example.com')
+    const r = await chat.listPostableGroups(env, { actor: alice, clientId: CHATGPT_CLIENT })
+    assert.deepEqual(r.groups.map((g) => g.groupId), ['g1'], 'a group without the bot was listed and a post there would be refused')
+  })
+
+  test('a group with the bot that you are NOT in is not listed', async () => {
+    const { env, raw } = setup()
+    raw.prepare('INSERT INTO groups (id, name, updated_at) VALUES (?,?,0)').run('g3', 'Not Mine')
+    raw.prepare('INSERT INTO group_bot_members (group_id, bot_id, added_by, added_at) VALUES (?,?,?,0)').run('g3', 'bot-1', 'x')
+    const r = await chat.listPostableGroups(env, { actor: alice, clientId: CHATGPT_CLIENT })
+    assert.deepEqual(r.groups.map((g) => g.groupId), ['g1'])
+  })
+
+  test('the list is per client — Claude sees only where the Claude bot is', async () => {
+    const { env, raw } = setup()
+    raw.prepare('INSERT INTO chat_bots (id, name, username, is_active) VALUES (?,?,?,1)').run('bot-claude', 'Claude', 'claude')
+    raw.prepare('INSERT INTO groups (id, name, updated_at) VALUES (?,?,0)').run('g4', 'Claude Only')
+    raw.prepare('INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?,?,0)').run('g4', 'alice@example.com')
+    raw.prepare('INSERT INTO group_bot_members (group_id, bot_id, added_by, added_at) VALUES (?,?,?,0)').run('g4', 'bot-claude', 'x')
+
+    const forChatGpt = await chat.listPostableGroups(env, { actor: alice, clientId: CHATGPT_CLIENT })
+    const forClaude = await chat.listPostableGroups(env, { actor: alice, clientId: CLAUDE_CLIENT })
+    assert.deepEqual(forChatGpt.groups.map((g) => g.groupId), ['g1'])
+    assert.deepEqual(forClaude.groups.map((g) => g.groupId), ['g4'])
+  })
+
+  test('what it lists is exactly what post_chat_message will accept', async () => {
+    const { env, raw } = setup()
+    raw.prepare('INSERT INTO groups (id, name, updated_at) VALUES (?,?,0)').run('g2', 'No Bot Here')
+    raw.prepare('INSERT INTO group_members (group_id, user_id, joined_at) VALUES (?,?,0)').run('g2', 'alice@example.com')
+
+    const listed = (await chat.listPostableGroups(env, { actor: alice, clientId: CHATGPT_CLIENT })).groups.map((g) => g.groupId)
+    for (const id of listed) {
+      assert.equal((await chat.postChatMessage(env, { groupId: id, text: 'x', actor: alice, clientId: CHATGPT_CLIENT })).ok, true, `${id} was listed but refused`)
+    }
+    // And the one it withheld really would have been refused.
+    assert.equal((await chat.postChatMessage(env, { groupId: 'g2', text: 'x', actor: alice, clientId: CHATGPT_CLIENT })).ok, false)
+  })
+
+  test('an unverified client sees its own fallback bot, and says so', async () => {
+    const { env } = setup()
+    const r = await chat.listPostableGroups(env, { actor: alice, clientId: DCR_CLIENT })
+    assert.equal(r.ok, true)
+    assert.equal(r.bot.verified, false)
+    assert.equal(r.bot.username, 'ai-assistant')
+    assert.deepEqual(r.groups, [])
+    assert.match(r.note, /No active chat bot/)
+  })
+
+  test('no groups is a successful empty list with an explanation, not an error', async () => {
+    const { env, raw } = setup()
+    raw.prepare('DELETE FROM group_bot_members WHERE bot_id = ?').run('bot-1')
+    const r = await chat.listPostableGroups(env, { actor: alice, clientId: CHATGPT_CLIENT })
+    assert.equal(r.ok, true)
+    assert.deepEqual(r.groups, [])
+    assert.match(r.note, /Add it to a group/)
+  })
+
+  test('an actor with no identity belongs to nothing', async () => {
+    const { env } = setup()
+    const anon = gs.normalizeActor({ valid: true, userId: null, scopes: ['chat:write'] })
+    assert.equal((await chat.listPostableGroups(env, { actor: anon, clientId: CHATGPT_CLIENT })).ok, false)
+    assert.equal((await chat.listPostableGroups(env, { actor: null, clientId: CHATGPT_CLIENT })).code, gs.ERR.UNAUTHENTICATED)
+  })
+
+  test('limit is clamped', async () => {
+    const { env } = setup()
+    for (const l of [0, -1, 9999, 'nonsense']) {
+      assert.equal((await chat.listPostableGroups(env, { actor: alice, clientId: CHATGPT_CLIENT, limit: l })).ok, true)
+    }
+  })
+})
