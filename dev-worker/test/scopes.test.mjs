@@ -61,8 +61,8 @@ describe('granting', () => {
 })
 
 describe('the opt-in step-up', () => {
-  test('chat:write is the opt-in, and it is still not advertised', () => {
-    assert.deepEqual(OPT_IN_SCOPES, ['chat:write'])
+  test('chat:write is an opt-in, and it is still not advertised', () => {
+    assert.ok(OPT_IN_SCOPES.includes('chat:write'))
     assert.equal(CONNECT_SCOPES.includes('chat:write'), false, 'it leaked into what clients are offered')
     assert.ok(KNOWN_SCOPES.includes('chat:write'))
   })
@@ -93,5 +93,24 @@ describe('the opt-in step-up', () => {
     assert.match(d, /AI/, 'must say an AI wrote it')
     assert.match(d, /boten er lagt til/, 'must say the bot gates which groups')
     assert.match(d, /ikke slettes/, 'must say it cannot be undone')
+  })
+})
+
+describe('chat:read is consented to separately from chat:write', () => {
+  test('both are opt-ins, neither is advertised', () => {
+    assert.deepEqual(OPT_IN_SCOPES, ['chat:write', 'chat:read'])
+    for (const s of OPT_IN_SCOPES) assert.equal(CONNECT_SCOPES.includes(s), false, `${s} leaked into the advertised set`)
+  })
+
+  test('granting one does not grant the other — that is the whole point of two boxes', () => {
+    assert.deepEqual(sanitizeOptIns(['chat:write']), ['chat:write'])
+    assert.deepEqual(sanitizeOptIns(['chat:read']), ['chat:read'])
+    assert.deepEqual(sanitizeOptIns(['chat:write', 'chat:read']), ['chat:write', 'chat:read'])
+  })
+
+  test('the copy says reading exposes other people, and that addresses are withheld', () => {
+    const d = OPT_IN_SCOPE_DETAIL['chat:read']
+    assert.match(d, /andre deltakere/, 'must say it reads other participants')
+    assert.match(d, /aldri e-postadresser/, 'must say e-mail addresses are withheld')
   })
 })

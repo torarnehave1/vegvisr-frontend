@@ -7,7 +7,7 @@
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { freshDb, seedChat, FakeChatWorker } from './d1-adapter.mjs'
+import { freshDb, seedChat, seedMessages, seedProfiles, FakeChatWorker } from './d1-adapter.mjs'
 import * as chat from '../chat-service.js'
 import * as gs from '../graph-service.js'
 import { CONNECT_SCOPES, KNOWN_SCOPES } from '../oauth/scopes.js'
@@ -442,5 +442,116 @@ describe('a client with an opaque id is identified by its redirect URI', () => {
     const after = await chat.listPostableGroups(env, { actor: alice, clientId: GROK_CLIENT, client: GROK_RECORD })
     assert.deepEqual(after.groups.map((g) => g.groupId), ['g1'])
     assert.equal(after.bot.name, 'Grok')
+  })
+})
+
+describe('read_chat_messages — reading other people\'s words', () => {
+  function withMessages(opts = {}) {
+    const ctx = setup(opts)
+    seedProfiles(ctx.raw, [
+      { userId: 'alice@example.com', email: 'alice@example.com', displayName: 'Alice A' },
+      { userId: 'bob@example.com', email: 'bob@example.com', displayName: 'Bob B' },
+      { userId: 'nameless@example.com', email: 'nameless@example.com', displayName: null },
+    ])
+    seedMessages(ctx.raw, [
+      { sender: 'alice@example.com', text: 'Skal vi flytte møtet?', at: 1000 },
+      { sender: 'bob@example.com', text: 'Ja, torsdag passer', at: 2000 },
+      { sender: 'nameless@example.com', text: 'Enig', at: 3000 },
+      { sender: 'bot:bot-1', text: 'Notert', at: 4000, senderName: 'ChatGPT' },
+    ])
+    return ctx
+  }
+
+  test('returns the conversation oldest first, with names', async () => {
+    const { env } = withMessages()
+    const r = await chat.readGroupMessages(env, { groupId: 'g1', actor: alice, clientId: CHATGPT_CLIENT })
+    assert.equal(r.ok, true)
+    assert.equal(r.count, 4)
+    assert.deepEqual(r.messages.map((m) => m.text), ['Skal vi flytte møtet?', 'Ja, torsdag passer', 'Enig', 'Notert'])
+    assert.equal(r.messages[0].sender, 'Alice A')
+    assert.equal(r.messages[1].sender, 'Bob B')
+  })
+
+  test('a bot is named from the message, and flagged as a bot', async () => {
+    const { env } = withMessages()
+    const r = await chat.readGroupMessages(env, { groupId: 'g1', actor: alice, clientId: CHATGPT_CLIENT })
+    const bot = r.messages.at(-1)
+    assert.equal(bot.sender, 'ChatGPT')
+    assert.equal(bot.isBot, true)
+    assert.equal(bot.isMine, false)
+  })
+
+  test('the caller\'s own messages are marked', async () => {
+    const { env } = withMessages()
+    const r = await chat.readGroupMessages(env, { groupId: 'g1', actor: alice, clientId: CHATGPT_CLIENT })
+    assert.deepEqual(r.messages.map((m) => m.isMine), [true, false, false, false])
+  })
+
+  test('NO e-mail address appears anywhere in the result', async () => {
+    const { env } = withMessages()
+    const r = await chat.readGroupMessages(env, { groupId: 'g1', actor: alice, clientId: CHATGPT_CLIENT })
+    const blob = JSON.stringify(r)
+    for (const leak of ['alice@example.com', 'bob@example.com', 'nameless@example.com', '@example.com']) {
+      assert.equal(blob.includes(leak), false, `the result leaked ${leak}`)
+    }
+  })
+
+  test('a participant with no display name becomes a stable pseudonym, not a raw id', async () => {
+    const { env } = withMessages()
+    const r = await chat.readGroupMessages(env, { groupId: 'g1', actor: alice, clientId: CHATGPT_CLIENT })
+    const third = r.messages[2]
+    assert.match(third.sender, /^Deltaker \d+$/)
+    assert.equal(third.sender.includes('@'), false)
+  })
+
+  test('the same unnamed participant keeps the same pseudonym across their messages', async () => {
+    const { env, raw } = withMessages()
+    seedMessages(raw, [{ sender: 'nameless@example.com', text: 'Og en ting til', at: 5000 }])
+    const r = await chat.readGroupMessages(env, { groupId: 'g1', actor: alice, clientId: CHATGPT_CLIENT })
+    const theirs = r.messages.filter((m) => /^Deltaker/.test(m.sender || ''))
+    assert.equal(theirs.length, 2)
+    assert.equal(theirs[0].sender, theirs[1].sender, 'who-said-what structure was lost')
+  })
+
+  test('a non-member cannot read, and gets the same answer as for a missing group', async () => {
+    const { env } = withMessages()
+    const forbidden = await chat.readGroupMessages(env, { groupId: 'g1', actor: bob, clientId: CHATGPT_CLIENT })
+    const missing = await chat.readGroupMessages(env, { groupId: 'nope', actor: alice, clientId: CHATGPT_CLIENT })
+    assert.equal(forbidden.code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.equal(forbidden.message, missing.message)
+  })
+
+  test('reading needs the bot in the group, exactly like posting', async () => {
+    const { env, raw } = withMessages()
+    raw.prepare('DELETE FROM group_bot_members WHERE group_id = ? AND bot_id = ?').run('g1', 'bot-1')
+    const r = await chat.readGroupMessages(env, { groupId: 'g1', actor: alice, clientId: CHATGPT_CLIENT })
+    assert.equal(r.ok, false)
+    assert.match(r.message, /not a member of that group/)
+  })
+
+  test('since filters by time, and a bad value is refused rather than ignored', async () => {
+    const { env } = withMessages()
+    const after = await chat.readGroupMessages(env, { groupId: 'g1', actor: alice, clientId: CHATGPT_CLIENT, since: 2000 })
+    assert.deepEqual(after.messages.map((m) => m.text), ['Enig', 'Notert'])
+
+    const iso = await chat.readGroupMessages(env, { groupId: 'g1', actor: alice, clientId: CHATGPT_CLIENT, since: new Date(2000).toISOString() })
+    assert.equal(iso.count, 2)
+
+    assert.equal((await chat.readGroupMessages(env, { groupId: 'g1', actor: alice, clientId: CHATGPT_CLIENT, since: 'yesterday-ish' })).code, gs.ERR.INVALID_INPUT)
+  })
+
+  test('limit takes the most recent, and is clamped', async () => {
+    const { env } = withMessages()
+    const r = await chat.readGroupMessages(env, { groupId: 'g1', actor: alice, clientId: CHATGPT_CLIENT, limit: 2 })
+    assert.deepEqual(r.messages.map((m) => m.text), ['Enig', 'Notert'], 'should be the two newest, still oldest-first')
+    assert.equal((await chat.readGroupMessages(env, { groupId: 'g1', actor: alice, clientId: CHATGPT_CLIENT, limit: 9999 })).ok, true)
+  })
+
+  test('an empty group reads as a success with nothing in it', async () => {
+    const { env, raw } = setup()
+    seedProfiles(raw, [{ userId: 'alice@example.com', email: 'alice@example.com', displayName: 'Alice A' }])
+    const r = await chat.readGroupMessages(env, { groupId: 'g1', actor: alice, clientId: CHATGPT_CLIENT })
+    assert.equal(r.ok, true)
+    assert.deepEqual(r.messages, [])
   })
 })

@@ -170,6 +170,26 @@ export function seedChat(raw, { groupId = 'g1', memberId = 'alice@example.com' }
   raw.prepare('INSERT OR REPLACE INTO group_bot_members (group_id, bot_id, added_by, added_at) VALUES (?,?,?,0)').run(groupId, 'bot-1', 'someone')
 }
 
+/** Put messages in a group. `sender` is a user_id, or 'bot:<id>' with a name. */
+export function seedMessages(raw, rows, groupId = 'g1') {
+  const ins = raw.prepare(
+    'INSERT INTO group_messages (group_id, user_id, body, created_at, message_type, sender_name) VALUES (?,?,?,?,?,?)',
+  )
+  for (const m of rows) {
+    ins.run(groupId, m.sender, m.text, m.at ?? Date.now(), m.type || 'text', m.senderName ?? null)
+  }
+}
+
+/** config rows in the identity database, which is where human display names come from. */
+export function seedProfiles(raw, people) {
+  raw.exec(`CREATE TABLE IF NOT EXISTS config (
+    user_id TEXT, data TEXT NOT NULL DEFAULT '{}', email TEXT PRIMARY KEY,
+    display_name TEXT, Role TEXT
+  )`)
+  const ins = raw.prepare("INSERT OR REPLACE INTO config (user_id, data, email, display_name) VALUES (?,'{}',?,?)")
+  for (const p of people) ins.run(p.userId, p.email, p.displayName ?? null)
+}
+
 /** Captures what would have been posted instead of calling group-chat-worker. */
 export class FakeChatWorker {
   constructor({ ok = true } = {}) {

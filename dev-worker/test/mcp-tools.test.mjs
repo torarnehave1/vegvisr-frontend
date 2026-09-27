@@ -868,3 +868,33 @@ describe('list_chat_groups is read-only but gated like posting', () => {
     assert.match(tools.find((t) => t.name === 'list_chat_groups').description, /rather than asking the user/)
   })
 })
+
+describe('read_chat_messages is gated apart from posting', () => {
+  test('chat:write is not enough — reading needs chat:read', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, {
+      auth: { token: 't', audience: 'a', scope: ['graph:read', 'chat:write'], clientId: 'c' },
+      props: { userId: 'alice@example.com', email: 'alice@example.com', role: 'User' },
+    })
+    const e = await callErr(client, 'read_chat_messages', { groupId: 'g1' })
+    assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+    assert.equal(e.requiredScope, 'chat:read')
+  })
+
+  test('it is read-only and reaches nothing outside this system', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'read_chat_messages')
+    assert.equal(t.annotations.readOnlyHint, true)
+    assert.equal(t.annotations.openWorldHint, false)
+    assert.match(t.description, /never their e-mail addresses/)
+  })
+
+  test('still exactly one outward-facing tool', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    assert.deepEqual(tools.filter((t) => t.annotations?.openWorldHint).map((t) => t.name), ['post_chat_message'])
+  })
+})

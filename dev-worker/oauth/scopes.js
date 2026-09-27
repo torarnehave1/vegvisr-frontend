@@ -27,7 +27,7 @@ export const CONNECT_SCOPES = ['graph:read', 'graph:write']
  * own data; chat:write sends a message to OTHER PEOPLE, and it cannot be taken back. It is
  * deliberately absent from CONNECT_SCOPES so no ordinary connection can even ask for it.
  */
-export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'graph:delete', 'chat:write']
+export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'graph:delete', 'chat:write', 'chat:read']
 
 /** Human text for the consent screen. Covers every known scope, advertised or not. */
 export const SCOPE_TEXT = {
@@ -36,6 +36,7 @@ export const SCOPE_TEXT = {
   'graph:publish': 'Publisere en graf offentlig',
   'graph:delete': 'Slette grafer',
   'chat:write': 'Poste meldinger i chattegrupper du er medlem av',
+  'chat:read': 'Lese meldinger i chattegrupper du er medlem av',
 }
 
 /**
@@ -69,14 +70,18 @@ export function grantableScopes(requested) {
  * requested, as long as the token response reports what was actually granted — which the
  * provider does.
  */
-export const OPT_IN_SCOPES = ['chat:write']
+export const OPT_IN_SCOPES = ['chat:write', 'chat:read']
 
 /** Longer copy for the consent screen: the one-liner is not enough for an outward-facing scope. */
 export const OPT_IN_SCOPE_DETAIL = {
   'chat:write':
     'Lar assistenten skrive meldinger i chattegrupper du er medlem av. Meldingene postes av ' +
-    'ChatGPT-boten og merkes alltid med at en AI skrev dem på dine vegne. Den kan bare poste i ' +
-    'grupper der boten er lagt til. Meldinger kan ikke slettes av assistenten etterpå.',
+    'assistentens egen bot og merkes alltid med at en AI skrev dem på dine vegne. Den kan bare ' +
+    'poste i grupper der boten er lagt til. Meldinger kan ikke slettes av assistenten etterpå.',
+  'chat:read':
+    'Lar assistenten lese meldinger — også fra andre deltakere — i grupper du er medlem av og ' +
+    'der assistentens bot er lagt til. Den ser bare det du selv allerede ser i chatten, og får ' +
+    'visningsnavn, aldri e-postadresser. Gi dette hvis du vil be den oppsummere en samtale.',
 }
 
 /** Validate a user's opt-in picks: only real opt-in scopes, never anything else. */

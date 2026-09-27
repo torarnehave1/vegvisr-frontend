@@ -41,3 +41,12 @@ CREATE INDEX IF NOT EXISTS idx_mcp_audit_ts ON mcp_audit_log(ts);
 -- absent from the advertised CONNECT_SCOPES, so no ordinary connection can ask for it.
 INSERT OR IGNORE INTO api_scopes (id, scope_name, description, category, is_active, requires_admin)
 VALUES ('scope_chat_write', 'chat:write', 'Post messages to chat groups the user belongs to', 'Chat', 1, 0);
+
+-- 4. chat:read (added 2026-09-27 with the read_chat_messages tool).
+--
+-- Separate from chat:write on purpose: writing adds your own words to a group, reading exposes
+-- other people's. Someone may want an assistant that posts announcements and never reads the
+-- discussion, so the two are consented to separately. Like chat:write it is never advertised;
+-- it is granted only by ticking its box on the consent screen.
+INSERT OR IGNORE INTO api_scopes (id, scope_name, description, category, is_active, requires_admin)
+VALUES ('scope_chat_read', 'chat:read', 'Read messages in chat groups the user belongs to', 'Chat', 1, 0);

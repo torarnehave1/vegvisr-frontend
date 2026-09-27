@@ -341,3 +341,108 @@ export async function listPostableGroups(env, { actor, clientId = null, client =
         : undefined,
   }
 }
+
+/**
+ * Read messages from a group.
+ *
+ * THE PRIVACY POSITION, stated once so it is not re-argued per call: this tool does not widen
+ * access, it widens PROCESSING. The caller is already a member of the group and already reads
+ * these messages in the chat app. What is new is that an AI client reads them too — which is
+ * exactly what the separate chat:read consent is for, and why it is a separate consent from
+ * chat:write. Someone may well want an assistant that posts announcements but never reads the
+ * conversation.
+ *
+ * Two gates, the same as posting: the caller must be a member, and this client's bot must be in
+ * the group. The second matters more here than it does for posting — a group that added the
+ * ChatGPT bot has visibly consented to ChatGPT being present. Reading without that visible
+ * presence would be surveillance.
+ *
+ * Display names, never e-mail addresses. A name is what a summary needs; an address never is.
+ */
+export async function readGroupMessages(env, { groupId, limit = 50, since = null, actor, clientId = null, client = null }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!groupId || !String(groupId).trim()) return fail(ERR.INVALID_INPUT, 'groupId is required.')
+
+  const group = await env.CHAT_DB.prepare('SELECT id, name FROM groups WHERE id = ? LIMIT 1')
+    .bind(groupId)
+    .first()
+  // Same indistinguishable answer as posting: a group that does not exist and one you cannot
+  // see read identically, so this cannot enumerate group ids.
+  if (!group || !(await isGroupMember(env, groupId, actor.userId))) {
+    return fail(ERR.FORBIDDEN_GRAPH, 'You are not a member of that group, or it does not exist.', { groupId })
+  }
+
+  const resolved = await resolveMcpBot(env, groupId, clientId, client)
+  if (!resolved.ok) return resolved
+
+  const lim = Math.min(Math.max(Number.parseInt(limit ?? '', 10) || 50, 1), 200)
+
+  // `since` is an ISO timestamp or a millisecond epoch; anything unparseable reads as no bound
+  // rather than silently returning everything from the beginning of time.
+  let sinceMs = 0
+  if (since) {
+    const asNumber = Number(since)
+    const parsed = Number.isFinite(asNumber) && asNumber > 0 ? asNumber : Date.parse(String(since))
+    if (!Number.isFinite(parsed)) return fail(ERR.INVALID_INPUT, 'since must be an ISO timestamp or a millisecond epoch.')
+    sinceMs = parsed
+  }
+
+  const rows = await env.CHAT_DB.prepare(`
+    SELECT id, user_id, body, created_at, message_type, sender_name
+    FROM group_messages
+    WHERE group_id = ? AND created_at > ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `)
+    .bind(groupId, sinceMs, lim)
+    .all()
+
+  const raw = (rows.results || []).reverse() // oldest first: a conversation reads forwards
+
+  // Resolve human senders to DISPLAY NAMES from the identity database. Never the e-mail, even
+  // though it is the primary key sitting right next to it in the same row.
+  const humanIds = [...new Set(raw.map((r) => r.user_id).filter((u) => !String(u).startsWith('bot:')))]
+  const names = new Map()
+  if (humanIds.length) {
+    const placeholders = humanIds.map(() => '?').join(',')
+    const profiles = await env.vegvisr_org
+      .prepare(`SELECT user_id, display_name FROM config WHERE user_id IN (${placeholders})`)
+      .bind(...humanIds)
+      .all()
+    for (const p of profiles.results || []) {
+      if (p.display_name) names.set(p.user_id, p.display_name)
+    }
+  }
+
+  // A participant with no display name becomes a stable pseudonym rather than a raw uuid: the
+  // structure of who-said-what survives, the identity does not leak.
+  let anon = 0
+  const pseudonyms = new Map()
+  const nameFor = (userId) => {
+    if (String(userId).startsWith('bot:')) return null
+    if (names.has(userId)) return names.get(userId)
+    if (!pseudonyms.has(userId)) pseudonyms.set(userId, `Deltaker ${++anon}`)
+    return pseudonyms.get(userId)
+  }
+
+  const messages = raw.map((r) => {
+    const isBot = String(r.user_id).startsWith('bot:')
+    return {
+      id: r.id,
+      sender: isBot ? r.sender_name || 'En bot' : nameFor(r.user_id),
+      isBot,
+      isMine: !isBot && r.user_id === actor.userId,
+      text: r.body,
+      type: r.message_type || 'text',
+      at: new Date(r.created_at).toISOString(),
+    }
+  })
+
+  return {
+    ok: true,
+    groupId,
+    groupName: group.name || null,
+    count: messages.length,
+    messages,
+  }
+}

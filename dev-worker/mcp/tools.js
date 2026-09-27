@@ -602,6 +602,70 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── read_chat_messages ────────────────────────────────────────────────────
+  //
+  // The counterpart to post_chat_message, and the one that turns a conversation into something
+  // that can become a graph. It reads OTHER PEOPLE's words, so it has its own scope: someone may
+  // want an assistant that posts announcements and never reads the discussion.
+  server.registerTool(
+    'read_chat_messages',
+    {
+      title: 'Read messages from a chat group',
+      description:
+        'Read recent messages from a VEGR.AI chat group the authenticated user belongs to, oldest ' +
+        'first. Use it to summarise a discussion — for example into a new graph with create_graph. ' +
+        'It returns other participants\' messages with their display names, never their e-mail ' +
+        'addresses, and only for groups where this assistant\'s bot has been added. Requires the ' +
+        'chat:read scope, which is separate from chat:write and granted separately.',
+      inputSchema: {
+        groupId: z.string().min(1).describe('The group to read. Use list_chat_groups to find one.'),
+        limit: z.number().int().optional().describe('How many of the most recent messages to return, 1–200. Default 50.'),
+        since: z.string().optional().describe('Only messages after this moment — an ISO timestamp, e.g. 2026-09-27T12:00:00Z.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        groupId: z.string(),
+        groupName: z.string().nullable(),
+        count: z.number(),
+        messages: z.array(
+          z.object({
+            id: z.number(),
+            sender: z.string().nullable(),
+            isBot: z.boolean(),
+            isMine: z.boolean(),
+            text: z.string(),
+            type: z.string(),
+            at: z.string(),
+          }),
+        ),
+      },
+      // Reading changes nothing. openWorld is false: it reaches no further than this database,
+      // even though what it reads was written by other people.
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ groupId, limit, since }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:read')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const client = await lookupClient(env, auth.clientId)
+      const result = await chat.readGroupMessages(env, {
+        groupId, limit, since, actor, clientId: auth.clientId, client,
+      })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      const head = result.count
+        ? `${result.count} message${result.count === 1 ? '' : 's'} from "${result.groupName || result.groupId}", oldest first:`
+        : `No messages in "${result.groupName || result.groupId}" for that range.`
+      const lines = result.messages.map((m) => `[${m.at}] ${m.sender}${m.isBot ? ' (bot)' : ''}: ${m.text}`)
+      return ok({ success: true, ...payload }, [head, ...lines].join('\n'))
+    },
+  )
+
   // ── search_graphs ─────────────────────────────────────────────────────────
   server.registerTool(
     'search_graphs',
@@ -796,6 +860,7 @@ export const TOOL_NAMES = [
   'update_node',
   'post_chat_message',
   'list_chat_groups',
+  'read_chat_messages',
   'search_graphs',
   'list_my_graphs',
   'search',
