@@ -197,6 +197,26 @@ const mintProxyToken = async (request, env, scope) => {
   }
 }
 
+// One call against the caller's own proxy: mint, send, parse. Returns { error } rather than
+// throwing so each handler can decide its own status code.
+const callProxy = async (request, env, storage, scope, path, init = {}) => {
+  const proxy = await mintProxyToken(request, env, scope)
+  if (proxy.error) return { error: proxy.error }
+  try {
+    const res = await fetch(`${storage.deliveryBase}${path}`, {
+      ...init,
+      headers: { ...(init.headers || {}), Authorization: `Bearer ${proxy.token}` }
+    })
+    const body = await res.json().catch(() => null)
+    if (!res.ok) {
+      return { error: `${path} failed (${res.status}): ${(body && body.error) || 'unknown'}`, status: res.status }
+    }
+    return { body }
+  } catch (error) {
+    return { error: `${path} failed: ${error.message}` }
+  }
+}
+
 const readPhotoAlbum = async (env, rawName) => {
   if (!env.PHOTO_ALBUMS) return null
   const name = normalizeAlbumName(rawName)
@@ -302,6 +322,29 @@ const handleListR2Images = async (request, env) => {
     return createErrorResponse('Album storage is not configured', 500)
   }
 
+  // A world-mode album record lives in the founder's own KV, reached through their proxy. Share
+  // links still resolve centrally: the index that maps a share id to an owner is the next slice,
+  // and until it exists there is no way to tell which tenant a bare share id belongs to.
+  if (albumName && !shareId) {
+    const albumAuth = await validateAuth(request, env)
+    if (albumAuth.valid) {
+      const storage = await resolvePhotoStorage(albumAuth, env)
+      if (storage.mode === 'world') {
+        const res = await callProxy(request, env, storage, ['read', 'album'], `/albums/${encodeURIComponent(albumName)}`)
+        if (res.error) {
+          return createErrorResponse(res.error, res.status === 404 ? 404 : 502)
+        }
+        const record = res.body || {}
+        const images = await Promise.all((record.images || []).map(async (key) => enrichImageWithMetadata(env, {
+          key,
+          url: `${storage.deliveryBase}/photos/${key}`,
+          uploaded: null
+        })))
+        return createResponse(JSON.stringify({ images, album: record.name || albumName, storage: 'world' }), 200)
+      }
+    }
+  }
+
   if ((albumName || shareId) && env.PHOTO_ALBUMS) {
     const album = shareId
       ? await findAlbumByShareId(env, shareId)
@@ -403,6 +446,19 @@ const handleListTrashImages = async (request, env) => {
     return createErrorResponse(auth.error, 401)
   }
 
+  const storage = await resolvePhotoStorage(auth, env)
+  if (storage.mode === 'world') {
+    const res = await callProxy(request, env, storage, ['read'], '/photos/trash/list')
+    if (res.error) return createErrorResponse(res.error, 502)
+    const items = (res.body?.items || []).map((item) => ({
+      trashKey: item.trashKey,
+      originalKey: item.originalKey || null,
+      deletedAt: item.deletedAt || null,
+      url: `${storage.deliveryBase}/photos/${item.trashKey}`
+    }))
+    return createResponse(JSON.stringify({ items }), 200)
+  }
+
   const list = await env.PHOTOS_BUCKET.list({ prefix: 'trash/' })
   const baseUrl = resolveBaseUrl(env.PHOTOS_BASE_URL, 'https://vegvisr.imgix.net/')
   const items = []
@@ -453,6 +509,17 @@ const handleRestoreTrashImage = async (request, env) => {
     return createErrorResponse('trashKey is required', 400)
   }
 
+  const storage = await resolvePhotoStorage(auth, env)
+  if (storage.mode === 'world') {
+    const res = await callProxy(request, env, storage, ['delete'], '/photos/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trashKey, originalKey: body?.originalKey || null, overwrite })
+    })
+    if (res.error) return createErrorResponse(res.error, res.status === 409 ? 409 : 502)
+    return createResponse(JSON.stringify(res.body), 200)
+  }
+
   const trashObject = await env.PHOTOS_BUCKET.get(trashKey)
   if (!trashObject) {
     return createErrorResponse('Trash object not found', 404)
@@ -496,6 +563,17 @@ const handleDeleteTrashImage = async (request, env) => {
   if (!trashKey) {
     return createErrorResponse('trashKey is required', 400)
   }
+  const storage = await resolvePhotoStorage(auth, env)
+  if (storage.mode === 'world') {
+    const res = await callProxy(request, env, storage, ['delete'], '/photos/trash', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trashKey })
+    })
+    if (res.error) return createErrorResponse(res.error, 502)
+    return createResponse(JSON.stringify(res.body), 200)
+  }
+
   await env.PHOTOS_BUCKET.delete(trashKey)
   return createResponse(JSON.stringify({ deleted: trashKey }), 200)
 }
@@ -511,6 +589,19 @@ const handleDeleteR2Image = async (request, env) => {
   if (!key) {
     return createErrorResponse('Image key is required', 400)
   }
+
+  // A world-mode photo lives in the founder's bucket; deleting from the shared one would report
+  // success while their image stayed exactly where it was. The proxy also drops the key from the
+  // albums in their own KV, which is why nothing is scanned centrally here.
+  const storage = await resolvePhotoStorage(auth, env)
+  if (storage.mode === 'world') {
+    const res = await callProxy(request, env, storage, ['delete'], `/photos/${encodeURIComponent(key)}`, {
+      method: 'DELETE'
+    })
+    if (res.error) return createErrorResponse(res.error, res.status === 404 ? 404 : 502)
+    return createResponse(JSON.stringify(res.body), 200)
+  }
+
   const image = await env.PHOTOS_BUCKET.get(key)
   if (!image) {
     return createErrorResponse('Image not found', 404)

@@ -58,6 +58,171 @@ const validateAuth = async (request, env) => {
   }
 }
 
+// --- World Founder storage -------------------------------------------------------------------
+// A founder whose config row carries a complete photos_* registry keeps their albums in their own
+// KV, reached through the proxy in their own Cloudflare account. Everyone else stays in the shared
+// namespace. Fails closed to 'shared' on any missing column or D1 error.
+
+const resolvePhotoStorage = async (auth, env) => {
+  const shared = { mode: 'shared', owner: auth?.email || null, deliveryBase: null, bucket: null }
+  if (!auth?.valid || !auth.email) return shared
+  try {
+    const row = await env.vegvisr_org.prepare(
+      'SELECT photos_delivery_base, photos_bucket_name FROM config WHERE email = ?'
+    ).bind(auth.email).first()
+    if (!row?.photos_delivery_base || !row?.photos_bucket_name) return shared
+    return {
+      mode: 'world',
+      owner: auth.email,
+      deliveryBase: String(row.photos_delivery_base).replace(/\/+$/, ''),
+      bucket: row.photos_bucket_name
+    }
+  } catch {
+    return shared
+  }
+}
+
+const callWorldProxy = async (request, env, storage, scope, path, init = {}) => {
+  if (!env.AGENT_WORKER) return { error: 'AGENT_WORKER service binding is not configured' }
+  const apiToken = request.headers.get('X-API-Token') || ''
+  if (!apiToken) return { error: 'Missing X-API-Token header' }
+  let token
+  try {
+    const mint = await env.AGENT_WORKER.fetch('https://agent.vegvisr.org/world-photos/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiToken}` },
+      body: JSON.stringify({ scope })
+    })
+    const minted = await mint.json().catch(() => null)
+    if (!mint.ok || !minted?.token) {
+      return { error: `token mint failed (${mint.status}): ${(minted && minted.error) || 'unknown'}` }
+    }
+    token = minted.token
+  } catch (error) {
+    return { error: `token mint failed: ${error.message}` }
+  }
+  try {
+    const res = await fetch(`${storage.deliveryBase}${path}`, {
+      ...init,
+      headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` }
+    })
+    const body = await res.json().catch(() => null)
+    if (!res.ok) {
+      return { error: `${path} failed (${res.status}): ${(body && body.error) || 'unknown'}`, status: res.status }
+    }
+    return { body }
+  } catch (error) {
+    return { error: `${path} failed: ${error.message}` }
+  }
+}
+
+// The seven REST shapes this worker serves, mapped onto the proxy's /albums routes. Returns null
+// when the caller is not a World Founder, so the shared-namespace handlers run untouched.
+const routeWorldAlbums = async (request, env, pathname, url, method) => {
+  const auth = await validateAuth(request, env)
+  if (!auth.valid) return null
+  const storage = await resolvePhotoStorage(auth, env)
+  if (storage.mode !== 'world') return null
+
+  const jsonBody = async () => {
+    try {
+      return await request.json()
+    } catch {
+      return null
+    }
+  }
+  const send = (res, fallbackStatus = 502) =>
+    res.error
+      ? createErrorResponse(res.error, res.status === 404 ? 404 : res.status === 403 ? 403 : fallbackStatus)
+      : createResponse(JSON.stringify(res.body), 200)
+
+  if (pathname === '/photo-albums' && method === 'GET') {
+    const meta = url.searchParams.get('includeMeta') === '1' ? '?includeMeta=1' : ''
+    return send(await callWorldProxy(request, env, storage, ['read', 'album'], `/albums${meta}`))
+  }
+
+  if (pathname === '/photo-album' && method === 'GET') {
+    const name = normalizeAlbumName(url.searchParams.get('name'))
+    if (!name) return createErrorResponse('Album name is required', 400)
+    return send(await callWorldProxy(request, env, storage, ['read', 'album'], `/albums/${encodeURIComponent(name)}`))
+  }
+
+  if (pathname === '/photo-album' && method === 'DELETE') {
+    const name = normalizeAlbumName(url.searchParams.get('name'))
+    if (!name) return createErrorResponse('Album name is required', 400)
+    const res = await callWorldProxy(request, env, storage, ['album'], `/albums/${encodeURIComponent(name)}`, { method: 'DELETE' })
+    if (res.error) return send(res)
+    return createResponse(JSON.stringify({ deleted: name, shareRevoked: false }), 200)
+  }
+
+  if (pathname === '/photo-album' && method === 'POST') {
+    const body = await jsonBody()
+    const name = normalizeAlbumName(body?.name)
+    if (!name) return createErrorResponse('Album name is required', 400)
+    return send(await callWorldProxy(request, env, storage, ['album'], `/albums/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        images: Array.isArray(body?.images) ? body.images : undefined,
+        seoTitle: body?.seoTitle,
+        seoDescription: body?.seoDescription,
+        seoImageKey: body?.seoImageKey,
+        hiddenImages: body?.hiddenImages,
+        actor: auth.email || auth.userId
+      })
+    }))
+  }
+
+  if ((pathname === '/photo-album/add' || pathname === '/photo-album/remove') && method === 'POST') {
+    const body = await jsonBody()
+    const name = normalizeAlbumName(body?.name)
+    if (!name) return createErrorResponse('Album name is required', 400)
+    const action = pathname.endsWith('/add') ? 'add' : 'remove'
+    return send(await callWorldProxy(request, env, storage, ['album'], `/albums/${encodeURIComponent(name)}/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ images: body?.images, image: body?.image, actor: auth.email || auth.userId })
+    }))
+  }
+
+  if (pathname === '/photo-album/share' && method === 'POST') {
+    const body = await jsonBody()
+    const name = normalizeAlbumName(body?.name)
+    if (!name) return createErrorResponse('Album name is required', 400)
+    const shared = await callWorldProxy(request, env, storage, ['album'], `/albums/${encodeURIComponent(name)}/share`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isShared: body?.isShared !== false, actor: auth.email || auth.userId })
+    })
+    if (shared.error) return send(shared)
+    // The share id has to resolve without knowing the tenant, so the pointer stays in the CENTRAL
+    // namespace even though the album does not. A shared-namespace album stores the bare name here;
+    // a world album stores JSON, because a name alone cannot say which founder's KV to open.
+    // Nothing reads this yet — seo-worker and photos-worker still scan — that is the next slice.
+    if (shared.body?.shareId) {
+      await env.PHOTO_ALBUMS.put(
+        buildShareKey(shared.body.shareId),
+        JSON.stringify({ owner: storage.owner, album: name, mode: 'world' })
+      )
+    }
+    const record = await callWorldProxy(request, env, storage, ['read', 'album'], `/albums/${encodeURIComponent(name)}`)
+    const album = record.body || {}
+    const hidden = Array.isArray(album.hiddenImages) ? album.hiddenImages : []
+    const images = Array.isArray(album.images) ? album.images : []
+    return createResponse(JSON.stringify({
+      name,
+      isShared: !!shared.body?.isShared,
+      shareId: shared.body?.shareId || null,
+      shareUrl: shared.body?.shareId ? `https://photos.vegvisr.org/share/${shared.body.shareId}` : null,
+      totalImages: images.length,
+      hiddenImages: hidden,
+      visibleImages: images.filter((k) => !hidden.includes(k)).length
+    }), 200)
+  }
+
+  return null
+}
+
 const readPhotoAlbum = async (env, rawName) => {
   if (!env.PHOTO_ALBUMS) return null
   const name = normalizeAlbumName(rawName)
@@ -902,6 +1067,13 @@ export default {
         }
       }
       return createResponse(JSON.stringify(spec, null, 2), 200)
+    }
+
+    // A World Founder's albums live in their own account. This returns null for everyone else,
+    // so the shared-namespace handlers below run exactly as before.
+    if (pathname === '/photo-albums' || pathname.startsWith('/photo-album')) {
+      const worldResponse = await routeWorldAlbums(request, env, pathname, new URL(request.url), request.method)
+      if (worldResponse) return worldResponse
     }
 
     if (pathname === '/photo-albums' && request.method === 'GET') {
