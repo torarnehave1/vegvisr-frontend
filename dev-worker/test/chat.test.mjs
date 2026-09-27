@@ -89,39 +89,67 @@ describe('guard 3 — every message says an AI wrote it', () => {
   })
 })
 
-describe('the bot is resolved from the group, never chosen here', () => {
-  test('one bot in the group is used without being named', async () => {
+describe('the bot is designated, not whichever one happens to be in the group', () => {
+  test('the designated bot is used, and it is the same one every time', async () => {
     const { env } = setup()
-    const r = await chat.resolveGroupBot(env, 'g1')
+    const r = await chat.resolveMcpBot(env, 'g1')
     assert.equal(r.ok, true)
-    assert.equal(r.bot.id, 'bot-1')
+    assert.equal(r.bot.username, 'chatgpt')
   })
 
-  test('several bots means the caller must choose, and the options are named', async () => {
+  test('other bots in the group are irrelevant — DEVMO has seven of them', async () => {
+    const { env, raw, worker } = setup()
+    // Reproduces the real group that killed the "one bot per group" idea.
+    for (let i = 0; i < 7; i++) {
+      raw.prepare('INSERT INTO chat_bots (id, name, username, is_active) VALUES (?,?,?,1)').run(`other-${i}`, `Other ${i}`, `other-${i}`)
+      raw.prepare('INSERT INTO group_bot_members (group_id, bot_id, added_by, added_at) VALUES (?,?,?,0)').run('g1', `other-${i}`, 'x')
+    }
+    const r = await chat.postChatMessage(env, { groupId: 'g1', text: 'hei', actor: alice })
+    assert.equal(r.ok, true)
+    assert.equal(worker.posted[0].bot_id, 'bot-1', 'it posted as some other bot')
+  })
+
+  test('adding the bot to a group is what permits AI posting there', async () => {
+    const { env, raw, worker } = setup()
+    raw.prepare('DELETE FROM group_bot_members WHERE group_id = ? AND bot_id = ?').run('g1', 'bot-1')
+
+    const refused = await chat.postChatMessage(env, { groupId: 'g1', text: 'hei', actor: alice })
+    assert.equal(refused.ok, false)
+    assert.match(refused.message, /not a member of that group/)
+    assert.equal(worker.posted.length, 0)
+
+    // Re-adding it is the whole of the permission model — no code change, no deploy.
+    raw.prepare('INSERT INTO group_bot_members (group_id, bot_id, added_by, added_at) VALUES (?,?,?,0)').run('g1', 'bot-1', 'a human')
+    assert.equal((await chat.postChatMessage(env, { groupId: 'g1', text: 'hei', actor: alice })).ok, true)
+  })
+
+  test('a missing bot and a bot outside the group are different failures', async () => {
     const { env, raw } = setup()
-    raw.prepare('INSERT INTO chat_bots (id, name, username, is_active) VALUES (?,?,?,1)').run('bot-2', 'Second Bot', 'second')
-    raw.prepare('INSERT INTO group_bot_members (group_id, bot_id, added_by, added_at) VALUES (?,?,?,0)').run('g1', 'bot-2', 'x')
-    const r = await chat.resolveGroupBot(env, 'g1')
-    assert.equal(r.ok, false)
-    assert.equal(r.availableBots.length, 2)
-    const chosen = await chat.resolveGroupBot(env, 'g1', 'bot-2')
-    assert.equal(chosen.bot.id, 'bot-2')
+    raw.prepare('DELETE FROM group_bot_members WHERE bot_id = ?').run('bot-1')
+    const notInGroup = await chat.resolveMcpBot(env, 'g1')
+    assert.match(notInGroup.message, /not a member/)
+
+    raw.prepare('DELETE FROM chat_bots WHERE id = ?').run('bot-1')
+    const missing = await chat.resolveMcpBot(env, 'g1')
+    assert.match(missing.message, /No active chat bot/)
+    assert.notEqual(missing.message, notInGroup.message, 'the two need different fixes and must read differently')
   })
 
-  test('an inactive bot does not count', async () => {
+  test('an inactive designated bot counts as missing', async () => {
     const { env, raw } = setup()
     raw.prepare('UPDATE chat_bots SET is_active = 0 WHERE id = ?').run('bot-1')
-    const r = await chat.resolveGroupBot(env, 'g1')
-    assert.equal(r.ok, false)
-    assert.match(r.message, /No active bot/)
+    assert.match((await chat.resolveMcpBot(env, 'g1')).message, /No active chat bot/)
   })
 
-  test('a bot that is not in the group cannot be requested', async () => {
+  test('the username is configurable, so the identity is not compiled in', async () => {
     const { env, raw } = setup()
-    raw.prepare('INSERT INTO chat_bots (id, name, username, is_active) VALUES (?,?,?,1)').run('outsider', 'Outsider', 'out')
-    const r = await chat.resolveGroupBot(env, 'g1', 'outsider')
-    assert.equal(r.ok, false)
-    assert.match(r.message, /not an active member/)
+    assert.equal(chat.mcpBotUsername(env), 'chatgpt')
+    env.MCP_CHAT_BOT_USERNAME = 'assistenten'
+    assert.equal(chat.mcpBotUsername(env), 'assistenten')
+    assert.match((await chat.resolveMcpBot(env, 'g1')).message, /assistenten/)
+
+    raw.prepare('UPDATE chat_bots SET username = ? WHERE id = ?').run('assistenten', 'bot-1')
+    assert.equal((await chat.resolveMcpBot(env, 'g1')).ok, true)
   })
 })
 
@@ -158,7 +186,7 @@ describe('input handling', () => {
     const { env } = setup()
     const r = await chat.postChatMessage(env, { groupId: 'g1', text: 'hei', actor: alice })
     assert.equal(r.groupName, 'Test Group')
-    assert.equal(r.botName, 'Test Bot')
+    assert.equal(r.botName, 'ChatGPT')
     assert.equal(r.messageId, 42)
   })
 })

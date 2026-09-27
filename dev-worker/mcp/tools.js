@@ -480,12 +480,12 @@ export function registerTools(server, getContext) {
         'SENDS A MESSAGE TO OTHER PEOPLE AND CANNOT BE UNDONE — confirm the exact wording and the ' +
         'group with the user before calling it. The message is posted by the group\'s bot and ' +
         'always carries a line saying an AI assistant wrote it on that user\'s behalf. You cannot ' +
-        'post to a group the user is not a member of. Requires the chat:write scope, which a ' +
-        'normal connection does not have.',
+        'post to a group the user is not a member of, nor to one the designated bot has not been ' +
+        'added to — that is how a group opts in to allowing AI messages. Requires the chat:write ' +
+        'scope, which a normal connection does not have.',
       inputSchema: {
         groupId: z.string().min(1).describe('The group to post in. The user must be a member of it.'),
         text: z.string().min(1).describe('The message. An attribution line is appended automatically; do not write your own.'),
-        botId: z.string().optional().describe('Which bot posts, when the group has more than one. Omit when it has exactly one.'),
       },
       outputSchema: {
         success: z.boolean(),
@@ -500,7 +500,7 @@ export function registerTools(server, getContext) {
       // leaves the caller's own data and lands in front of other people.
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    async ({ groupId, text, botId }) => {
+    async ({ groupId, text }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'chat:write')
       if (scopeErr) return scopeErr
@@ -508,7 +508,7 @@ export function registerTools(server, getContext) {
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
-      const result = await chat.postChatMessage(env, { groupId, text, botId: botId || null, actor })
+      const result = await chat.postChatMessage(env, { groupId, text, actor })
       if (!result.ok) return fromService(result)
 
       const { ok: _o, ...payload } = result

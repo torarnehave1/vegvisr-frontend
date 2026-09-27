@@ -46,51 +46,62 @@ export async function isGroupMember(env, groupId, userId) {
 }
 
 /**
- * Which bot speaks for this group?
+ * The bot this tool posts as. Always the same one, never whichever bot happens to be around.
  *
- * Exactly one active bot → that one. Several → refuse and name them, so the model can ask
- * rather than guess. None → say so plainly; a bot has to be added to the group first, which is
- * a deliberate act by a human in the chat UI.
+ * An earlier version resolved the bot from the group's own membership: one bot meant use it,
+ * several meant ask. Checking a real group killed that idea — DEVMO GROUP has seven bots, so the
+ * rule was unusable there, and in a group with exactly one it would have posted as whatever bot
+ * was there for some unrelated purpose. Arbitrary identity for a message other people read.
+ *
+ * So it is one designated bot, configured by username. That makes a group's bot list the access
+ * control: ADDING THIS BOT TO A GROUP IS WHAT PERMITS AN AI TO POST THERE. It is a deliberate
+ * act by a human in the chat UI, per group, and it is revoked by removing the bot again — no
+ * code change, no deploy, no scope juggling.
  */
-export async function resolveGroupBot(env, groupId, requestedBotId = null) {
-  const rows = await env.CHAT_DB.prepare(`
-    SELECT b.id, b.name, b.username
-    FROM group_bot_members m
-    JOIN chat_bots b ON b.id = m.bot_id
-    WHERE m.group_id = ? AND b.is_active = 1
-    ORDER BY b.name
-  `)
-    .bind(groupId)
-    .all()
+const DEFAULT_MCP_BOT_USERNAME = 'chatgpt'
 
-  const bots = rows.results || []
-  if (bots.length === 0) {
+export function mcpBotUsername(env) {
+  return String(env.MCP_CHAT_BOT_USERNAME || DEFAULT_MCP_BOT_USERNAME).trim().toLowerCase()
+}
+
+/**
+ * Find the designated bot, and confirm it belongs to this group.
+ *
+ * Two distinct failures, reported distinctly, because they need different fixes: the bot does
+ * not exist at all (create it), or it exists but is not in this group (add it there).
+ */
+export async function resolveMcpBot(env, groupId) {
+  const username = mcpBotUsername(env)
+
+  const bot = await env.CHAT_DB.prepare(
+    'SELECT id, name, username FROM chat_bots WHERE LOWER(username) = ? AND is_active = 1 LIMIT 1',
+  )
+    .bind(username)
+    .first()
+
+  if (!bot) {
     return fail(
       ERR.INVALID_INPUT,
-      `No active bot is a member of group ${groupId}. Add one to the group in the chat app first — a bot is what actually posts the message.`,
-      { groupId },
+      `No active chat bot with username "${username}" exists. Create it in the chat app first — it is the identity every AI-posted message appears under.`,
+      { expectedBotUsername: username },
     )
   }
 
-  if (requestedBotId) {
-    const match = bots.find((b) => b.id === requestedBotId)
-    if (!match) {
-      return fail(ERR.INVALID_INPUT, `Bot ${requestedBotId} is not an active member of group ${groupId}.`, {
-        availableBots: bots.map((b) => ({ id: b.id, name: b.name })),
-      })
-    }
-    return { ok: true, bot: match }
-  }
+  const member = await env.CHAT_DB.prepare(
+    'SELECT 1 FROM group_bot_members WHERE group_id = ? AND bot_id = ? LIMIT 1',
+  )
+    .bind(groupId, bot.id)
+    .first()
 
-  if (bots.length > 1) {
+  if (!member) {
     return fail(
-      ERR.INVALID_INPUT,
-      `Group ${groupId} has ${bots.length} bots. Pass botId to choose which one posts.`,
-      { availableBots: bots.map((b) => ({ id: b.id, name: b.name, username: b.username })) },
+      ERR.FORBIDDEN_GRAPH,
+      `The "${bot.name}" bot is not a member of that group, so an AI cannot post there. Add it to the group in the chat app to allow it.`,
+      { groupId, expectedBotUsername: username },
     )
   }
 
-  return { ok: true, bot: bots[0] }
+  return { ok: true, bot }
 }
 
 /**
@@ -105,13 +116,13 @@ function attribution(actor) {
 }
 
 /**
- * Post a message into a group.
+ * Post a message into a group, as the designated bot.
  *
  * Returns a structured result; never a Response. Posts through group-chat-worker's /bot-message,
  * which does its own checks on top of ours: the bot must be a group member and active, and the
  * message type is whitelisted.
  */
-export async function postChatMessage(env, { groupId, text, botId = null, actor }) {
+export async function postChatMessage(env, { groupId, text, actor }) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   if (!groupId || !String(groupId).trim()) return fail(ERR.INVALID_INPUT, 'groupId is required.')
 
@@ -138,7 +149,7 @@ export async function postChatMessage(env, { groupId, text, botId = null, actor 
     )
   }
 
-  const resolved = await resolveGroupBot(env, groupId, botId)
+  const resolved = await resolveMcpBot(env, groupId)
   if (!resolved.ok) return resolved
 
   const message = body + attribution(actor)

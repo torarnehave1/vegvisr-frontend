@@ -161,7 +161,7 @@ export function seedChat(raw, { groupId = 'g1', memberId = 'alice@example.com' }
   `)
   raw.prepare('INSERT OR REPLACE INTO groups (id, name, updated_at) VALUES (?,?,?)').run(groupId, 'Test Group', 0)
   raw.prepare('INSERT OR REPLACE INTO group_members (group_id, user_id, joined_at) VALUES (?,?,0)').run(groupId, memberId)
-  raw.prepare('INSERT OR REPLACE INTO chat_bots (id, name, username, is_active) VALUES (?,?,?,1)').run('bot-1', 'Test Bot', 'test-bot')
+  raw.prepare('INSERT OR REPLACE INTO chat_bots (id, name, username, is_active) VALUES (?,?,?,1)').run('bot-1', 'ChatGPT', 'chatgpt')
   raw.prepare('INSERT OR REPLACE INTO group_bot_members (group_id, bot_id, added_by, added_at) VALUES (?,?,?,0)').run(groupId, 'bot-1', 'someone')
 }
 

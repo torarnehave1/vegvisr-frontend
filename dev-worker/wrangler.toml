@@ -88,6 +88,11 @@ service = "sms-gateway"
 [vars]
 MCP_PUBLIC_ORIGIN = "https://knowledge.vegvisr.org"
 
+# The chat bot every AI-posted message appears as. Adding this bot to a group is what permits
+# post_chat_message to post there, so a group's bot list is the access control — set and revoked
+# by a human in the chat app, with no deploy.
+MCP_CHAT_BOT_USERNAME = "chatgpt"
+
 # group-chat-worker, for the MCP post_chat_message tool. brand-worker binds the same worker
 # under the same name. Posting goes through its /bot-message endpoint, which checks that the
 # BOT is a group member; chat-service.js additionally checks that the CALLER is one.

@@ -837,6 +837,7 @@ describe('post_chat_message is gated harder than everything else', () => {
     const { client } = await connect(env, ALICE_RW)
     const { tools } = await client.listTools()
     const props = Object.keys(tools.find((x) => x.name === 'post_chat_message').inputSchema.properties)
-    assert.deepEqual(props.sort(), ['botId', 'groupId', 'text'])
+    assert.deepEqual(props.sort(), ['groupId', 'text'])
+    // No botId either: the identity is designated by configuration, not chosen per call.
   })
 })
