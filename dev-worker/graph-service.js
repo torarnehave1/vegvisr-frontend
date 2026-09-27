@@ -950,3 +950,109 @@ export async function listMyGraphs(env, { limit = 20, offset = 0, metaArea = nul
 
   return { ok: true, results, total, limit: lim, offset: off, hasMore: off + results.length < total }
 }
+
+/**
+ * Patch named fields of one node — the implementation behind POST /patchNode.
+ *
+ * Its concurrency control is DIFFERENT from addNode's and that difference is deliberate, so it
+ * is preserved verbatim rather than homogenised:
+ *
+ *   addNode reads MAX(version) from the history table and appends.
+ *   updateNode reads metadata.version out of the graph JSON, and guards the write with that
+ *   version in the SQL WHERE clause — so two concurrent patches cannot both succeed, even if
+ *   they read the same version a microsecond apart. The read-check is the fast path; the
+ *   conditional UPDATE is what actually makes it safe.
+ *
+ * expectedVersion is REQUIRED. This is a read-modify-write over the whole graph JSON, so
+ * without it a concurrent write is silently clobbered. Omitting it is a 400, never a success.
+ *
+ * The node's `id` is never patchable: renaming a node id out from under the edges that point at
+ * it would silently orphan them.
+ */
+export async function updateNode(env, { graphId, nodeId, fields, expectedVersion, actor = null }) {
+  if (!graphId || !nodeId || !fields || typeof fields !== 'object' || !Number.isInteger(expectedVersion)) {
+    return fail(ERR.INVALID_INPUT, 'graphId, nodeId, fields (object), and expectedVersion (integer) are required.')
+  }
+
+  const result = await env.vegvisr_org
+    .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
+    .bind(graphId)
+    .first()
+  if (!result) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
+
+  const graphData = JSON.parse(result.data)
+  if (!Array.isArray(graphData.nodes)) graphData.nodes = []
+
+  const nodeIndex = graphData.nodes.findIndex((n) => n.id === nodeId)
+  if (nodeIndex === -1) {
+    return fail(ERR.GRAPH_NOT_FOUND, `Node ${nodeId} not found in graph ${graphId}.`, { graphId, nodeId })
+  }
+
+  const patch = { ...fields }
+  if (graphData.nodes[nodeIndex].type === 'data-node' && patch.info && env.ENCRYPTION_MASTER_KEY) {
+    patch.info = await encryptDataNodeInfo(patch.info, env.ENCRYPTION_MASTER_KEY)
+  }
+
+  const current = Number(graphData.metadata?.version || 0)
+  if (current !== expectedVersion) {
+    // Message kept verbatim from the pre-refactor REST handler: a client may match on it.
+    return fail(ERR.VERSION_CONFLICT, 'Version mismatch. Reload the graph and retry the patch.', {
+      currentVersion: current,
+      expectedVersion,
+    })
+  }
+
+  const { id: _ignoreId, ...safeFields } = patch
+  Object.assign(graphData.nodes[nodeIndex], safeFields)
+
+  const newVersion = current + 1
+  if (!graphData.metadata) graphData.metadata = {}
+  graphData.metadata.version = newVersion
+
+  const now = new Date().toISOString()
+  const updateResult = await env.vegvisr_org
+    .prepare(`
+      UPDATE knowledge_graphs
+      SET data = ?, updated_at = ?
+      WHERE id = ?
+        AND COALESCE(CAST(json_extract(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.metadata.version') AS INTEGER), 0) = ?
+    `)
+    .bind(JSON.stringify(graphData), now, graphId, expectedVersion)
+    .run()
+
+  // Zero rows changed means another request won the race between the read above and this write.
+  if (!updateResult.meta?.changes) {
+    const latest = await env.vegvisr_org
+      .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
+      .bind(graphId)
+      .first()
+    let latestVersion = 0
+    try {
+      latestVersion = Number(JSON.parse(latest?.data || '{}')?.metadata?.version || 0)
+    } catch { /* an unparseable graph reports version 0 */ }
+    return fail(ERR.VERSION_CONFLICT, 'Version mismatch. Graph was updated by another request.', {
+      currentVersion: latestVersion,
+      expectedVersion,
+    })
+  }
+
+  await env.vegvisr_org
+    .prepare('INSERT INTO knowledge_graph_history (id, graph_id, version, data) VALUES (?, ?, ?, ?)')
+    .bind(crypto.randomUUID(), graphId, newVersion, JSON.stringify(graphData))
+    .run()
+
+  await trimHistory(env, graphId)
+
+  return {
+    ok: true,
+    graphId,
+    nodeId,
+    currentVersion: current,
+    newVersion,
+    updatedFields: Object.keys(safeFields),
+    title: graphData.metadata?.title || null,
+    metaArea: graphData.metadata?.metaArea || null,
+    publicationState: graphData.metadata?.publicationState || 'private',
+    ...graphLinks(graphId),
+  }
+}

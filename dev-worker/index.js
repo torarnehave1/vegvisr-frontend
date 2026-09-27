@@ -11,6 +11,7 @@ import {
   saveGraph as gsSaveGraph,
   addNode as gsAddNode,
   updateMetadata as gsUpdateMetadata,
+  updateNode as gsUpdateNode,
   publishGraph as gsPublishGraph,
   createGraph as gsCreateGraph,
   validateNodesAndEdges,
@@ -7652,114 +7653,20 @@ const restHandler = {
         try {
           const { graphId, nodeId, fields, expectedVersion } = await request.json()
 
-          if (!graphId || !nodeId || !fields || typeof fields !== 'object' || !Number.isInteger(expectedVersion)) {
-            return new Response(
-              JSON.stringify({ error: 'graphId, nodeId, fields (object), and expectedVersion (integer) are required.' }),
-              { status: 400, headers: corsHeaders }
-            )
+          console.log(`[Worker] patchNode: graph=${graphId} node=${nodeId} fields=${fields && typeof fields === 'object' ? Object.keys(fields).join(',') : '?'}`)
+
+          // Patch through graphService — the SAME function the MCP update_node tool calls.
+          const patched = await gsUpdateNode(env, { graphId, nodeId, fields, expectedVersion })
+          if (!patched.ok) {
+            const body = { error: patched.message }
+            if (patched.currentVersion !== undefined) body.currentVersion = patched.currentVersion
+            if (patched.expectedVersion !== undefined) body.expectedVersion = patched.expectedVersion
+            return new Response(JSON.stringify(body), { status: patched.status, headers: corsHeaders })
           }
 
-          console.log(`[Worker] patchNode: graph=${graphId} node=${nodeId} fields=${Object.keys(fields).join(',')}`)
-
-          // 1. Read graph from D1
-          const result = await env.vegvisr_org
-            .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
-            .bind(graphId)
-            .first()
-
-          if (!result) {
-            return new Response(
-              JSON.stringify({ error: 'Graph not found.' }),
-              { status: 404, headers: corsHeaders }
-            )
-          }
-
-          const graphData = JSON.parse(result.data)
-
-          // 2. Find the node
-          const nodeIndex = graphData.nodes.findIndex(n => n.id === nodeId)
-          if (nodeIndex === -1) {
-            return new Response(
-              JSON.stringify({ error: `Node ${nodeId} not found in graph ${graphId}.` }),
-              { status: 404, headers: corsHeaders }
-            )
-          }
-
-          // 3. Encrypt data-node info before patching
-          if (graphData.nodes[nodeIndex].type === 'data-node' && fields.info && env.ENCRYPTION_MASTER_KEY) {
-            fields.info = await encryptDataNodeInfo(fields.info, env.ENCRYPTION_MASTER_KEY)
-          }
-
-          const currentVersion = Number(graphData.metadata?.version || 0)
-          if (currentVersion !== expectedVersion) {
-            return new Response(
-              JSON.stringify({
-                error: 'Version mismatch. Reload the graph and retry the patch.',
-                currentVersion,
-                expectedVersion,
-              }),
-              { status: 409, headers: corsHeaders }
-            )
-          }
-
-          // 4. Patch only the specified fields (don't allow changing id)
-          const { id: _ignoreId, ...safeFields } = fields
-          Object.assign(graphData.nodes[nodeIndex], safeFields)
-
-          // 5. Bump version
-          const newVersion = currentVersion + 1
-          if (!graphData.metadata) graphData.metadata = {}
-          graphData.metadata.version = newVersion
-
-          // 6. Write back to D1 with optimistic concurrency
-          const now = new Date().toISOString()
-          const updateResult = await env.vegvisr_org
-            .prepare(`
-              UPDATE knowledge_graphs
-              SET data = ?, updated_at = ?
-              WHERE id = ?
-                AND COALESCE(CAST(json_extract(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.metadata.version') AS INTEGER), 0) = ?
-            `)
-            .bind(JSON.stringify(graphData), now, graphId, expectedVersion)
-            .run()
-
-          if (!updateResult.meta?.changes) {
-            const latestGraph = await env.vegvisr_org
-              .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
-              .bind(graphId)
-              .first()
-            const latestData = latestGraph?.data ? JSON.parse(latestGraph.data) : null
-            return new Response(
-              JSON.stringify({
-                error: 'Version mismatch. Graph was updated by another request.',
-                currentVersion: Number(latestData?.metadata?.version || 0),
-                expectedVersion,
-              }),
-              { status: 409, headers: corsHeaders }
-            )
-          }
-
-          // 7. Save history
-          await env.vegvisr_org
-            .prepare('INSERT INTO knowledge_graph_history (id, graph_id, version, data) VALUES (?, ?, ?, ?)')
-            .bind(crypto.randomUUID(), graphId, newVersion, JSON.stringify(graphData))
-            .run()
-
-          // 8. Trim history to 20 versions
-          const countResult = await env.vegvisr_org
-            .prepare('SELECT COUNT(*) AS count FROM knowledge_graph_history WHERE graph_id = ?')
-            .bind(graphId)
-            .first()
-          if (countResult?.count > 20) {
-            await env.vegvisr_org
-              .prepare('DELETE FROM knowledge_graph_history WHERE graph_id = ? AND version = (SELECT MIN(version) FROM knowledge_graph_history WHERE graph_id = ?)')
-              .bind(graphId, graphId)
-              .run()
-          }
-
-          console.log(`[Worker] patchNode: success, version ${currentVersion} → ${newVersion}`)
+          console.log(`[Worker] patchNode: success, version ${patched.currentVersion} → ${patched.newVersion}`)
           return new Response(
-            JSON.stringify({ ok: true, graphId, nodeId, newVersion }),
+            JSON.stringify({ ok: true, graphId, nodeId, newVersion: patched.newVersion }),
             { status: 200, headers: corsHeaders }
           )
         } catch (error) {

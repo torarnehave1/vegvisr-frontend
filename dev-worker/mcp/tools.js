@@ -389,6 +389,81 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── update_node ───────────────────────────────────────────────────────────
+  server.registerTool(
+    'update_node',
+    {
+      title: 'Update fields of a node',
+      description:
+        'Change named fields of one existing node — its text, label, colour or path — without ' +
+        'sending the whole graph. Only the fields you pass are touched; everything else on the ' +
+        'node is left alone. expectedVersion is REQUIRED: read it from get_graph, and if the ' +
+        'graph has moved on the write is refused with VERSION_CONFLICT rather than overwriting ' +
+        'someone else\'s change. The node id itself cannot be changed. Requires the graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph containing the node.'),
+        nodeId: z.string().min(1).describe('The node to update.'),
+        fields: z
+          .object({
+            label: z.string().optional().describe('New display label.'),
+            info: z.string().optional().describe('New content. Markdown for fulltext nodes. Replaces the old content entirely.'),
+            type: z.string().optional().describe('New node type.'),
+            color: z.string().optional().describe('New hex colour.'),
+            path: z.string().nullable().optional().describe('New media path.'),
+            bibl: z.array(z.string()).optional().describe('New source list — replaces the old one.'),
+            visible: z.boolean().optional(),
+          })
+          .describe('The fields to change. Anything omitted is left untouched. Pass the whole new value for a field, not a fragment.'),
+        expectedVersion: z
+          .number()
+          .int()
+          .describe('The version you read from get_graph. Required — this is a read-modify-write, so without it a concurrent change would be silently lost.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        nodeId: z.string(),
+        currentVersion: z.number(),
+        newVersion: z.number(),
+        updatedFields: z.array(z.string()),
+        title: z.string().nullable(),
+        metaArea: z.string().nullable(),
+        publicationState: z.string(),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      // A write, and unlike add_node this one DOES replace existing content: destructiveHint is
+      // true because a wrong `info` overwrites what was there. Idempotent, though — applying the
+      // same patch twice lands on the same node state (the version moves, the content does not).
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ graphId, nodeId, fields, expectedVersion }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const access = await gs.checkAccess(env, actor, graphId, 'write')
+      if (!access.ok) return fromService(access)
+
+      if (!fields || Object.keys(fields).length === 0) {
+        return err(gs.ERR.INVALID_INPUT, 'fields must name at least one field to change.')
+      }
+
+      const result = await gs.updateNode(env, { graphId, nodeId, fields, expectedVersion, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `Updated ${result.updatedFields.join(', ')} on node ${nodeId} in graph ${graphId}. ` +
+          `Version ${result.currentVersion} → ${result.newVersion}.\nViewer: ${result.viewerUrl}`,
+      )
+    },
+  )
+
   // ── search_graphs ─────────────────────────────────────────────────────────
   server.registerTool(
     'search_graphs',
@@ -580,6 +655,7 @@ export const TOOL_NAMES = [
   'get_graph',
   'add_node',
   'get_graph_links',
+  'update_node',
   'search_graphs',
   'list_my_graphs',
   'search',

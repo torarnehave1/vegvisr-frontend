@@ -655,3 +655,150 @@ describe('the auth context is read the way the runtime actually supplies it', ()
     assert.equal((await callErr(client, 'create_graph', { title: 'T', metaArea: '#X' })).code, gs.ERR.INSUFFICIENT_SCOPE)
   })
 })
+
+describe('update_node', () => {
+  async function graphWithNode(client) {
+    const g = await callOk(client, 'create_graph', {
+      title: 'T', metaArea: '#X',
+      nodes: [{ id: 'n1', label: 'Original', type: 'fulltext', info: 'gammel tekst', color: '#111111' }],
+    })
+    return g
+  }
+
+  test('changes only the named fields and leaves the rest of the node alone', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await graphWithNode(client)
+
+    const r = await callOk(client, 'update_node', {
+      graphId: g.graphId, nodeId: 'n1', expectedVersion: g.version,
+      fields: { info: 'ny tekst' },
+    })
+    assert.deepEqual(r.updatedFields, ['info'])
+    assert.equal(r.newVersion, g.version + 1)
+
+    const read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    const n = read.nodes[0]
+    assert.equal(n.info, 'ny tekst')
+    assert.equal(n.label, 'Original', 'label should not have been touched')
+    assert.equal(n.color, '#111111', 'color should not have been touched')
+    assert.equal(n.type, 'fulltext')
+  })
+
+  test('several fields at once', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await graphWithNode(client)
+    const r = await callOk(client, 'update_node', {
+      graphId: g.graphId, nodeId: 'n1', expectedVersion: g.version,
+      fields: { label: 'Ny tittel', color: '#ff0000' },
+    })
+    assert.deepEqual(r.updatedFields.sort(), ['color', 'label'])
+    const read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(read.nodes[0].label, 'Ny tittel')
+    assert.equal(read.nodes[0].color, '#ff0000')
+    assert.equal(read.nodes[0].info, 'gammel tekst')
+  })
+
+  test('the version-conflict message is the one the REST API always sent', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await graphWithNode(client)
+    await callOk(client, 'update_node', { graphId: g.graphId, nodeId: 'n1', expectedVersion: g.version, fields: { info: 'a' } })
+    const e = await callErr(client, 'update_node', { graphId: g.graphId, nodeId: 'n1', expectedVersion: g.version, fields: { info: 'b' } })
+    // POST /patchNode predates this refactor and a client may match on the string.
+    assert.equal(e.message, 'Version mismatch. Reload the graph and retry the patch.')
+  })
+
+  test('a stale expectedVersion is refused and reports the current one', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await graphWithNode(client)
+    await callOk(client, 'update_node', { graphId: g.graphId, nodeId: 'n1', expectedVersion: g.version, fields: { info: 'a' } })
+
+    const stale = await callErr(client, 'update_node', {
+      graphId: g.graphId, nodeId: 'n1', expectedVersion: g.version, fields: { info: 'b' },
+    })
+    assert.equal(stale.code, gs.ERR.VERSION_CONFLICT)
+    assert.equal(stale.currentVersion, g.version + 1)
+
+    // The refused write must not have landed.
+    const read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(read.nodes[0].info, 'a')
+  })
+
+  test('re-reading and retrying at the reported version works', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await graphWithNode(client)
+    await callOk(client, 'update_node', { graphId: g.graphId, nodeId: 'n1', expectedVersion: g.version, fields: { info: 'a' } })
+    const conflict = await callErr(client, 'update_node', { graphId: g.graphId, nodeId: 'n1', expectedVersion: g.version, fields: { info: 'b' } })
+    const retry = await callOk(client, 'update_node', { graphId: g.graphId, nodeId: 'n1', expectedVersion: conflict.currentVersion, fields: { info: 'b' } })
+    assert.equal(retry.ok, undefined)
+    assert.equal(retry.success, true)
+    const read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(read.nodes[0].info, 'b')
+  })
+
+  test('the node id cannot be changed, even by passing one', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await graphWithNode(client)
+    // The schema does not expose id, so this goes through the service directly — the guard has
+    // to live there, not only in the tool schema.
+    const actor = gs.normalizeActor({ valid: true, userId: 'alice@example.com', userEmail: 'alice@example.com', userRole: 'User', scopes: ['graph:write'] })
+    await gs.updateNode(env, { graphId: g.graphId, nodeId: 'n1', expectedVersion: g.version, fields: { id: 'hijacked', info: 'x' }, actor })
+    const read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(read.nodes[0].id, 'n1', 'the node id was rewritten, which would orphan every edge')
+  })
+
+  test('a missing node is reported, not silently ignored', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await graphWithNode(client)
+    const e = await callErr(client, 'update_node', { graphId: g.graphId, nodeId: 'ghost', expectedVersion: g.version, fields: { info: 'x' } })
+    assert.equal(e.code, gs.ERR.GRAPH_NOT_FOUND)
+  })
+
+  test('empty fields is refused rather than bumping the version for nothing', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await graphWithNode(client)
+    assert.equal((await callErr(client, 'update_node', { graphId: g.graphId, nodeId: 'n1', expectedVersion: g.version, fields: {} })).code, gs.ERR.INVALID_INPUT)
+  })
+
+  test('another user cannot patch your node', async () => {
+    const { env } = freshDb()
+    const { client: alice } = await connect(env, ALICE_RW)
+    const g = await graphWithNode(alice)
+    const { client: bob } = await connect(env, BOB_RW)
+    assert.equal((await callErr(bob, 'update_node', { graphId: g.graphId, nodeId: 'n1', expectedVersion: g.version, fields: { info: 'pwn' } })).code, gs.ERR.FORBIDDEN_GRAPH)
+  })
+
+  test('graph:read alone is not enough', async () => {
+    const { env } = freshDb()
+    const { client: rw } = await connect(env, ALICE_RW)
+    const g = await graphWithNode(rw)
+    const { client: ro } = await connect(env, ALICE_RO)
+    assert.equal((await callErr(ro, 'update_node', { graphId: g.graphId, nodeId: 'n1', expectedVersion: g.version, fields: { info: 'x' } })).code, gs.ERR.INSUFFICIENT_SCOPE)
+  })
+
+  test('expectedVersion is required by the schema, not merely recommended', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await graphWithNode(client)
+    const r = await client.callTool({ name: 'update_node', arguments: { graphId: g.graphId, nodeId: 'n1', fields: { info: 'x' } } })
+    assert.equal(r.isError, true)
+    assert.match(r.content[0].text, /expectedVersion/)
+  })
+
+  test('it is marked destructive — unlike add_node, it replaces content', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const u = tools.find((t) => t.name === 'update_node')
+    assert.equal(u.annotations.readOnlyHint, false)
+    assert.equal(u.annotations.destructiveHint, true)
+    assert.equal(u.annotations.idempotentHint, true)
+  })
+})
