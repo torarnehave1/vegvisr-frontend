@@ -9,7 +9,7 @@
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { CONNECT_SCOPES, KNOWN_SCOPES, SCOPE_TEXT, grantableScopes } from '../oauth/scopes.js'
+import { CONNECT_SCOPES, KNOWN_SCOPES, SCOPE_TEXT, OPT_IN_SCOPES, OPT_IN_SCOPE_DETAIL, sanitizeOptIns, grantableScopes } from '../oauth/scopes.js'
 
 describe('advertised scopes', () => {
   test('a normal connection is offered read and write only', () => {
@@ -57,5 +57,41 @@ describe('granting', () => {
 
   test('every known scope has text for the consent screen', () => {
     for (const s of KNOWN_SCOPES) assert.ok(SCOPE_TEXT[s], `${s} has no consent text`)
+  })
+})
+
+describe('the opt-in step-up', () => {
+  test('chat:write is the opt-in, and it is still not advertised', () => {
+    assert.deepEqual(OPT_IN_SCOPES, ['chat:write'])
+    assert.equal(CONNECT_SCOPES.includes('chat:write'), false, 'it leaked into what clients are offered')
+    assert.ok(KNOWN_SCOPES.includes('chat:write'))
+  })
+
+  test('a client still cannot obtain it by asking', () => {
+    assert.equal(grantableScopes(['graph:read', 'graph:write', 'chat:write']).includes('chat:write'), false)
+  })
+
+  test('only real opt-in scopes survive sanitising — the form is untrusted input', () => {
+    assert.deepEqual(sanitizeOptIns(['chat:write']), ['chat:write'])
+    assert.deepEqual(sanitizeOptIns(['graph:delete']), [], 'a scope that is not an opt-in was accepted')
+    assert.deepEqual(sanitizeOptIns(['admin:all', 'chat:write', 'nonsense']), ['chat:write'])
+    assert.deepEqual(sanitizeOptIns('chat:write'), ['chat:write'], 'a single checkbox arrives as a string')
+    assert.deepEqual(sanitizeOptIns([]), [])
+    assert.deepEqual(sanitizeOptIns(null), [])
+    assert.deepEqual(sanitizeOptIns(undefined), [])
+  })
+
+  test('every opt-in scope has the longer copy a consent screen needs', () => {
+    for (const s of OPT_IN_SCOPES) {
+      assert.ok(SCOPE_TEXT[s], `${s} has no short label`)
+      assert.ok((OPT_IN_SCOPE_DETAIL[s] || '').length > 80, `${s} needs real explanatory copy, not a one-liner`)
+    }
+  })
+
+  test('the detail copy says the three things that make it outward-facing', () => {
+    const d = OPT_IN_SCOPE_DETAIL['chat:write']
+    assert.match(d, /AI/, 'must say an AI wrote it')
+    assert.match(d, /boten er lagt til/, 'must say the bot gates which groups')
+    assert.match(d, /ikke slettes/, 'must say it cannot be undone')
   })
 })

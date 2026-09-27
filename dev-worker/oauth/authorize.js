@@ -31,13 +31,13 @@
 
 import { createTx, getTx, putTx, deleteTx, sendChallenge, verifyChallenge, OTP_ERR, OTP_LIMITS } from './otp.js'
 import { AuthorizationError } from '@cloudflare/workers-oauth-provider'
-import { CONNECT_SCOPES, KNOWN_SCOPES, SCOPE_TEXT, grantableScopes as pickScopes } from './scopes.js'
+import { CONNECT_SCOPES, KNOWN_SCOPES, SCOPE_TEXT, OPT_IN_SCOPES, OPT_IN_SCOPE_DETAIL, sanitizeOptIns, grantableScopes as pickScopes } from './scopes.js'
 
 export const ISSUER = 'https://knowledge.vegvisr.org'
 export const MCP_RESOURCE = `${ISSUER}/mcp`
 
 // Scope policy lives in ./scopes.js so it is testable without the Workers runtime.
-export { CONNECT_SCOPES, KNOWN_SCOPES, SCOPE_TEXT } from './scopes.js'
+export { CONNECT_SCOPES, KNOWN_SCOPES, SCOPE_TEXT, OPT_IN_SCOPES } from './scopes.js'
 
 /** The name index.js imports for the discovery document. */
 export const SUPPORTED_SCOPES = CONNECT_SCOPES
@@ -76,6 +76,10 @@ ul.scopes li{padding:10px 12px;border:1px solid var(--line);border-radius:8px;ma
 code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;color:var(--muted)}
 .foot{margin-top:22px;padding-top:14px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
 .otp{letter-spacing:.35em;text-align:center;font-size:22px}
+label.optin{display:flex;gap:10px;align-items:flex-start;margin:18px 0 0;padding:12px;
+ border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.02);cursor:pointer;font-size:14px;color:var(--text)}
+label.optin input{width:auto;margin:2px 0 0;flex:none}
+label.optin .detail{color:var(--muted);font-size:13px;display:block;margin-top:4px}
 </style></head><body><div class="card">${body}<div class="foot">VEGR.AI · knowledge.vegvisr.org</div></div></body></html>`,
     { status, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } },
   )
@@ -157,6 +161,12 @@ function consentForm(tx, scopes) {
 <form method="POST" action="/authorize">
   <input type="hidden" name="tx" value="${esc(tx.txId)}">
   <input type="hidden" name="action" value="approve">
+  ${OPT_IN_SCOPES.map((s) => `
+  <label class="optin">
+    <input type="checkbox" name="optin" value="${esc(s)}">
+    <span><strong>${esc(SCOPE_TEXT[s] || s)}</strong> <code>${esc(s)}</code><br>
+    <span class="detail">${esc(OPT_IN_SCOPE_DETAIL[s] || '')}</span></span>
+  </label>`).join('')}
   <button type="submit">Godkjenn tilgang</button>
 </form>
 <form method="POST" action="/authorize">
@@ -165,19 +175,6 @@ function consentForm(tx, scopes) {
   <button class="secondary" type="submit">Avslå</button>
 </form>
 <p class="sub" style="margin-top:18px">Du kan trekke tilgangen tilbake senere. Tilgangen gjelder bare grafene du selv eier.</p>`)
-}
-
-/**
- * An expired transaction used to be a dead end that said "start on nytt fra appen". The client
- * is an MCP connector, so "the app" is a settings screen the user has to find again; the OAuth
- * request is still in the URL that got them here, so reloading is the actual recovery.
- */
-function expiredPage() {
-  return page('Utløpt', `
-<h1>Innloggingen er utløpt</h1>
-<p class="sub">Det tok for lang tid. Start på nytt — det tar noen sekunder.</p>
-<button type="button" onclick="history.length > 1 ? history.go(-(history.length - 1)) : window.close()">Prøv igjen</button>
-<p class="sub" style="margin-top:18px">Hvis ingenting skjer, lukk vinduet og koble til på nytt fra ChatGPT.</p>`, { status: 400 })
 }
 
 const OTP_MESSAGES = {
@@ -356,7 +353,14 @@ async function handlePost(request, env, url) {
   if (action === 'approve') {
     if (tx.stage !== 'consent') return renderStage(env, tx)
 
-    const scope = grantableScopes(tx)
+    // What the client asked for (intersected with CONNECT_SCOPES) plus anything the USER ticked.
+    // The opt-ins are never requested by a client — they are unadvertised — so this is the only
+    // way they can be granted, and it takes a person on this page to do it.
+    const optedIn = sanitizeOptIns(form.getAll ? form.getAll('optin') : form.get('optin'))
+    const scope = [...new Set([...grantableScopes(tx), ...optedIn])]
+    if (optedIn.length) {
+      console.log(`[OAuth] user opted in to ${optedIn.join(',')} for client=${tx.clientId}`)
+    }
     const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
       request: tx.authRequest,
       userId: tx.userId,

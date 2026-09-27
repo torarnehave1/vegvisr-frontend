@@ -52,3 +52,35 @@ export function grantableScopes(requested) {
   const granted = asked.filter((s) => CONNECT_SCOPES.includes(s))
   return granted.length ? granted : ['graph:read']
 }
+
+/**
+ * Scopes a user may add to an authorization by hand, even though no client asked for them.
+ *
+ * chat:write is deliberately absent from CONNECT_SCOPES, so it appears in no discovery document
+ * and no client requests it. That makes it unobtainable — which was the point, and also a dead
+ * end: there was no way for the user to grant it either.
+ *
+ * This is the way out, and it keeps the property that mattered. The scope stays unadvertised;
+ * what changes is that the consent screen offers it as an explicitly unticked opt-in. Nothing
+ * is granted by a client asking. It is granted only by a person ticking a box, on the screen
+ * where they can read what it means, for one authorization at a time.
+ *
+ * RFC 6749 §3.3 allows an authorization server to issue a scope set different from the one
+ * requested, as long as the token response reports what was actually granted — which the
+ * provider does.
+ */
+export const OPT_IN_SCOPES = ['chat:write']
+
+/** Longer copy for the consent screen: the one-liner is not enough for an outward-facing scope. */
+export const OPT_IN_SCOPE_DETAIL = {
+  'chat:write':
+    'Lar assistenten skrive meldinger i chattegrupper du er medlem av. Meldingene postes av ' +
+    'ChatGPT-boten og merkes alltid med at en AI skrev dem på dine vegne. Den kan bare poste i ' +
+    'grupper der boten er lagt til. Meldinger kan ikke slettes av assistenten etterpå.',
+}
+
+/** Validate a user's opt-in picks: only real opt-in scopes, never anything else. */
+export function sanitizeOptIns(picked) {
+  const list = Array.isArray(picked) ? picked : [picked].filter(Boolean)
+  return list.map(String).filter((s) => OPT_IN_SCOPES.includes(s))
+}
