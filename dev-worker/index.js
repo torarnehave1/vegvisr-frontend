@@ -1,5 +1,25 @@
 import { createWorkersAI } from 'workers-ai-provider'
 import { generateText } from 'ai'
+import {
+  ERR as GS_ERR,
+  statusForCode as gsStatusForCode,
+  normalizeActor,
+  actorLabel,
+  graphLinks,
+  checkAccess,
+  getGraph as gsGetGraph,
+  saveGraph as gsSaveGraph,
+  addNode as gsAddNode,
+  updateMetadata as gsUpdateMetadata,
+  publishGraph as gsPublishGraph,
+  createGraph as gsCreateGraph,
+  validateNodesAndEdges,
+  currentVersion as gsCurrentVersion,
+  isUuidV4,
+  sanitizeGraphData,
+  encryptDataNodeInfo,
+  decryptDataNodeInfo,
+} from './graph-service.js'
 
 /**
  * @typedef {Object} Env
@@ -146,35 +166,7 @@ async function classifyAndStore(env, graphId, graphData) {
   console.log(`[Classify] ${graphId} → ${result.primary} (${result.secondary.join(', ')}) confidence=${result.confidence}`)
 }
 
-// ── data-node encryption (AES-256-GCM + PBKDF2) ──────────────────────
-async function encryptDataNodeInfo(plaintext, masterKey) {
-  const encoder = new TextEncoder()
-  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(masterKey), { name: 'PBKDF2' }, false, ['deriveKey'])
-  const key = await crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: encoder.encode('vegvisr-data-node'), iterations: 100000, hash: 'SHA-256' },
-    keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt']
-  )
-  const iv = crypto.getRandomValues(new Uint8Array(12))
-  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoder.encode(plaintext))
-  const combined = new Uint8Array(iv.length + encrypted.byteLength)
-  combined.set(iv, 0)
-  combined.set(new Uint8Array(encrypted), iv.length)
-  return btoa(String.fromCharCode(...combined))
-}
-
-async function decryptDataNodeInfo(encryptedBase64, masterKey) {
-  const combined = new Uint8Array(atob(encryptedBase64).split('').map(c => c.charCodeAt(0)))
-  const iv = combined.slice(0, 12)
-  const data = combined.slice(12)
-  const encoder = new TextEncoder()
-  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(masterKey), { name: 'PBKDF2' }, false, ['deriveKey'])
-  const key = await crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: encoder.encode('vegvisr-data-node'), iterations: 100000, hash: 'SHA-256' },
-    keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['decrypt']
-  )
-  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data)
-  return new TextDecoder().decode(decrypted)
-}
+// data-node encryption/decryption now lives in graph-service.js (imported above).
 
 // Deep merge for agent contract composition
 function deepMergeContract(source, target) {
@@ -1018,10 +1010,46 @@ async function hashToken(token) {
  * Returns { valid: true, userId, scopes, authMethod } on success
  * Returns { valid: false, error, status } on failure
  */
+/**
+ * F3 FIX (2026-09-27) — the plugin proxy's identity no longer travels as an HTTP header.
+ *
+ * `x-plugin-authenticated: true` used to be trusted by validateAuth and by four listing
+ * endpoints, granting scopes:['all'] with a caller-chosen x-user-id. The header is set by
+ * rewritePluginApiRequest() AFTER resolvePluginUser() validated a real token — but nothing
+ * distinguished that internal request from an external one that simply sent the same header,
+ * so any caller could claim it. Proven shape: `curl -H 'x-plugin-authenticated: true'
+ * -H 'x-user-id: <victim>'`.
+ *
+ * The rewrite happens inside the SAME fetch invocation (the Request object is reassigned and
+ * flows on into the same router), so the identity never needed to be a header at all. It now
+ * rides on a module-private Symbol property of the Request object. HTTP cannot set a JS
+ * Symbol, so the signal is unforgeable from outside the isolate.
+ */
+const PLUGIN_AUTH = Symbol('vegvisr.pluginAuth')
+
+function markPluginAuthenticated(request, user) {
+  try {
+    request[PLUGIN_AUTH] = user
+    return true
+  } catch (e) {
+    // If the runtime ever froze Request objects this would throw; fail CLOSED (the request
+    // simply arrives unauthenticated) rather than falling back to the forgeable header.
+    console.error('[Auth] could not attach plugin identity to the request:', e.message)
+    return false
+  }
+}
+
+function getPluginAuth(request) {
+  return request?.[PLUGIN_AUTH] || null
+}
+
+function isPluginAuthenticated(request) {
+  return Boolean(getPluginAuth(request))
+}
+
 async function validateAuth(request, env) {
   const apiToken = request.headers.get('X-API-Token')
   const userRole = request.headers.get('x-user-role')
-  const pluginAuthenticated = request.headers.get('x-plugin-authenticated') === 'true'
   const origin = request.headers.get('Origin')
 
   // Service-binding calls (worker-to-worker, e.g. Agent-Builder's env.KG_WORKER) address this
@@ -1048,6 +1076,23 @@ async function validateAuth(request, env) {
     }
   } catch { /* an unparseable URL just falls through to the normal auth methods */ }
 
+  // Method 1: the plugin proxy, already authenticated in this same invocation by
+  // resolvePluginUser(). Checked BEFORE the role header because rewritePluginApiRequest()
+  // sets x-user-role without a session token, which the role branch below (correctly)
+  // rejects — that ordering made the whole plugin proxy path return 401. See PLUGIN_AUTH.
+  const pluginUser = getPluginAuth(request)
+  if (pluginUser) {
+    return {
+      valid: true,
+      userId: pluginUser.user_id || pluginUser.email || null,
+      userEmail: pluginUser.email || null,
+      userRole: pluginUser.role || 'User',
+      scopes: ['all'],
+      rateLimit: null,
+      authMethod: 'plugin_session'
+    }
+  }
+
   // Define trusted origins early so we can use them in fallback logic
   const trustedOrigins = [
     'https://www.vegvisr.org',
@@ -1059,98 +1104,85 @@ async function validateAuth(request, env) {
   ]
   const isTrustedOrigin = origin && trustedOrigins.includes(origin)
 
-  // Method 1: API Token authentication
-  // Only attempt if token looks like a real API token (not empty, null, undefined, or "null" string)
+  // Method 2: token in X-API-Token.
+  //
+  // F2 FIX (2026-09-27): a token that does not validate now ALWAYS fails, instead of falling
+  // through to the trusted-origin branch below. Proven before the fix:
+  //     X-API-Token: <invented>                                      -> 401
+  //     X-API-Token: <invented> + Origin: https://www.vegvisr.org     -> 200, scopes:['all']
+  // Origin is client-controlled (curl sets it freely), so the fallthrough turned a rejected
+  // token into full access from anywhere. Same class as the no-Origin hole closed 2026-09-26.
+  //
+  // The fallthrough was load-bearing for one legitimate reason: several frontend call sites
+  // send the magic-link SESSION token (config.emailVerificationToken) in the X-API-Token
+  // header, which of course is not in api_tokens, and only worked because trusted-origin
+  // rescued it. That is now handled properly — a value presented in X-API-Token is checked
+  // against api_tokens first and against config.emailVerificationToken second, so those
+  // callers are genuinely authenticated as themselves instead of anonymously as 'all'.
   if (apiToken && apiToken !== 'null' && apiToken !== 'undefined' && apiToken.trim() !== '') {
     try {
-      // Hash the incoming token
       const tokenHash = await hashToken(apiToken)
+      const result = await env.vegvisr_org
+        .prepare('SELECT user_id, scopes, is_active, expires_at, rate_limit FROM api_tokens WHERE token = ?')
+        .bind(tokenHash)
+        .first()
 
-      // Query the database
-      const query = `
-        SELECT user_id, scopes, is_active, expires_at, rate_limit
-        FROM api_tokens
-        WHERE token = ?
-      `
-      const result = await env.vegvisr_org.prepare(query).bind(tokenHash).first()
-
-      if (!result) {
-        // Token not found - if from trusted origin, fall through to other auth methods
-        if (isTrustedOrigin) {
-          console.log('API token not found, but request is from trusted origin - allowing')
-        } else {
-          return { valid: false, error: 'Invalid API token', status: 401 }
-        }
-      } else {
-        // Check if token is active
+      if (result) {
         if (!result.is_active) {
-          if (isTrustedOrigin) {
-            console.log('API token inactive, but request is from trusted origin - allowing')
-          } else {
-            return { valid: false, error: 'API token is inactive', status: 401 }
-          }
-        } else if (result.expires_at) {
-          const expiresAt = new Date(result.expires_at)
-          if (expiresAt < new Date()) {
-            if (isTrustedOrigin) {
-              console.log('API token expired, but request is from trusted origin - allowing')
-            } else {
-              return { valid: false, error: 'API token has expired', status: 401 }
-            }
-          } else {
-            // Valid token - update last_used_at and return success
-            try {
-              await env.vegvisr_org.prepare(
-                `UPDATE api_tokens SET last_used_at = datetime('now') WHERE token = ?`
-              ).bind(tokenHash).run()
-            } catch (e) {
-              console.error('Failed to update last_used_at:', e)
-            }
-
-            return {
-              valid: true,
-              userId: result.user_id,
-              scopes: JSON.parse(result.scopes || '[]'),
-              rateLimit: result.rate_limit,
-              authMethod: 'api_token'
-            }
-          }
-        } else {
-          // Valid token with no expiry - update last_used_at and return success
-          try {
-            await env.vegvisr_org.prepare(
-              `UPDATE api_tokens SET last_used_at = datetime('now') WHERE token = ?`
-            ).bind(tokenHash).run()
-          } catch (e) {
-            console.error('Failed to update last_used_at:', e)
-          }
-
-          return {
-            valid: true,
-            userId: result.user_id,
-            scopes: JSON.parse(result.scopes || '[]'),
-            rateLimit: result.rate_limit,
-            authMethod: 'api_token'
-          }
+          return { valid: false, error: 'API token is inactive', status: 401 }
+        }
+        if (result.expires_at && new Date(result.expires_at) < new Date()) {
+          return { valid: false, error: 'API token has expired', status: 401 }
+        }
+        try {
+          await env.vegvisr_org
+            .prepare(`UPDATE api_tokens SET last_used_at = datetime('now') WHERE token = ?`)
+            .bind(tokenHash)
+            .run()
+        } catch (e) {
+          console.error('Failed to update last_used_at:', e)
+        }
+        return {
+          valid: true,
+          userId: result.user_id,
+          scopes: JSON.parse(result.scopes || '[]'),
+          rateLimit: result.rate_limit,
+          authMethod: 'api_token'
         }
       }
+
+      // Not an API token — accept it as a magic-link session token if it resolves to a user.
+      const sessionRow = await env.vegvisr_org
+        .prepare('SELECT email, Role FROM config WHERE emailVerificationToken = ? LIMIT 1')
+        .bind(apiToken)
+        .first()
+      if (sessionRow) {
+        return {
+          valid: true,
+          userId: sessionRow.email,
+          userEmail: sessionRow.email,
+          userRole: sessionRow.Role || 'User',
+          scopes: ['all'],
+          rateLimit: null,
+          authMethod: 'session_token'
+        }
+      }
+
+      return { valid: false, error: 'Invalid API token', status: 401 }
     } catch (error) {
       console.error('Token validation error:', error)
-      // If from trusted origin, don't fail - fall through to other auth methods
-      if (!isTrustedOrigin) {
-        return { valid: false, error: 'Token validation failed', status: 500 }
-      }
+      return { valid: false, error: 'Token validation failed', status: 500 }
     }
   }
 
-  // Method 2: Session-based authentication (logged-in web user)
+  // Method 3: Session-based authentication (logged-in web user)
   // A bare x-user-role header is SELF-ASSERTED by the client and must never be trusted
   // alone (2026-09-26: a request with only x-user-role: Superadmin, no token, no email,
   // succeeded and wrote to a graph as Superadmin — confirmed exploitable from any origin).
-  // Session auth now requires a session token (the same emailVerificationToken the
-  // magic-link flow issues, sent as X-Session-Token by window.vegvisrPatchNode) that
-  // resolves to a real row in `config`. Role/email are read from THAT row — never from
-  // the client-supplied x-user-role/x-user-email headers, which are advisory only.
+  // Session auth requires a session token (the same emailVerificationToken the magic-link
+  // flow issues, sent as X-Session-Token by window.vegvisrPatchNode) that resolves to a real
+  // row in `config`. Role/email are read from THAT row — never from the client-supplied
+  // x-user-role/x-user-email headers, which are advisory only.
   if (userRole) {
     const sessionToken = request.headers.get('X-Session-Token')
     if (!sessionToken || sessionToken === 'null' || sessionToken === 'undefined' || sessionToken.trim() === '') {
@@ -1179,34 +1211,21 @@ async function validateAuth(request, env) {
     }
   }
 
-  if (pluginAuthenticated) {
-    return {
-      valid: true,
-      userId: request.headers.get('x-user-id') || null,
-      scopes: ['all'],
-      rateLimit: null,
-      authMethod: 'plugin_session'
-    }
-  }
+  // Method 4 REMOVED (2026-09-26, critical): used to grant full scopes:['all'] to any
+  // request with no Origin header. See git history — Origin is entirely client-controlled.
 
-  // Method 3 REMOVED (2026-09-26, critical): used to grant full scopes:['all'] to any
-  // request with no Origin header (or an Origin merely starting with
-  // 'https://knowledge-graph-worker') on the theory that only trusted internal
-  // service-binding calls look like that. Origin is entirely client-controlled — a plain
-  // `curl` sends no Origin by default, and a forged Origin header defeats the startsWith
-  // check too. Verified exploitable: an unauthenticated `curl -X POST .../addNode` with no
-  // headers at all passed this check and reached business logic with full scopes. The one
-  // known caller relying on the old fallback, helloworld's save-hello.js, only calls
-  // /saveGraphWithHistory, which does not require auth in the first place — so removing
-  // this does not break it. Any genuine internal service call now needs to authenticate
-  // like everything else (X-API-Token, session token, or a real shared secret — see
-  // GRAPH_WORKER_SERVICE_TOKEN in realtime-worker for that pattern).
-
-  // Method 4: Trusted origin authentication (web app users)
-  // Requests from the main Vegvisr sites are trusted - the user is authenticated
-  // via cookies/session on those sites. This allows the frontend to work without
-  // needing to explicitly send x-user-role header on every Knowledge Graph request.
-  // Note: trustedOrigins is defined at the top of this function
+  // Method 5: Trusted origin authentication (web app users)
+  //
+  // REMAINING RISK, KNOWINGLY LEFT OPEN (2026-09-27): Origin is client-controlled, so this
+  // branch grants scopes:['all'] to any `curl -H 'Origin: https://www.vegvisr.org'`. It is
+  // still here because roughly 45 frontend call sites across 6 Vue files
+  // (GraphViewer.vue, GraphCanvas.vue, GNewImageEditHandler.vue, CopyNodeModal.vue,
+  // GNewPasswordProtectionNode.vue, GraphAdmin.vue) call /saveGraphWithHistory with NO auth
+  // header at all and depend on it. Closing it requires those call sites to send
+  // X-Session-Token first; doing it here alone would break the editor. Tracked as F2 stage 2.
+  //
+  // The MCP path does NOT use this: identity there comes from a validated OAuth token, and
+  // graph-service.checkAccess() refuses an actor with no identity (actor.anonymous).
   if (isTrustedOrigin) {
     return {
       valid: true,
@@ -1231,61 +1250,9 @@ function hasScope(userScopes, requiredScope) {
 }
 
 // Insert one node, bump the graph's version, write history, trim old history.
-async function insertNodeIntoGraph(env, graphId, node) {
-  const result = await env.vegvisr_org
-    .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
-    .bind(graphId)
-    .first()
-  if (!result) return { ok: false, status: 404, error: 'Graph not found.' }
-
-  const graphData = JSON.parse(result.data)
-
-  const existingNode = graphData.nodes.find(n => n.id === node.id)
-  if (existingNode) {
-    return { ok: false, status: 409, error: `Node with id ${node.id} already exists in graph ${graphId}.` }
-  }
-
-  if (node.type === 'data-node' && node.info && env.ENCRYPTION_MASTER_KEY) {
-    node.info = await encryptDataNodeInfo(node.info, env.ENCRYPTION_MASTER_KEY)
-    if (!node.metadata) node.metadata = {}
-    node.metadata.encrypted = true
-  }
-
-  graphData.nodes.push(node)
-
-  const currentVersionResult = await env.vegvisr_org
-    .prepare('SELECT MAX(version) AS version FROM knowledge_graph_history WHERE graph_id = ?')
-    .bind(graphId)
-    .first()
-  const currentVersion = currentVersionResult?.version || 0
-  const newVersion = currentVersion + 1
-  if (!graphData.metadata) graphData.metadata = {}
-  graphData.metadata.version = newVersion
-
-  const now = new Date().toISOString()
-  await env.vegvisr_org
-    .prepare('UPDATE knowledge_graphs SET data = ?, updated_at = ? WHERE id = ?')
-    .bind(JSON.stringify(graphData), now, graphId)
-    .run()
-
-  await env.vegvisr_org
-    .prepare('INSERT INTO knowledge_graph_history (id, graph_id, version, data) VALUES (?, ?, ?, ?)')
-    .bind(crypto.randomUUID(), graphId, newVersion, JSON.stringify(graphData))
-    .run()
-
-  const countResult = await env.vegvisr_org
-    .prepare('SELECT COUNT(*) AS count FROM knowledge_graph_history WHERE graph_id = ?')
-    .bind(graphId)
-    .first()
-  if (countResult?.count > 20) {
-    await env.vegvisr_org
-      .prepare('DELETE FROM knowledge_graph_history WHERE graph_id = ? AND version = (SELECT MIN(version) FROM knowledge_graph_history WHERE graph_id = ?)')
-      .bind(graphId, graphId)
-      .run()
-  }
-
-  return { ok: true, currentVersion, newVersion }
-}
+// insertNodeIntoGraph was removed 2026-09-27: graph-service.js addNode() is now the single
+// node-insert implementation, shared by POST /addNode and the MCP add_node tool. Keeping a
+// second copy here is exactly the parallel implementation this refactor exists to remove.
 
 const THEME_OWNER_PREFIX = 'theme:owner:'
 const THEME_SHARED_PREFIX = 'theme:shared:'
@@ -1534,7 +1501,11 @@ async function rewritePluginApiRequest(request, env, corsHeaders, url) {
   headers.delete('cookie')
   headers.delete('host')
   headers.delete('origin')
-  headers.set('x-plugin-authenticated', 'true')
+  // The x-plugin-authenticated header is deliberately NOT set any more: it was forgeable
+  // from outside (F3). Identity now rides on a Symbol property of the Request object below.
+  // These advisory headers stay for downstream code that reads them for display, but nothing
+  // authenticates on them.
+  headers.delete('x-plugin-authenticated')
   if (userResult.data.role) headers.set('x-user-role', userResult.data.role)
   if (userResult.data.email) headers.set('x-user-email', userResult.data.email)
   if (userResult.data.user_id) headers.set('x-user-id', userResult.data.user_id)
@@ -1548,8 +1519,18 @@ async function rewritePluginApiRequest(request, env, corsHeaders, url) {
     init.body = await request.arrayBuffer()
   }
 
+  const rewrittenRequest = new Request(rewrittenUrl.toString(), init)
+  if (!markPluginAuthenticated(rewrittenRequest, userResult.data)) {
+    return {
+      response: new Response(JSON.stringify({ error: 'Internal authentication error.' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }),
+    }
+  }
+
   return {
-    request: new Request(rewrittenUrl.toString(), init),
+    request: rewrittenRequest,
     url: rewrittenUrl,
     pathname: targetPath,
     user: userResult.data,
@@ -2439,42 +2420,8 @@ export default {
         pathname = rewritten.pathname
       }
 
-      const sanitizeGraphData = (graphData) => {
-        const sanitize = (obj) =>
-          Object.fromEntries(
-            Object.entries(obj)
-              .filter(([, value]) => value !== null) // Exclude null values
-              .map(([key, value]) => [
-                key,
-                typeof value === 'object' && value !== null && !Array.isArray(value)
-                  ? sanitize(value)
-                  : value,
-              ]),
-          )
-
-        return {
-          ...graphData,
-          nodes: graphData.nodes.map((node) => ({
-            ...sanitize(node),
-            visible: node.visible !== false, // Default to true if not set
-            position: node.position || { x: 0, y: 0 },
-            imageWidth: node.imageWidth || null,
-            imageHeight: node.imageHeight || null,
-            path: node.path || null, // Ensure path is included
-          })),
-          edges: graphData.edges.map((edge) => {
-            const sanitizedEdge = sanitize(edge)
-            return {
-              id: edge.id || `${edge.source}_${edge.target}`,
-              source: edge.source,
-              target: edge.target,
-              ...(sanitizedEdge.label !== undefined && { label: sanitizedEdge.label }),
-              ...(sanitizedEdge.type !== undefined && { type: sanitizedEdge.type }),
-              ...(sanitizedEdge.info !== undefined && { info: sanitizedEdge.info }),
-            }
-          }),
-        }
-      }
+      // sanitizeGraphData now lives in graph-service.js (imported at the top) so the MCP
+      // tools and these REST handlers shape graphs through the same code.
 
       const parseIntWithBounds = (rawValue, fallback, min, max) => {
         const parsed = Number.parseInt(rawValue ?? '', 10)
@@ -6083,7 +6030,7 @@ export default {
           // Determine if caller is privileged (valid API token, web session, or trusted origin)
           const _summariesApiToken = request.headers.get('X-API-Token')
           const _summariesUserRole = request.headers.get('x-user-role')
-          const _summariesPluginAuth = request.headers.get('x-plugin-authenticated') === 'true'
+          const _summariesPluginAuth = isPluginAuthenticated(request)
           const _summariesOrigin = request.headers.get('Origin')
           const _summariesTrustedOrigins = ['https://www.vegvisr.org','https://vegvisr.org','https://hello.vegvisr.org','https://dashboard.vegvisr.org','https://mystmkra.io','https://www.mystmkra.io']
           let isPrivileged = false
@@ -6388,7 +6335,7 @@ export default {
           // Unauthenticated = published only
           const _srchApiToken = request.headers.get('X-API-Token')
           const _srchUserRole = request.headers.get('x-user-role')
-          const _srchPluginAuth = request.headers.get('x-plugin-authenticated') === 'true'
+          const _srchPluginAuth = isPluginAuthenticated(request)
           const _srchOrigin = request.headers.get('Origin')
           const _srchTrusted = ['https://www.vegvisr.org','https://vegvisr.org','https://hello.vegvisr.org','https://dashboard.vegvisr.org','https://mystmkra.io','https://www.mystmkra.io']
           let srchPrivileged = false
@@ -6579,7 +6526,7 @@ export default {
           // Token check: valid X-API-Token with graph:read bypasses hostname filter
           let tokenBypassFilter = false
           const apiToken = request.headers.get('X-API-Token')
-          const pluginAuthenticated = request.headers.get('x-plugin-authenticated') === 'true'
+          const pluginAuthenticated = isPluginAuthenticated(request)
           if (apiToken && apiToken !== 'null' && apiToken.trim() !== '') {
             const tokenValidation = await validateAuth(request, env)
             if (!tokenValidation.valid) {
@@ -6655,7 +6602,7 @@ export default {
           // 3a. Restrict unauthenticated requests to published graphs only
           if (!tokenBypassFilter) {
             const _graphsUserRole = request.headers.get('x-user-role')
-            const _graphsPluginAuth = request.headers.get('x-plugin-authenticated') === 'true'
+            const _graphsPluginAuth = isPluginAuthenticated(request)
             const _graphsOrigin = request.headers.get('Origin')
             const _graphsTrustedOrigins = ['https://www.vegvisr.org','https://vegvisr.org','https://hello.vegvisr.org','https://dashboard.vegvisr.org','https://mystmkra.io','https://www.mystmkra.io']
             const _graphsPrivileged = _graphsPluginAuth || _graphsUserRole || (_graphsOrigin && _graphsTrustedOrigins.includes(_graphsOrigin))
@@ -7502,7 +7449,7 @@ export default {
           // Auth: accept X-API-Token with graph:read scope in addition to existing methods.
           // Backward compatible — unauthenticated requests still pass through.
           const apiToken = request.headers.get('X-API-Token')
-          const pluginAuthenticated = request.headers.get('x-plugin-authenticated') === 'true'
+          const pluginAuthenticated = isPluginAuthenticated(request)
           if (apiToken && apiToken !== 'null' && apiToken.trim() !== '') {
             const tokenValidation = await validateAuth(request, env)
             if (!tokenValidation.valid) {
@@ -7531,72 +7478,21 @@ export default {
 
           console.log(`[Worker] Fetching graph with ID: ${id}`)
 
-          const query = `SELECT data, created_date, updated_at FROM knowledge_graphs WHERE id = ?`
-          const result = await env.vegvisr_org.prepare(query).bind(id).first()
-
-          if (!result) {
-            return new Response(JSON.stringify({ error: 'Graph not found.' }), {
-              status: 404,
+          // Read through graphService — the SAME function the MCP get_graph tool calls.
+          // Response shape is unchanged: the graph object itself, 404 {error} when missing.
+          const read = await gsGetGraph(env, id, {
+            nodeId: url.searchParams.get('nodeId'),
+            nodeTitle: url.searchParams.get('nodeTitle'),
+          })
+          if (!read.ok) {
+            return new Response(JSON.stringify({ error: read.message }), {
+              status: read.status,
               headers: corsHeaders,
             })
           }
 
-          const graphData = sanitizeGraphData(JSON.parse(result.data))
-
-          // Add database timestamp fields to the response
-          graphData.created_date = result.created_date
-          graphData.updated_at = result.updated_at
-
-          graphData.nodes = graphData.nodes.map((node) => ({
-            ...node,
-            imageWidth: node.imageWidth || null, // Ensure imageWidth is included
-            imageHeight: node.imageHeight || null, // Ensure imageHeight is included
-            path: node.path || null, // Ensure path is included
-          }))
-          graphData.edges = graphData.edges.map((edge) => ({
-            ...edge, // Keep label/type/info — destructuring to {source,target} discarded them
-            id: `${edge.source}_${edge.target}`, // Ensure edge ID is set
-            source: edge.source,
-            target: edge.target,
-          }))
-
-          const nodeId = url.searchParams.get('nodeId')
-          const nodeTitle = url.searchParams.get('nodeTitle')
-          if (nodeId || nodeTitle) {
-            let filteredNodes = graphData.nodes
-            if (nodeId) {
-              filteredNodes = filteredNodes.filter((node) => String(node.id) === String(nodeId))
-            }
-            if (nodeTitle) {
-              const needle = nodeTitle.toLowerCase()
-              filteredNodes = filteredNodes.filter((node) => {
-                const label = node.label || node.title || node.name || ''
-                return String(label).toLowerCase().includes(needle)
-              })
-            }
-            const allowedIds = new Set(filteredNodes.map((node) => String(node.id)))
-            graphData.nodes = filteredNodes
-            graphData.edges = graphData.edges.filter(
-              (edge) => allowedIds.has(String(edge.source)) && allowedIds.has(String(edge.target)),
-            )
-          }
-
-          // Decrypt data-node info fields before returning
-          if (env.ENCRYPTION_MASTER_KEY && graphData.nodes) {
-            for (const node of graphData.nodes) {
-              if (node.type === 'data-node' && node.metadata?.encrypted && node.info) {
-                try {
-                  node.info = await decryptDataNodeInfo(node.info, env.ENCRYPTION_MASTER_KEY)
-                } catch (e) {
-                  console.error('Failed to decrypt data-node:', node.id, e.message)
-                  node.info = '[]'
-                }
-              }
-            }
-          }
-
           console.log('[Worker] Graph fetched successfully')
-          return new Response(JSON.stringify(graphData), {
+          return new Response(JSON.stringify(read.graph), {
             status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
@@ -7680,164 +7576,21 @@ export default {
 
           console.log(`[Worker] Saving graph with history for ID: ${id}`)
 
-          // Check if this graph exists in the main knowledge_graphs table first
-          const checkGraphExistsQuery = `SELECT id FROM knowledge_graphs WHERE id = ?`
-          const graphExists = await env.vegvisr_org.prepare(checkGraphExistsQuery).bind(id).first()
-
-          // UUID v4 required for NEW graphs. Existing graphs (regardless of id
-          // format — semantic-named legacy graphs are common in this database)
-          // may continue to update at their current id. Additive enforcement
-          // decided 2026-05-28: tighten new-graph creation without breaking
-          // any existing data. Only applies to /saveGraphWithHistory; the
-          // legacy /saveknowgraph endpoint stays fully permissive.
-          const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-          if (!graphExists && !UUID_V4_RE.test(id)) {
-            return new Response(
-              JSON.stringify({
-                error: 'New graph IDs must be a valid UUID v4. Existing graphs with non-UUID ids may still update at their current id.',
-                expected: 'UUID v4 (e.g., 550e8400-e29b-41d4-a716-446655440000)',
-                received: id,
-              }),
-              { status: 400, headers: corsHeaders },
-            )
+          // Persist through graphService — the SAME function the MCP create_graph tool calls.
+          // No `actor` is passed here: existing REST clients keep supplying metadata.createdBy
+          // themselves, which is the historical contract. The MCP path passes an actor and
+          // therefore gets the authenticated-user stamp instead.
+          const saved = await gsSaveGraph(env, { id, graphData, override: Boolean(override) })
+          if (!saved.ok) {
+            const body = { error: saved.message }
+            if (saved.currentVersion !== undefined) body.currentVersion = saved.currentVersion
+            if (saved.expected) body.expected = saved.expected
+            if (saved.received) body.received = saved.received
+            return new Response(JSON.stringify(body), { status: saved.status, headers: corsHeaders })
           }
 
-          // Fetch the current version of the graph from history table
-          const currentVersionQuery = `SELECT MAX(version) AS version FROM knowledge_graph_history WHERE graph_id = ?`
-          const currentVersionResult = await env.vegvisr_org
-            .prepare(currentVersionQuery)
-            .bind(id)
-            .first()
-          const currentVersion = currentVersionResult?.version || 0
-
-          // For completely new graphs, we should start with version 1 regardless of metadata
-          let newVersion
-          if (!graphExists && currentVersion === 0) {
-            // This is a brand new graph - start at version 1
-            newVersion = 1
-            console.log(`[Worker] New graph detected, starting at version 1 for ID: ${id}`)
-          } else {
-            // This is an existing graph - check for version mismatch only if override is false
-            if (!override && graphData.metadata && graphData.metadata.version !== currentVersion) {
-              return new Response(
-                JSON.stringify({
-                  error: 'Version mismatch. Please reload the latest version of the graph.',
-                  currentVersion,
-                }),
-                { status: 409, headers: corsHeaders },
-              )
-            }
-            // Increment the version for existing graphs
-            newVersion = currentVersion + 1
-          }
-          if (!graphData.metadata) graphData.metadata = { title: null, description: null, createdBy: null }
-          graphData.metadata.version = newVersion // Update the version in metadata
-
-          // Ensure nodes include the bibl field
-          const enrichedGraphData = {
-            ...graphData,
-            nodes: graphData.nodes.map((node) => ({
-              ...node,
-              bibl: Array.isArray(node.bibl) ? node.bibl : [], // Ensure bibl is included
-              type: node.type || null, // Ensure type is included
-              info: node.info || null, // Ensure info is included
-              position: node.position || { x: 0, y: 0 }, // Ensure position is included
-              imageWidth: node.imageWidth || null, // Include image-width
-              imageHeight: node.imageHeight || null, // Include image-height
-              visible: node.visible !== false, // Default to true if not set
-              path: node.path || null, // Ensure path is included
-            })),
-            edges: graphData.edges.map((edge) => ({
-              ...edge, // Keep label/type/info — destructuring to {source,target} discarded them
-              id: `${edge.source}_${edge.target}`, // Ensure edge ID is set
-              source: edge.source,
-              target: edge.target,
-            })),
-          }
-
-          // FIRST: Check if graph exists in main table, then INSERT or UPDATE accordingly
-          const checkExistingQuery = `SELECT id FROM knowledge_graphs WHERE id = ?`
-          const existingGraph = await env.vegvisr_org.prepare(checkExistingQuery).bind(id).first()
-
-          // Extract user_id and source_app from metadata for direct column storage
-          const userId = enrichedGraphData.metadata.userId || null
-          const sourceApp = enrichedGraphData.metadata.createdBy || null
-
-          if (existingGraph) {
-            // Update existing graph (preserve existing values for title/description/created_by if not provided)
-            const updateGraphQuery = `
-              UPDATE knowledge_graphs
-              SET data = ?, title = COALESCE(?, title), description = COALESCE(?, description), created_by = COALESCE(?, created_by), updated_at = ?,
-                  user_id = COALESCE(?, user_id), source_app = COALESCE(?, source_app)
-              WHERE id = ?
-            `
-            await env.vegvisr_org
-              .prepare(updateGraphQuery)
-              .bind(
-                JSON.stringify(enrichedGraphData),
-                enrichedGraphData.metadata.title || null,
-                enrichedGraphData.metadata.description || null,
-                enrichedGraphData.metadata.createdBy || null,
-                new Date().toISOString(),
-                userId,
-                sourceApp,
-                id,
-              )
-              .run()
-            console.log(`[Worker] Updated existing graph: ${id}`)
-          } else {
-            // Insert new graph with user_id and source_app columns
-            const insertGraphQuery = `
-              INSERT INTO knowledge_graphs (id, title, description, created_by, data, created_date, updated_at, user_id, source_app)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `
-            await env.vegvisr_org
-              .prepare(insertGraphQuery)
-              .bind(
-                id,
-                enrichedGraphData.metadata.title || '',
-                enrichedGraphData.metadata.description || '',
-                enrichedGraphData.metadata.createdBy || '',
-                JSON.stringify(enrichedGraphData),
-                new Date().toISOString(),
-                new Date().toISOString(),
-                userId,
-                sourceApp,
-              )
-              .run()
-            console.log(`[Worker] Created new graph: ${id} (user_id: ${userId}, source_app: ${sourceApp})`)
-          }
-
-          // SECOND: Insert the new version into the history table (now that parent exists)
-          const insertHistoryQuery = `
-            INSERT INTO knowledge_graph_history (id, graph_id, version, data, user_id, source_app)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `
-          await env.vegvisr_org
-            .prepare(insertHistoryQuery)
-            .bind(crypto.randomUUID(), id, newVersion, JSON.stringify(enrichedGraphData), userId, sourceApp)
-            .run()
-
-          // THIRD: Ensure no more than 20 versions are stored
-          const countHistoryQuery = `SELECT COUNT(*) AS count FROM knowledge_graph_history WHERE graph_id = ?`
-          const historyCountResult = await env.vegvisr_org
-            .prepare(countHistoryQuery)
-            .bind(id)
-            .first()
-
-          if (historyCountResult?.count > 20) {
-            const deleteOldestQuery = `
-              DELETE FROM knowledge_graph_history
-              WHERE graph_id = ?
-              AND version = (
-                SELECT MIN(version)
-                FROM knowledge_graph_history
-                WHERE graph_id = ?
-              )
-            `
-            await env.vegvisr_org.prepare(deleteOldestQuery).bind(id, id).run()
-            console.log(`[Worker] Deleted oldest version for graph ID: ${id}`)
-          }
+          const newVersion = saved.newVersion
+          const enrichedGraphData = saved.graphData
 
           console.log('[Worker] Graph with history saved successfully')
 
@@ -8138,7 +7891,7 @@ export default {
         }
 
         try {
-          const { graphId, node } = await request.json()
+          const { graphId, node, expectedVersion } = await request.json()
 
           if (!graphId || !node || typeof node !== 'object' || !node.id) {
             return new Response(
@@ -8148,14 +7901,24 @@ export default {
           }
 
           console.log(`[Worker] addNode: graph=${graphId} nodeId=${node.id}`)
-          const inserted = await insertNodeIntoGraph(env, graphId, node)
+
+          // Insert through graphService — the SAME function the MCP add_node tool calls.
+          // expectedVersion is honoured when the caller sends it and ignored otherwise, so the
+          // historical REST contract (no concurrency check) is unchanged for existing clients.
+          const inserted = await gsAddNode(env, {
+            graphId,
+            node,
+            expectedVersion: Number.isInteger(expectedVersion) ? expectedVersion : null,
+          })
           if (!inserted.ok) {
-            return new Response(JSON.stringify({ error: inserted.error }), { status: inserted.status, headers: corsHeaders })
+            const body = { error: inserted.message }
+            if (inserted.currentVersion !== undefined) body.currentVersion = inserted.currentVersion
+            return new Response(JSON.stringify(body), { status: inserted.status, headers: corsHeaders })
           }
 
           console.log(`[Worker] addNode: success, version ${inserted.currentVersion} → ${inserted.newVersion}`)
           return new Response(
-            JSON.stringify({ ok: true, graphId, nodeId: node.id, newVersion: inserted.newVersion }),
+            JSON.stringify({ ok: true, graphId, nodeId: inserted.nodeId, newVersion: inserted.newVersion }),
             { status: 200, headers: corsHeaders }
           )
         } catch (error) {
