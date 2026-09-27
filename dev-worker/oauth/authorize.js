@@ -31,19 +31,16 @@
 
 import { createTx, getTx, putTx, deleteTx, sendChallenge, verifyChallenge, OTP_ERR, OTP_LIMITS } from './otp.js'
 import { AuthorizationError } from '@cloudflare/workers-oauth-provider'
+import { CONNECT_SCOPES, KNOWN_SCOPES, SCOPE_TEXT, grantableScopes as pickScopes } from './scopes.js'
 
 export const ISSUER = 'https://knowledge.vegvisr.org'
 export const MCP_RESOURCE = `${ISSUER}/mcp`
 
-/** Scopes this server will grant. graph:delete exists but is never offered (v1 decision). */
-export const SUPPORTED_SCOPES = ['graph:read', 'graph:write', 'graph:publish']
+// Scope policy lives in ./scopes.js so it is testable without the Workers runtime.
+export { CONNECT_SCOPES, KNOWN_SCOPES, SCOPE_TEXT } from './scopes.js'
 
-const SCOPE_TEXT = {
-  'graph:read': 'Lese kunnskapsgrafene dine',
-  'graph:write': 'Opprette og endre grafer og noder',
-  'graph:publish': 'Publisere en graf offentlig',
-  'graph:delete': 'Slette grafer',
-}
+/** The name index.js imports for the discovery document. */
+export const SUPPORTED_SCOPES = CONNECT_SCOPES
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pages
@@ -298,13 +295,9 @@ function renderStage(env, tx) {
   return phoneForm(tx, null, null)
 }
 
-/** Only scopes the client asked for AND this server supports are ever granted. */
+/** Only scopes the client asked for AND this version offers are ever granted. */
 function grantableScopes(tx) {
-  const requested = Array.isArray(tx.authRequest?.scope) ? tx.authRequest.scope : []
-  const granted = requested.filter((s) => SUPPORTED_SCOPES.includes(s))
-  // A client that asks for nothing recognisable still gets a usable read-only connection
-  // rather than a token with no scopes at all.
-  return granted.length ? granted : ['graph:read']
+  return pickScopes(tx.authRequest?.scope)
 }
 
 async function handlePost(request, env, url) {
