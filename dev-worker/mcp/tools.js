@@ -114,6 +114,53 @@ function requireScope(auth, needed) {
   })
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Annotations and output schemas
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ToolAnnotations are hints a client uses to decide how cautious to be. Without them ChatGPT
+ * guesses, and it guessed wrong: add_node was shown to the user tagged DESTRUCTIVE, which it is
+ * not — it appends a node and never overwrites one. Saying so explicitly is the difference
+ * between a connector that looks dangerous and one that reads honestly.
+ *
+ *   readOnlyHint    — the call cannot change anything
+ *   destructiveHint — meaningful only when readOnlyHint is false: does it DESTROY existing data?
+ *   idempotentHint  — calling it twice with the same arguments is the same as calling it once
+ *   openWorldHint   — does it reach outside this system? Everything here stays in one database.
+ */
+const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+const ADDITIVE_WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+
+/** Fields every graph-shaped result carries. */
+const graphSummaryShape = {
+  graphId: z.string(),
+  title: z.string().nullable(),
+  metaArea: z.string().nullable(),
+  publicationState: z.string(),
+  version: z.number().nullable(),
+  editorUrl: z.string(),
+  viewerUrl: z.string(),
+}
+
+const listShape = {
+  success: z.boolean(),
+  total: z.number(),
+  limit: z.number(),
+  offset: z.number(),
+  hasMore: z.boolean(),
+  results: z.array(
+    z.object({
+      ...graphSummaryShape,
+      description: z.string().nullable(),
+      nodeCount: z.number(),
+      updatedAt: z.string().nullable(),
+      isMine: z.boolean(),
+    }),
+  ),
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tools
 // ─────────────────────────────────────────────────────────────────────────────
@@ -144,6 +191,11 @@ export function registerTools(server, getContext) {
         nodes: z.array(NodeInput).optional().describe('Nodes to create the graph with. May be empty.'),
         edges: z.array(EdgeInput).optional().describe('Edges between those nodes. Each end must be a node in this call.'),
       },
+      outputSchema: {
+        success: z.boolean(),
+        ...graphSummaryShape,
+      },
+      annotations: ADDITIVE_WRITE,
     },
     async ({ title, description, metaArea, nodes, edges }) => {
       const { auth, env } = getContext()
@@ -186,6 +238,7 @@ export function registerTools(server, getContext) {
         graphId: z.string().min(1).describe('The graph id.'),
         nodeId: z.string().optional().describe('Return only this node, instead of the whole graph.'),
       },
+      annotations: READ_ONLY,
     },
     async ({ graphId, nodeId }) => {
       const { auth, env } = getContext()
@@ -253,6 +306,21 @@ export function registerTools(server, getContext) {
           .optional()
           .describe('The version you last read. If the graph has moved on, the write is refused with VERSION_CONFLICT.'),
       },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        nodeId: z.string(),
+        currentVersion: z.number(),
+        newVersion: z.number(),
+        title: z.string().nullable(),
+        metaArea: z.string().nullable(),
+        publicationState: z.string(),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      // NOT destructive: the node is appended, a duplicate id is refused with NODE_EXISTS, and
+      // nothing existing is ever rewritten. Not idempotent: calling it twice adds two nodes.
+      annotations: ADDITIVE_WRITE,
     },
     async ({ graphId, node, expectedVersion }) => {
       const { auth, env } = getContext()
@@ -293,6 +361,8 @@ export function registerTools(server, getContext) {
       inputSchema: {
         graphId: z.string().min(1).describe('The graph id.'),
       },
+      outputSchema: { success: z.boolean(), graphId: z.string(), editorUrl: z.string(), viewerUrl: z.string() },
+      annotations: READ_ONLY,
     },
     async ({ graphId }) => {
       const { auth, env } = getContext()
@@ -330,6 +400,8 @@ export function registerTools(server, getContext) {
         limit: z.number().int().optional().describe('Results per page, 1–50. Default 20.'),
         offset: z.number().int().optional().describe('How many results to skip, for paging.'),
       },
+      outputSchema: listShape,
+      annotations: READ_ONLY,
     },
     async ({ query, metaArea, nodeType, limit, offset }) => {
       const { auth, env } = getContext()
@@ -364,6 +436,8 @@ export function registerTools(server, getContext) {
         limit: z.number().int().optional().describe('Results per page, 1–50. Default 20.'),
         offset: z.number().int().optional().describe('How many results to skip, for paging.'),
       },
+      outputSchema: listShape,
+      annotations: READ_ONLY,
     },
     async ({ metaArea, limit, offset }) => {
       const { auth, env } = getContext()
@@ -405,6 +479,10 @@ export function registerTools(server, getContext) {
       inputSchema: {
         query: z.string().describe('The search query.'),
       },
+      outputSchema: {
+        results: z.array(z.object({ id: z.string(), title: z.string(), url: z.string() })),
+      },
+      annotations: READ_ONLY,
     },
     async ({ query }) => {
       const { auth, env } = getContext()
@@ -439,6 +517,14 @@ export function registerTools(server, getContext) {
       inputSchema: {
         id: z.string().describe('The graph id, as returned by search.'),
       },
+      outputSchema: {
+        id: z.string(),
+        title: z.string(),
+        text: z.string(),
+        url: z.string(),
+        metadata: z.object({}).passthrough(),
+      },
+      annotations: READ_ONLY,
     },
     async ({ id }) => {
       const { auth, env } = getContext()

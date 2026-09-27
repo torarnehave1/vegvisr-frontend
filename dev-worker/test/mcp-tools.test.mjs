@@ -519,3 +519,67 @@ describe('search, list and the deep-research pair', () => {
     assert.equal((await callErr(client, 'fetch', { id: 'x' })).code, gs.ERR.INSUFFICIENT_SCOPE)
   })
 })
+
+describe('annotations tell the client the truth about each tool', () => {
+  test('the six read-only tools are marked read-only', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const byName = Object.fromEntries(tools.map((t) => [t.name, t]))
+    for (const n of ['get_graph', 'get_graph_links', 'search_graphs', 'list_my_graphs', 'search', 'fetch']) {
+      assert.equal(byName[n].annotations?.readOnlyHint, true, `${n} should be read-only`)
+      assert.equal(byName[n].annotations?.destructiveHint, false, `${n} should not be destructive`)
+    }
+  })
+
+  test('add_node is a write but NOT destructive — it appends and never overwrites', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const a = tools.find((t) => t.name === 'add_node')
+    assert.equal(a.annotations.readOnlyHint, false)
+    assert.equal(a.annotations.destructiveHint, false, 'ChatGPT showed this as DESTRUCTIVE before the hint was declared')
+    assert.equal(a.annotations.idempotentHint, false, 'calling it twice adds two nodes')
+  })
+
+  test('create_graph is a non-destructive write', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const c = tools.find((t) => t.name === 'create_graph')
+    assert.equal(c.annotations.readOnlyHint, false)
+    assert.equal(c.annotations.destructiveHint, false)
+  })
+
+  test('nothing claims to reach outside this system', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    for (const t of tools) assert.equal(t.annotations?.openWorldHint, false, `${t.name}`)
+  })
+
+  test('every tool declares an output schema, so results are typed not opaque', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    // get_graph returns whole nodes and edges, which is deliberately loose; the rest are typed.
+    for (const t of tools.filter((x) => x.name !== 'get_graph')) {
+      assert.ok(t.outputSchema, `${t.name} has no outputSchema`)
+      assert.equal(t.outputSchema.type, 'object')
+    }
+  })
+
+  test('the declared output schema actually matches what the tools return', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    // The SDK validates structuredContent against outputSchema and errors on a mismatch, so a
+    // successful call here is the proof — a wrong schema would fail the call, not pass silently.
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X' })
+    await callOk(client, 'add_node', { graphId: g.graphId, node: { label: 'n' } })
+    await callOk(client, 'get_graph_links', { graphId: g.graphId })
+    await callOk(client, 'search_graphs', { query: 'T' })
+    await callOk(client, 'list_my_graphs', {})
+    await callOk(client, 'search', { query: 'T' })
+    await callOk(client, 'fetch', { id: g.graphId })
+  })
+})
