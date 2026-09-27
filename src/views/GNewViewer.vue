@@ -2711,6 +2711,7 @@ import GrokChatPanel from '@/components/GrokChatPanel.vue'
 import HtmlCodeAssistant from '@/components/HtmlCodeAssistant.vue'
 import RealtimeVideosModal from '@/components/RealtimeVideosModal.vue'
 import { useGraphPasswordGate } from '@/composables/useGraphPasswordGate'
+import { kgAuthHeaders } from '@/utils/kgAuth'
 
 // Props
 const props = defineProps({
@@ -5607,7 +5608,7 @@ const duplicateKnowledgeGraph = async () => {
 
     const response = await fetch(apiUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
       body: JSON.stringify({ graphData: duplicatedGraphData }), // Wrap in graphData object
     })
 

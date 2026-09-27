@@ -1655,6 +1655,7 @@ import geminiIcon from '@/assets/gemini.svg'
 import graphContextIcon from '@/assets/graph-context.svg'
 import proffIcon from '@/assets/proff.svg'
 import ImageSelector from '@/components/ImageSelector.vue'
+import { kgAuthHeaders } from '@/utils/kgAuth'
 
 const emit = defineEmits([
   'insert-fulltext',
@@ -3025,7 +3026,7 @@ async function executeGraphManipulationTool(toolName, args) {
 
       const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
         body: JSON.stringify({
           id: newGraphId,
           graphData: newGraphData,
@@ -3269,7 +3270,7 @@ async function executeGraphManipulationTool(toolName, args) {
       if (currentGraphId) {
         const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
           body: JSON.stringify({
             id: currentGraphId,
             graphData: activeGraph,
@@ -4510,7 +4511,7 @@ const approveGraphUpdate = async () => {
     // Send the update to backend
     const response = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
       body: JSON.stringify({
         id: currentGraphId,
         graphData: graphData,

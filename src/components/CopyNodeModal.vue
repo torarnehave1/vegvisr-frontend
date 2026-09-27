@@ -171,6 +171,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useUserStore } from '@/stores/userStore'
+import { kgAuthHeaders } from '@/utils/kgAuth'
 
 // Store access
 const userStore = useUserStore()
@@ -377,6 +378,7 @@ const copyNode = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...kgAuthHeaders(userStore),
       },
       body: JSON.stringify({
         id: selectedGraph.value.id,
@@ -469,6 +471,7 @@ const copyToNewGraph = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...kgAuthHeaders(userStore),
       },
       body: JSON.stringify({
         id: newGraphId,

@@ -49,6 +49,7 @@ import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import ImageSelector from '@/components/ImageSelector.vue'
 import GooglePhotosSelector from '@/components/GooglePhotosSelector.vue'
 import AttributionModal from '@/components/AttributionModal.vue'
+import { kgAuthHeaders } from '@/utils/kgAuth'
 
 // Props
 const props = defineProps({
@@ -236,7 +237,7 @@ const handleAttributionSaved = async (attributionData) => {
       props.apiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
           graphData: updatedGraphData,
@@ -299,7 +300,7 @@ const handleAttributionRemoved = async (attributionData) => {
       props.apiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
           graphData: updatedGraphData,
@@ -380,7 +381,7 @@ const handleImageReplaced = async (replacementData) => {
       props.apiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
           graphData: updatedGraphData,
@@ -488,7 +489,7 @@ const handleGooglePhotoSelected = async (selectionData) => {
       props.apiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
           graphData: updatedGraphData,
@@ -570,7 +571,7 @@ const handleAttributionUpdated = async (attributionData) => {
       props.apiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
           graphData: updatedGraphData,

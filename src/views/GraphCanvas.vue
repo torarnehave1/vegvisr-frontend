@@ -798,6 +798,7 @@ import GNewAudioVisualizerNode from '@/components/GNewNodes/GNewAudioVisualizerN
 import GNewGuideNode from '@/components/GNewNodes/GNewGuideNode.vue'
 import GNewHtmlNode from '@/components/GNewNodes/GNewHtmlNode.vue'
 import NodeEditModal from '@/components/NodeEditModal.vue'
+import { kgAuthHeaders } from '@/utils/kgAuth'
 // import TeacherAssistant from '@/components/TeacherAssistant.vue'  // Hidden until TTS billing propagates
 
 // Initialize undo-redo plugin
@@ -3113,6 +3114,7 @@ const saveGraph = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...kgAuthHeaders(userStore),
       },
       body: JSON.stringify({
         id: graphStore.currentGraphId,

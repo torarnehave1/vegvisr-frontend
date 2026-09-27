@@ -1214,15 +1214,27 @@ async function validateAuth(request, env) {
   // Method 4 REMOVED (2026-09-26, critical): used to grant full scopes:['all'] to any
   // request with no Origin header. See git history — Origin is entirely client-controlled.
 
-  // Method 5: Trusted origin authentication (web app users)
+  // Method 5: Trusted origin — READ ONLY (F2 stage 2, 2026-09-27)
   //
-  // REMAINING RISK, KNOWINGLY LEFT OPEN (2026-09-27): Origin is client-controlled, so this
-  // branch grants scopes:['all'] to any `curl -H 'Origin: https://www.vegvisr.org'`. It is
-  // still here because roughly 45 frontend call sites across 6 Vue files
-  // (GraphViewer.vue, GraphCanvas.vue, GNewImageEditHandler.vue, CopyNodeModal.vue,
-  // GNewPasswordProtectionNode.vue, GraphAdmin.vue) call /saveGraphWithHistory with NO auth
-  // header at all and depend on it. Closing it requires those call sites to send
-  // X-Session-Token first; doing it here alone would break the editor. Tracked as F2 stage 2.
+  // This branch used to return scopes:['all'], i.e. write access to every graph, on the
+  // strength of an Origin header. Origin is set by browsers but is equally settable by curl,
+  // so `curl -H 'Origin: https://www.vegvisr.org' -X POST .../addNode` was an unauthenticated
+  // write to any graph from anywhere. Same class as the no-Origin hole closed 2026-09-26.
+  //
+  // It is now capped at graph:read, which removes the write path while keeping anonymous
+  // reading working. Capping rather than deleting is deliberate: read access here costs
+  // nothing that is not already available — GET /getknowgraph?id= returns any graph with no
+  // headers at all — whereas deleting the branch outright would also break read traffic from
+  // hello.vegvisr.org, dashboard.vegvisr.org and mystmkra.io, which this repo cannot survey.
+  //
+  // The 63 frontend write call sites now send x-user-role + X-Session-Token via
+  // src/utils/kgAuth.js, so they authenticate through Method 3 and no longer depend on this.
+  //
+  // UNVERIFIED, WATCH ON DEPLOY: other trusted origins that write without a token. This
+  // worker's own comments name helloworld's save-hello.js as a /saveGraphWithHistory caller;
+  // that file lives in another repo and its auth could not be read from here, and the claim
+  // beside it ("saveGraphWithHistory does not require auth") is stale — it does. Such a write
+  // now gets 403 with the required-scope message rather than silently succeeding.
   //
   // The MCP path does NOT use this: identity there comes from a validated OAuth token, and
   // graph-service.checkAccess() refuses an actor with no identity (actor.anonymous).
@@ -1230,7 +1242,7 @@ async function validateAuth(request, env) {
     return {
       valid: true,
       userId: null,
-      scopes: ['all'],
+      scopes: ['graph:read'],
       rateLimit: null,
       authMethod: 'trusted_origin'
     }

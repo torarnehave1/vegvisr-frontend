@@ -183,6 +183,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+import { useUserStore } from '@/stores/userStore'
+import { kgAuthHeaders } from '@/utils/kgAuth'
 
 // Props
 const props = defineProps({
@@ -201,6 +203,7 @@ const emit = defineEmits(['update-node', 'edit-node', 'delete-node'])
 
 // Store
 const knowledgeGraphStore = useKnowledgeGraphStore()
+const userStore = useUserStore()
 
 // Reactive state
 const showPasswordConfig = ref(false)
@@ -400,7 +403,8 @@ const updateGraphMetadata = async (passwordHash) => {
   const saveResponse = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...kgAuthHeaders(userStore)
     },
     body: JSON.stringify(payload)
   })

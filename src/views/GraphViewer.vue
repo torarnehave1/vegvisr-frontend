@@ -948,6 +948,7 @@ import GooglePhotosSelector from '@/components/GooglePhotosSelector.vue'
 import SandboxModal from '@/components/SandboxModal.vue'
 import { Modal } from 'bootstrap'
 import { useBranding } from '@/composables/useBranding'
+import { kgAuthHeaders } from '@/utils/kgAuth'
 
 const graphData = ref({ nodes: [], edges: [] })
 const loading = ref(true)
@@ -1767,7 +1768,7 @@ const editYoutubeVideo = async (node) => {
         getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
           body: JSON.stringify({
             id: knowledgeGraphStore.currentGraphId,
             graphData: updatedGraphData,
@@ -1819,7 +1820,7 @@ const editYoutubeTitle = async (node) => {
         getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
           body: JSON.stringify({
             id: knowledgeGraphStore.currentGraphId,
             graphData: updatedGraphData,
@@ -1962,7 +1963,7 @@ const saveLabelChanges = async () => {
         getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
           body: JSON.stringify({
             id: knowledgeGraphStore.currentGraphId,
             graphData: updatedGraphData,
@@ -2028,7 +2029,7 @@ const saveMarkdown = async () => {
         getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
           body: JSON.stringify({
             id: knowledgeGraphStore.currentGraphId,
             graphData: updatedGraphData,
@@ -2200,7 +2201,7 @@ const saveToMystmkra = async () => {
           getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
             body: JSON.stringify({
               id: knowledgeGraphStore.currentGraphId,
               graphData: updatedGraphData,
@@ -2311,7 +2312,7 @@ function saveToMystmkraFromMenu() {
               getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
               {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
                 body: JSON.stringify({
                   id: knowledgeGraphStore.currentGraphId,
                   graphData: updatedGraphData,
@@ -2648,7 +2649,7 @@ const handleGooglePhotoSelected = async (selectionData) => {
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
           graphData: updatedGraphData,
@@ -2748,7 +2749,7 @@ const handleImageReplaced = async (replacementData) => {
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
           graphData: updatedGraphData,
@@ -2814,7 +2815,7 @@ const handleTemplateApplied = async (result) => {
         getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
           body: JSON.stringify({
             id: knowledgeGraphStore.currentGraphId,
             graphData: updatedGraphData,
@@ -2951,7 +2952,7 @@ const handleQuickFormat = async (node, formatType) => {
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
           graphData: updatedGraphData,
@@ -3040,7 +3041,7 @@ const handleNodeInserted = async (nodeData) => {
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
           graphData: updatedGraphData,
@@ -3272,7 +3273,7 @@ const saveNodeOrder = async () => {
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
           graphData: graphData.value,
@@ -3588,7 +3589,7 @@ const saveGraphData = async () => {
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
           graphData: updatedGraphData,
@@ -3668,7 +3669,7 @@ const handleGetAIResponse = async (node) => {
         getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
           body: JSON.stringify({
             id: knowledgeGraphStore.currentGraphId,
             graphData: updatedGraphData,
@@ -3799,7 +3800,7 @@ const deleteNode = async (node) => {
       getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
         body: JSON.stringify({
           id: knowledgeGraphStore.currentGraphId,
           graphData: graphData.value,
@@ -4111,7 +4112,7 @@ const handleImageInserted = async (nodeData) => {
         getApiEndpoint('https://knowledge.vegvisr.org/saveGraphWithHistory'),
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
           body: JSON.stringify({
             id: knowledgeGraphStore.currentGraphId,
             graphData: updatedGraphData,

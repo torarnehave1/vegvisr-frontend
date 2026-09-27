@@ -295,6 +295,7 @@ if (!cytoscape.prototype.undoRedo) {
 
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
 import { useUserStore } from '@/stores/userStore'
+import { kgAuthHeaders } from '@/utils/kgAuth'
 
 const router = useRouter()
 
@@ -839,7 +840,7 @@ const saveGraph = async () => {
   try {
     const response = await fetch('https://knowledge.vegvisr.org/saveknowgraph', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
       body: JSON.stringify(graphData),
     })
 
@@ -941,7 +942,7 @@ const saveCurrentGraph = async () => {
 
       const saveResponse = await fetch('https://knowledge.vegvisr.org/saveGraphWithHistory', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
         body: JSON.stringify({
           id: graphStore.currentGraphId,
           graphData,
@@ -2700,7 +2701,7 @@ const updateNodeVisibility = async (nodeId, isVisible) => {
     try {
       const response = await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
         body: JSON.stringify({
           id: graphStore.currentGraphId,
           graphData: {

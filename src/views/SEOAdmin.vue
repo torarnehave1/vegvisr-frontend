@@ -445,6 +445,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/userStore'
 import { useKnowledgeGraphStore } from '@/stores/knowledgeGraphStore'
+import { kgAuthHeaders } from '@/utils/kgAuth'
 
 // Store
 const userStore = useUserStore()
@@ -1046,7 +1047,7 @@ const saveSlugToGraphMetadata = async (slug) => {
 
     const response = await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...kgAuthHeaders(userStore) },
       body: JSON.stringify({
         id: currentGraph.value,
         graphData: updatedGraphData,
