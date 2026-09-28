@@ -671,7 +671,8 @@ const handleUpload = async (request, env) => {
   // Read the album and run the owner check BEFORE writing any bytes. albums-worker applies this
   // rule to every album mutate; without it here, /upload is a way around it. Checking after the
   // R2 writes would leave orphaned objects behind on a 403.
-  const existingAlbum = albumName ? (await readPhotoAlbum(env, albumName)) || { name: albumName, images: [] } : null
+  const storedAlbum = albumName ? await readPhotoAlbum(env, albumName) : null
+  const existingAlbum = albumName ? storedAlbum || { name: albumName, images: [] } : null
   if (
     existingAlbum &&
     auth.role !== 'Superadmin' &&
@@ -765,7 +766,13 @@ const handleUpload = async (request, env) => {
       name: albumName,
       images: merged,
       createdAt: existingAlbum.createdAt || auditEntry.at,
-      createdBy: existingAlbum.createdBy ?? (auth.email || auth.userId),
+      // Only an album this upload CREATES gets an owner. A legacy album that predates
+      // ownership has createdBy null, and claiming it on the first authenticated upload would
+      // 403 every other contributor from then on — `agent-generated`, shared by every
+      // Agent-Builder user and unowned since before /upload required a token, is exactly that
+      // case. albums-worker sets createdBy on creation only and never claims on a mutate; this
+      // now matches.
+      createdBy: storedAlbum ? (storedAlbum.createdBy ?? null) : (auth.email || auth.userId),
       updatedAt: auditEntry.at,
       lastModifiedBy: auditEntry.actor,
       lastModifiedRole: auditEntry.actorRole,
