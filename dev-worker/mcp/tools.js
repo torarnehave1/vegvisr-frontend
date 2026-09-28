@@ -1094,7 +1094,12 @@ export function registerTools(server, getContext) {
         role: z
           .enum(users.ASSIGNABLE_ROLES)
           .optional()
-          .describe('Role to assign. Defaults to Admin, matching the Agent Builder. Superadmin is deliberately not available here.'),
+          .describe(
+            'What the person may do. OMIT THIS for a normal person who will use the platform — ' +
+              'it defaults to "Admin", which is the ordinary member role here despite the name. ' +
+              'Pass "ViewOnly" only when they should be able to read but not change anything. ' +
+              'Superadmin cannot be granted through this connection.',
+          ),
       },
       outputSchema: {
         success: z.boolean(),

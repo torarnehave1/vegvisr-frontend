@@ -18,11 +18,20 @@ function fail(code, message, extra = {}) {
 }
 
 /**
- * Roles this surface may assign. Superadmin is absent on purpose: it passes every access check
- * in the system, so letting a model grant it would turn "register a user" into privilege
- * escalation. Promoting someone stays a human action in the Agent Builder.
+ * Roles this surface may assign — only the ones that actually grant something.
+ *
+ * It used to also offer 'user' and 'Subscriber'. Both were traps. Every `role === 'user'` in the
+ * frontend turned out to be a CHAT MESSAGE role (user vs assistant), not a platform role, so the
+ * value granted nothing — and because it is the same word as the task ("register a user"), a
+ * model asked to register someone picked it every time. Three accounts were created that way
+ * before anyone noticed. Subscriber is checked nowhere either.
+ *
+ * What is left is what the code enforces: Admin (28 checks) and ViewOnly (5). Superadmin (108
+ * checks) stays out on purpose — it passes every access check in the system, so letting a model
+ * grant it would turn "register a user" into privilege escalation. Promoting someone remains a
+ * human action in the Agent Builder.
  */
-export const ASSIGNABLE_ROLES = ['Admin', 'Subscriber', 'ViewOnly', 'user']
+export const ASSIGNABLE_ROLES = ['Admin', 'ViewOnly']
 
 /** A shape check only — the platform decides what it will actually accept. */
 function looksLikeEmail(value) {

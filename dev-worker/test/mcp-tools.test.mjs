@@ -1101,8 +1101,12 @@ describe('register_user creates a login for a real person', () => {
     const { client } = await connect(env, REG)
     const { tools } = await client.listTools()
     const t = tools.find((x) => x.name === 'register_user')
-    assert.deepEqual([...t.inputSchema.properties.role.enum].sort(), ['Admin', 'Subscriber', 'ViewOnly', 'user'].sort())
+    // Only roles the code actually enforces. 'user' was removed after three accounts were created
+    // with it: every `role === 'user'` in the frontend is a chat message role, so it granted
+    // nothing — and a model registering "a user" picked the value with the matching name.
+    assert.deepEqual([...t.inputSchema.properties.role.enum].sort(), ['Admin', 'ViewOnly'])
     assert.equal(t.inputSchema.properties.role.enum.includes('Superadmin'), false)
+    assert.equal(t.inputSchema.properties.role.enum.includes('user'), false, 'a role that grants nothing must not be offered')
   })
 
   test('an ordinary read+write connection cannot register anyone', async () => {
