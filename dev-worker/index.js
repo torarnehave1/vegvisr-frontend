@@ -5407,25 +5407,48 @@ const restHandler = {
                   color: { type: 'string', default: '#4f6d7a', description: 'Node color (hex)' },
                   type: {
                     type: 'string',
-                    // The seven after 'audio' were in production but in no contract: a model
-                    // building an HTML page found nothing here that fit and coined "html", which
-                    // renders as raw text because GNewNodeRenderer has no such key (2026-09-28).
-                    // Each one listed here has a renderer in GNewNodeRenderer.vue — that map is
-                    // what decides whether a type displays, so it is what this enum must track.
+                    // GENERATED FROM src/components/GNewNodeRenderer.vue — do not hand-edit.
+                    //
+                    // This enum is every key in that file's nodeComponents map, minus 'default'
+                    // (which the viewer treats as "no type"), plus the three legacy values below.
+                    // That map is what decides whether a type displays at all, so it is the only
+                    // honest source for this list. Regenerate it when a renderer is added.
+                    //
+                    // It used to hold five values. Three of them — image, link, video — have no
+                    // renderer and fall through to plain text, while html-node, used 351 times
+                    // with its own renderer and publish path, was absent. A model building an HTML
+                    // page therefore found nothing here that fit and coined "html", which renders
+                    // as raw text. Both ChatGPT and Grok did it, for the same reason (2026-09-28).
+                    // image/link/video are kept because they are in use and have been published in
+                    // this contract since v1; dropping them would be a breaking change.
                     enum: [
-                      'fulltext', 'image', 'link', 'video', 'audio',
-                      'html-node', 'info', 'action_test', 'person-profile',
-                      'css-node', 'imagequote', 'background'
+                      'REG', 'action_test', 'advertisement_manager', 'agent-config',
+                      'agent-contract', 'agent-run', 'app-viewer', 'audio',
+                      'audio-portfolio-selector', 'audio-transcription', 'background',
+                      'bubblechart', 'button_row', 'chart', 'cloudflare-live',
+                      'cloudflare-video', 'company-card', 'component', 'css-node', 'data-node',
+                      'email-brand', 'email-manager', 'email-template', 'fulltext',
+                      'guide-node', 'html-node', 'image', 'image-analysis', 'imagequote',
+                      'info', 'instagram-post', 'json-node', 'layout', 'learn-script',
+                      'linechart', 'link', 'map', 'markdown-image', 'menu', 'menu_creator',
+                      'mermaid-diagram', 'network', 'news-feed', 'password-protection',
+                      'person-network-canvas', 'person-profile', 'piechart', 'portfolio-image',
+                      'realtime-video', 'slideshow', 'stripe-button', 'subscription', 'swot',
+                      'timeline', 'title', 'video', 'worknote', 'youtube-live',
+                      'youtube-video'
                     ],
                     description:
                       'Node content type. The exact string matters — it selects the renderer, and ' +
-                      'an unknown value silently falls back to plain text. Note the -node suffix on ' +
-                      'html-node and css-node: "html" is NOT a valid type. fulltext = markdown; ' +
-                      'info = markdown shown as an info panel (what the analysis nodes emit); ' +
-                      'html-node = a full HTML document rendered in an iframe; css-node = a ' +
-                      'stylesheet for the html-nodes in the same graph; person-profile, imagequote, ' +
-                      'background and action_test have their own renderers. Types not listed here ' +
-                      'may still render — see GET /plugin/templates/node-types.'
+                      'an unknown value silently falls back to plain text rather than failing, so a ' +
+                      'wrong type is invisible until someone looks at the page. Note the -node ' +
+                      'suffix: "html" and "fulltext-node" are NOT valid; the types are "html-node" ' +
+                      'and "fulltext". Common choices: fulltext = markdown; info = markdown in an ' +
+                      'info panel (what the analysis nodes emit); html-node = a full HTML document ' +
+                      'in an iframe; css-node = a stylesheet for the html-nodes in the same graph; ' +
+                      'markdown-image, portfolio-image and background = images; youtube-video, ' +
+                      'mermaid-diagram and the chart types render as themselves. image, link and ' +
+                      'video are legacy: they are accepted and in use, but have no renderer of ' +
+                      'their own and display as plain text.'
                   },
                   info: { type: 'string', description: 'Node content (markdown for fulltext)' },
                   bibl: {
