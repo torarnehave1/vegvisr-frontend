@@ -319,3 +319,26 @@ export class FakeAgentWorker {
     return new Response(JSON.stringify({ success: true, verified: this.verified, message: 'published' }), { status: 200 })
   }
 }
+
+/** agent-worker's /admin/register-user, faked. Records what the MCP layer forwarded. */
+export class FakeRegisterWorker {
+  constructor({ ok = true, updated = false, error = null, status = 200, role = 'Admin' } = {}) {
+    this.calls = []
+    this.ok = ok; this.updated = updated; this.error = error; this.status = status; this.role = role
+  }
+  async fetch(url, init) {
+    const body = JSON.parse(init.body)
+    this.calls.push({ url, token: new Headers(init.headers).get('X-API-Token'), body })
+    if (!this.ok) return new Response(JSON.stringify({ error: this.error }), { status: this.status })
+    return new Response(JSON.stringify({
+      success: true,
+      ...(this.updated ? { updated: true } : {}),
+      user_id: 'uid-1', email: body.email, name: body.name ?? null,
+      role: this.role, phone: body.phone ?? null,
+      // The real executor deliberately omits emailVerificationToken; the fake includes one so a
+      // test can prove the MCP layer strips it even if that ever changes upstream.
+      emailVerificationToken: 'SHOULD-NEVER-REACH-A-MODEL',
+      message: 'ok',
+    }), { status: 200 })
+  }
+}

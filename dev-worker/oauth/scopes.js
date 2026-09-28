@@ -27,7 +27,7 @@ export const CONNECT_SCOPES = ['graph:read', 'graph:write']
  * own data; chat:write sends a message to OTHER PEOPLE, and it cannot be taken back. It is
  * deliberately absent from CONNECT_SCOPES so no ordinary connection can even ask for it.
  */
-export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'graph:delete', 'chat:write', 'chat:read']
+export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'graph:delete', 'chat:write', 'chat:read', 'user:register']
 
 /** Human text for the consent screen. Covers every known scope, advertised or not. */
 export const SCOPE_TEXT = {
@@ -37,6 +37,7 @@ export const SCOPE_TEXT = {
   'graph:delete': 'Slette grafer',
   'chat:write': 'Poste meldinger i chattegrupper du er medlem av',
   'chat:read': 'Lese meldinger i chattegrupper du er medlem av',
+  'user:register': 'Opprette brukerkontoer på plattformen',
 }
 
 /**
@@ -70,10 +71,15 @@ export function grantableScopes(requested) {
  * requested, as long as the token response reports what was actually granted — which the
  * provider does.
  */
-export const OPT_IN_SCOPES = ['chat:write', 'chat:read', 'graph:publish']
+export const OPT_IN_SCOPES = ['chat:write', 'chat:read', 'graph:publish', 'user:register']
 
 /** Longer copy for the consent screen: the one-liner is not enough for an outward-facing scope. */
 export const OPT_IN_SCOPE_DETAIL = {
+  'user:register':
+    'Lar assistenten opprette en brukerkonto for en annen person, med navn og e-post. ' +
+    'Personen kan deretter logge inn på plattformen med e-posten sin. Kontoen kan ikke gis ' +
+    'Superadmin-rolle herfra, og en e-post som allerede finnes blir utfylt, ikke overskrevet — ' +
+    'eksisterende rolle og innloggingsnøkkel beholdes.',
   'graph:publish':
     'Lar assistenten publisere en html-node til en nettadresse som ALLEREDE er satt opp, slik ' +
     'at siden blir synlig for hvem som helst på internett. Den kan ikke opprette nye ' +

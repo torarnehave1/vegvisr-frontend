@@ -14,7 +14,7 @@ import assert from 'node:assert/strict'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike, FakeAgentWorker } from './d1-adapter.mjs'
+import { freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike, FakeAgentWorker, FakeRegisterWorker } from './d1-adapter.mjs'
 import * as pd from '../published-domains.js'
 import { CONNECT_SCOPES, OPT_IN_SCOPES } from '../oauth/scopes.js'
 import { NODE_TYPES, suggestNodeType } from '../node-types.js'
@@ -93,11 +93,30 @@ describe('18. tools/list', () => {
     const { client } = await connect(env, ALICE_RW)
     const { tools } = await client.listTools()
     for (const t of tools) {
+      // register_user is the one exception, and it is a different thing: its email/name/role
+      // describe the PERSON BEING REGISTERED, not a claim about who is calling. It is asserted
+      // separately below that it still cannot name the caller or grant Superadmin.
+      if (t.name === 'register_user') continue
       const props = Object.keys(t.inputSchema.properties || {})
       for (const forbidden of ['email', 'userId', 'user_id', 'createdBy', 'role', 'actor']) {
         assert.equal(props.includes(forbidden), false, `${t.name} exposes ${forbidden}`)
       }
     }
+  })
+
+  test('register_user names a subject, never the caller', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'register_user')
+    const props = Object.keys(t.inputSchema.properties)
+    // The caller is still whoever the token says. There is nowhere to assert otherwise:
+    // no userId, no actor, no createdBy, no token.
+    for (const forbidden of ['userId', 'user_id', 'createdBy', 'actor', 'authToken', 'token']) {
+      assert.equal(props.includes(forbidden), false, `register_user exposes ${forbidden}`)
+    }
+    // And the subject cannot be given a role that outranks every access check in the system.
+    assert.equal(t.inputSchema.properties.role.enum.includes('Superadmin'), false)
   })
 
   test('delete is not offered in v1', async () => {
@@ -580,7 +599,7 @@ describe('annotations tell the client the truth about each tool', () => {
     // post_chat_message reaches other people; publish_html_node reaches the public internet.
     // Every other tool touches graphs the caller can already see, where a mistake is private
     // and undoable. Both outward tools are gated behind a scope no client can request.
-    const outward = new Set(['post_chat_message', 'publish_html_node'])
+    const outward = new Set(['post_chat_message', 'publish_html_node', 'register_user'])
     for (const t of tools) {
       assert.equal(t.annotations?.openWorldHint, outward.has(t.name), `${t.name} openWorldHint`)
     }
@@ -926,7 +945,7 @@ describe('publish_html_node is the one tool that reaches the public internet', (
     const { client } = await connect(env, PUB)
     const { tools } = await client.listTools()
     const outward = tools.filter((t) => t.annotations?.openWorldHint).map((t) => t.name).sort()
-    assert.deepEqual(outward, ['post_chat_message', 'publish_html_node'])
+    assert.deepEqual(outward, ['post_chat_message', 'publish_html_node', 'register_user'])
     const t = tools.find((x) => x.name === 'publish_html_node')
     assert.equal(t.annotations.destructiveHint, true, 'it replaces the page that is there')
     // No force, and no way to name an arbitrary proxy.
@@ -1023,6 +1042,99 @@ describe('node types: a graph generated over MCP cannot carry a type that will n
       [...NODE_TYPES].sort(),
       'the wire schema must be exactly node-types.js, which openapi.json also uses',
     )
+  })
+})
+
+
+describe('register_user creates a login for a real person', () => {
+  const REG = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'graph:write', 'user:register'] } }
+
+  async function withRegistry(opts = {}, authCtx = REG) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.AGENT_WORKER = new FakeRegisterWorker(opts)
+    const { client } = await connect(env, authCtx)
+    return { env, client }
+  }
+
+  test('registers a name and an email, as the caller', async () => {
+    const { env, client } = await withRegistry()
+    const r = await callOk(client, 'register_user', { email: 'Ny.Bruker@Example.COM', name: 'Ny Bruker' })
+    assert.equal(r.success, true)
+    assert.equal(r.created, true)
+    assert.equal(r.userId, 'uid-1')
+    assert.equal(r.loginUrl, 'https://login.vegvisr.org')
+
+    const [call] = env.AGENT_WORKER.calls
+    assert.equal(call.token, 'sess-alice', 'runs on the caller\'s own credential')
+    assert.equal(call.body.email, 'ny.bruker@example.com', 'email is normalised before it is stored')
+    assert.equal(call.body.name, 'Ny Bruker')
+  })
+
+  test('the sign-in credential never reaches the model, even if the service returns one', async () => {
+    const { client } = await withRegistry()
+    const r = await callOk(client, 'register_user', { email: 'a@b.no', name: 'A' })
+    const blob = JSON.stringify(r)
+    assert.ok(!blob.includes('SHOULD-NEVER-REACH-A-MODEL'), 'the token must be stripped by the MCP layer')
+    assert.ok(!/emailVerificationToken/i.test(blob))
+  })
+
+  test('an existing email is completed, and says so instead of claiming a new account', async () => {
+    const { client } = await withRegistry({ updated: true, role: 'Superadmin' })
+    const r = await callOk(client, 'register_user', { email: 'msneeggen@gmail.com', name: 'Maiken' })
+    assert.equal(r.created, false)
+    assert.equal(r.role, 'Superadmin', 'an existing role is reported, not reset')
+  })
+
+  test('a model cannot mint a Superadmin', async () => {
+    const { env, client } = await withRegistry()
+    const r = await client.callTool({
+      name: 'register_user',
+      arguments: { email: 'x@y.no', name: 'X', role: 'Superadmin' },
+    })
+    assert.equal(r.isError, true, 'Superadmin must not even be in the schema')
+    assert.equal(env.AGENT_WORKER.calls.length, 0, 'nothing was forwarded')
+  })
+
+  test('the role enum offers only assignable roles', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, REG)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'register_user')
+    assert.deepEqual([...t.inputSchema.properties.role.enum].sort(), ['Admin', 'Subscriber', 'ViewOnly', 'user'].sort())
+    assert.equal(t.inputSchema.properties.role.enum.includes('Superadmin'), false)
+  })
+
+  test('an ordinary read+write connection cannot register anyone', async () => {
+    const { env, client } = await withRegistry({}, ALICE_RW)
+    const e = await callErr(client, 'register_user', { email: 'x@y.no', name: 'X' })
+    assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+    assert.equal(e.requiredScope, 'user:register')
+    assert.equal(env.AGENT_WORKER.calls.length, 0)
+  })
+
+  test('a malformed email is refused before anything leaves this worker', async () => {
+    const { env, client } = await withRegistry()
+    const e = await callErr(client, 'register_user', { email: 'not-an-email', name: 'X' })
+    assert.equal(e.code, gs.ERR.INVALID_INPUT)
+    assert.equal(env.AGENT_WORKER.calls.length, 0)
+  })
+
+  test('a non-Superadmin caller is told it is a permission problem', async () => {
+    const { client } = await withRegistry({ ok: false, status: 403, error: 'Superadmin role required to register users' })
+    const e = await callErr(client, 'register_user', { email: 'x@y.no', name: 'X' })
+    assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.match(e.message, /Superadmin role required/)
+  })
+
+  test('it declares that its effect leaves the system, and is not destructive', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, REG)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'register_user')
+    assert.equal(t.annotations.openWorldHint, true, 'it creates an account for a real person')
+    assert.equal(t.annotations.destructiveHint, false, 'an existing account is completed, not replaced')
+    assert.equal(t.annotations.idempotentHint, true)
   })
 })
 
@@ -1356,7 +1468,7 @@ describe('post_chat_message is gated harder than everything else', () => {
     const { client } = await connect(env, ALICE_RW)
     const { tools } = await client.listTools()
     const outward = tools.filter((t) => t.annotations?.openWorldHint === true).map((t) => t.name).sort()
-    assert.deepEqual(outward, ['post_chat_message', 'publish_html_node'])
+    assert.deepEqual(outward, ['post_chat_message', 'publish_html_node', 'register_user'])
   })
 
   test('its description warns that the action cannot be undone', async () => {
@@ -1432,10 +1544,10 @@ describe('read_chat_messages is gated apart from posting', () => {
     const { client } = await connect(env, ALICE_RW)
     const { tools } = await client.listTools()
     const outward = tools.filter((t) => t.annotations?.openWorldHint).map((t) => t.name).sort()
-    assert.deepEqual(outward, ['post_chat_message', 'publish_html_node'])
-    // The property that makes adding a second one safe: neither scope is advertised, so both
-    // require a person to tick a box on the consent screen.
-    for (const scope of ['chat:write', 'graph:publish']) {
+    assert.deepEqual(outward, ['post_chat_message', 'publish_html_node', 'register_user'])
+    // The property that makes adding another one safe: no such scope is advertised, so every
+    // one of them requires a person to tick a box on the consent screen.
+    for (const scope of ['chat:write', 'graph:publish', 'user:register']) {
       assert.equal(CONNECT_SCOPES.includes(scope), false, `${scope} must stay unadvertised`)
       assert.equal(OPT_IN_SCOPES.includes(scope), true, `${scope} must be reachable by an opt-in`)
     }

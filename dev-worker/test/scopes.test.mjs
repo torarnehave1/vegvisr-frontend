@@ -98,7 +98,7 @@ describe('the opt-in step-up', () => {
 
 describe('chat:read is consented to separately from chat:write', () => {
   test('every opt-in stays out of the advertised set', () => {
-    assert.deepEqual(OPT_IN_SCOPES, ['chat:write', 'chat:read', 'graph:publish'])
+    assert.deepEqual(OPT_IN_SCOPES, ['chat:write', 'chat:read', 'graph:publish', 'user:register'])
     for (const s of OPT_IN_SCOPES) assert.equal(CONNECT_SCOPES.includes(s), false, `${s} leaked into the advertised set`)
   })
 
@@ -107,6 +107,15 @@ describe('chat:read is consented to separately from chat:write', () => {
     // graph:publish in the first place, so it must be grantable ONLY by a ticked box.
     assert.deepEqual(grantableScopes(['graph:read', 'graph:write', 'graph:publish']), ['graph:read', 'graph:write'])
     assert.deepEqual(sanitizeOptIns(['graph:publish']), ['graph:publish'])
+  })
+
+  test('user:register is unobtainable by asking, and its copy says what it creates', () => {
+    assert.deepEqual(grantableScopes(['graph:read', 'user:register']), ['graph:read'])
+    assert.deepEqual(sanitizeOptIns(['user:register']), ['user:register'])
+    const d = OPT_IN_SCOPE_DETAIL['user:register']
+    assert.match(d, /brukerkonto/, 'must say an account is created')
+    assert.match(d, /Superadmin/, 'must say the role ceiling')
+    assert.match(d, /utfylt, ikke overskrevet/, 'must say an existing account is not overwritten')
   })
 
   test('the publish copy says the page becomes public and the host must already exist', () => {

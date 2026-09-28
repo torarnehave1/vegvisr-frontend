@@ -27,6 +27,7 @@ import * as images from '../images-service.js'
 import * as sites from '../published-domains.js'
 import * as publish from '../publish-service.js'
 import { NODE_TYPES, DEFAULT_NODE_TYPE, suggestNodeType } from '../node-types.js'
+import * as users from '../users-service.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared schemas
@@ -1065,6 +1066,74 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── register_user ─────────────────────────────────────────────────────────
+  //
+  // Creates a login for a REAL PERSON, so it is gated like the other outward-facing tools:
+  // user:register is not advertised, cannot be requested by a client, and is granted only by a
+  // ticked box on the consent screen. Superadmin is not assignable here — that would make
+  // "register a user" a privilege-escalation path.
+  //
+  // The account work is agent-worker's executeAdminRegisterUser, reached over a service binding.
+  server.registerTool(
+    'register_user',
+    {
+      title: 'Register a person on the platform',
+      description:
+        'Create a user account from a name and an email address so that person can sign in at ' +
+        'login.vegvisr.org. THIS CREATES AN ACCOUNT FOR A REAL PERSON — confirm the name and the ' +
+        'exact email with the user before calling it. If the email already exists the account is ' +
+        'COMPLETED with whatever fields you supply, never overwritten: its role and its sign-in ' +
+        'credential are left alone, and the reply says created:false. A phone number is worth ' +
+        'adding when you have it, because it is what lets them sign in by SMS code. The sign-in ' +
+        'credential is never returned. Requires the user:register scope, which an ordinary ' +
+        'connection does not carry.',
+      inputSchema: {
+        email: z.string().min(3).describe("The person's email address. This is the identity — it is how they sign in, and it is what makes the call idempotent."),
+        name: z.string().optional().describe("The person's full name."),
+        phone: z.string().optional().describe('Mobile number in +47XXXXXXXX form. Optional, but without it they cannot sign in by SMS code.'),
+        role: z
+          .enum(users.ASSIGNABLE_ROLES)
+          .optional()
+          .describe('Role to assign. Defaults to Admin, matching the Agent Builder. Superadmin is deliberately not available here.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        userId: z.string().nullable(),
+        email: z.string().nullable(),
+        name: z.string().nullable(),
+        role: z.string().nullable(),
+        created: z.boolean(),
+        loginUrl: z.string(),
+        message: z.string().nullable(),
+      },
+      // Creates a real account, and the person may receive mail about it — its effect leaves the
+      // system. Not destructive: an existing account is completed, never replaced. Idempotent on
+      // email, which is why calling it twice is safe.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ email, name, phone, role }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'user:register')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await users.registerUser(env, { email, name, phone, role, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        result.created
+          ? `Registered ${result.email}${result.name ? ` (${result.name})` : ''} with role ${result.role}. ` +
+            `They sign in at ${result.loginUrl} using that email.`
+          : `${result.email} already had an account; the fields you supplied were filled in. ` +
+            `Its role and sign-in credential were left unchanged.`,
+      )
+    },
+  )
+
   // ── list_published_sites ──────────────────────────────────────────────────
   //
   // The portfolio's "Published sites" chip, as data. brand-worker writes an HTML_PAGES key
@@ -1353,6 +1422,7 @@ export const TOOL_NAMES = [
   'generate_node_image',
   'update_graph_metadata',
   'publish_html_node',
+  'register_user',
   'list_published_sites',
   'search_graphs',
   'list_my_graphs',
