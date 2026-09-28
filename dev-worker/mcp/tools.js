@@ -24,6 +24,7 @@ import * as gs from '../graph-service.js'
 import * as chat from '../chat-service.js'
 import * as templates from '../templates-service.js'
 import * as images from '../images-service.js'
+import * as sites from '../published-domains.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared schemas
@@ -77,6 +78,40 @@ function err(code, message, extra = {}) {
     structuredContent: structured,
     isError: true,
   }
+}
+
+/**
+ * Graph ids the publish registry says serve a host matching this query.
+ *
+ * The portfolio's filter box treats a hostname as a search term, so the MCP search does too: a
+ * graph whose node was never stamped with publishedDomain is still findable by the site it
+ * serves, because the registry knows and the stamp does not.
+ */
+function hostMatches(registry, query) {
+  const needle = String(query || '')
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/.*$/, '')
+    .trim()
+  if (!needle) return []
+  const ids = []
+  for (const [graphId, hostnames] of registry.byGraph) {
+    for (const hostname of hostnames) {
+      if (hostname.includes(needle)) {
+        ids.push(graphId)
+        break
+      }
+    }
+  }
+  return ids
+}
+
+/** Replace each result's raw stamp CSV with the merged, registry-checked hostname list. */
+function withDomains(results, registry) {
+  return results.map(({ publishedDomainsCsv, ...g }) => ({
+    ...g,
+    publishedDomains: sites.mergePublishedDomains(g.graphId, publishedDomainsCsv, registry),
+  }))
 }
 
 /** Turn a graph-service failure into a tool error, preserving its code and fields. */
@@ -184,6 +219,7 @@ const listShape = {
       nodeCount: z.number(),
       updatedAt: z.string().nullable(),
       isMine: z.boolean(),
+      publishedDomains: z.array(z.string()).describe('Hostnames this graph serves a live page at. Empty for a graph that publishes nowhere.'),
     }),
   ),
 }
@@ -833,6 +869,79 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── list_published_sites ──────────────────────────────────────────────────
+  //
+  // The portfolio's "Published sites" chip, as data. brand-worker writes an HTML_PAGES key
+  // `html:<hostname>` on every html-node publish, and its metadata names the graph and the node
+  // that serves it. That registry is the authority — a node's own publishedDomain stamp is
+  // written client-side and survives a later publish that handed the host to someone else.
+  //
+  // A host whose graph the caller cannot read is omitted. The page it serves is public; the
+  // graph behind it, its title and its owner are not.
+  server.registerTool(
+    'list_published_sites',
+    {
+      title: 'List live sites and the graphs behind them',
+      description:
+        'List the domains that currently serve a published html-node, each with the graph and ' +
+        'the node id it is served from, when it was published, and links to open the graph. ' +
+        'This is the answer to "which of my graphs are live, and where" — the same registry the ' +
+        'Knowledge Graph Portfolio\'s "Published sites" filter reads. Pass a domain to check one ' +
+        'host or a family of them; pass a graphId to ask what one graph publishes. Only sites ' +
+        'whose graph you can read are listed. Requires the graph:read scope.',
+      inputSchema: {
+        domain: z
+          .string()
+          .optional()
+          .describe('Narrow to hostnames containing this text, e.g. "vegvisr.org" or "minside". A full URL works too.'),
+        graphId: z.string().optional().describe('Only the sites this one graph serves.'),
+        limit: z.number().int().optional().describe('Maximum sites to return, 1–500. Default 100.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        count: z.number(),
+        totalRegistered: z.number(),
+        sites: z.array(
+          z.object({
+            hostname: z.string(),
+            siteUrl: z.string(),
+            graphId: z.string(),
+            nodeId: z.string().nullable(),
+            title: z.string(),
+            metaArea: z.string().nullable(),
+            publicationState: z.string(),
+            publishedAt: z.string().nullable(),
+            editorUrl: z.string(),
+            viewerUrl: z.string(),
+          }),
+        ),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ domain, graphId, limit }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await sites.listPublishedSites(env, { actor, domain, graphId, limit })
+      if (!r.ok) return fromService(r)
+
+      const hidden = r.totalRegistered - r.count
+      const head = r.count === 0
+        ? 'No published sites you can see match that.'
+        : `${r.count} published site${r.count === 1 ? '' : 's'}` +
+          (hidden > 0 ? ` (${hidden} more belong to graphs you cannot read).` : '.')
+      const lines = r.sites.map(
+        (x) => `• ${x.hostname} — ${x.title} · graph ${x.graphId}` +
+          `${x.nodeId ? ` · node ${x.nodeId}` : ''}${x.publishedAt ? ` · published ${x.publishedAt}` : ''}\n    ${x.viewerUrl}`,
+      )
+      const { ok: _o, ...payload } = r
+      return ok({ success: true, ...payload }, [head, ...lines].join('\n'))
+    },
+  )
+
   // ── search_graphs ─────────────────────────────────────────────────────────
   server.registerTool(
     'search_graphs',
@@ -860,16 +969,30 @@ export function registerTools(server, getContext) {
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
-      const r = await gs.searchGraphs(env, { query, metaArea, nodeType, limit, offset, actor })
+      // A hostname is a first-class way to find a graph, exactly as in the portfolio's filter
+      // box: the publish registry resolves the query to the graphs that serve a matching host,
+      // and those ids are OR'd into the search.
+      const registry = await sites.readPublishedDomainRegistry(env)
+      const r = await gs.searchGraphs(env, {
+        query,
+        metaArea,
+        nodeType,
+        limit,
+        offset,
+        actor,
+        domainMatchIds: hostMatches(registry, query),
+      })
       if (!r.ok) return fromService(r)
 
+      const results = withDomains(r.results, registry)
       const head = r.total === 0
         ? 'No graphs matched.'
-        : `${r.total} graph${r.total === 1 ? '' : 's'} matched, showing ${r.results.length} from ${r.offset}.`
-      const lines = r.results.map(
-        (g) => `• ${g.title || '(untitled)'} — ${g.graphId} · ${g.nodeCount} nodes · ${g.publicationState}${g.isMine ? ' · yours' : ''}`,
+        : `${r.total} graph${r.total === 1 ? '' : 's'} matched, showing ${results.length} from ${r.offset}.`
+      const lines = results.map(
+        (g) => `• ${g.title || '(untitled)'} — ${g.graphId} · ${g.nodeCount} nodes · ${g.publicationState}` +
+          `${g.isMine ? ' · yours' : ''}${g.publishedDomains.length ? ` · live at ${g.publishedDomains.join(', ')}` : ''}`,
       )
-      return ok({ success: true, ...r, ok: undefined }, [head, ...lines].join('\n'))
+      return ok({ success: true, ...r, results, ok: undefined }, [head, ...lines].join('\n'))
     },
   )
 
@@ -899,13 +1022,15 @@ export function registerTools(server, getContext) {
       const r = await gs.listMyGraphs(env, { metaArea, limit, offset, actor })
       if (!r.ok) return fromService(r)
 
+      const results = withDomains(r.results, await sites.readPublishedDomainRegistry(env))
       const head = r.total === 0
         ? 'You have no graphs yet.'
-        : `You own ${r.total} graph${r.total === 1 ? '' : 's'}, showing ${r.results.length} from ${r.offset}.`
-      const lines = r.results.map(
-        (g) => `• ${g.title || '(untitled)'} — ${g.graphId} · ${g.nodeCount} nodes · ${g.publicationState}`,
+        : `You own ${r.total} graph${r.total === 1 ? '' : 's'}, showing ${results.length} from ${r.offset}.`
+      const lines = results.map(
+        (g) => `• ${g.title || '(untitled)'} — ${g.graphId} · ${g.nodeCount} nodes · ${g.publicationState}` +
+          `${g.publishedDomains.length ? ` · live at ${g.publishedDomains.join(', ')}` : ''}`,
       )
-      return ok({ success: true, ...r, ok: undefined }, [head, ...lines].join('\n'))
+      return ok({ success: true, ...r, results, ok: undefined }, [head, ...lines].join('\n'))
     },
   )
 
@@ -1030,6 +1155,7 @@ export const TOOL_NAMES = [
   'read_chat_messages',
   'get_fulltext_elements',
   'generate_node_image',
+  'list_published_sites',
   'search_graphs',
   'list_my_graphs',
   'search',

@@ -22,6 +22,7 @@ import {
   decryptDataNodeInfo,
 } from './graph-service.js'
 import { listTemplates as gsListTemplates } from './templates-service.js'
+import { readPublishedDomainRegistry, mergePublishedDomains } from './published-domains.js'
 import { OAuthProvider } from '@cloudflare/workers-oauth-provider'
 import { handleAuthorize, ISSUER, MCP_RESOURCE, SUPPORTED_SCOPES } from './oauth/authorize.js'
 import { mcpHandler } from './mcp/server.js'
@@ -1977,9 +1978,6 @@ const extractYoutubeVideoId = (raw) => {
   return null
 }
 
-// Module-scope so one isolate reads the 60-odd HTML_PAGES keys once a minute
-// instead of on every graph listing.
-let publishedDomainRegistryCache = null
 
 async function notifyNibiGraphUpdate(env, graphId, graphData) {
   const communityId = 'b1e906b9-8fab-45a0-8cb9-df5c7624b030'
@@ -2432,63 +2430,8 @@ const restHandler = {
           .filter(Boolean)
       }
 
-      // brand-worker records every html-node publish as an HTML_PAGES key
-      // `html:<hostname>` whose metadata names the graph and node it came from.
-      // That registry — not the node's own publishedDomain field, which is only
-      // stamped client-side and only when the graph is saved afterwards — is the
-      // authoritative answer to "which site does this graph publish?".
-      const readPublishedDomainRegistry = async () => {
-        if (!env.HTML_PAGES) return new Map()
-        const now = Date.now()
-        if (publishedDomainRegistryCache && now - publishedDomainRegistryCache.at < 60000) {
-          return publishedDomainRegistryCache.registry
-        }
-
-        const byGraph = new Map()
-        const ownerOf = new Map()
-        try {
-          let cursor
-          do {
-            const page = await env.HTML_PAGES.list({ prefix: 'html:', cursor })
-            for (const key of page.keys || []) {
-              const hostname = String(key.name || '').slice(5).trim().toLowerCase()
-              // Skip malformed keys left by older publishes (pasted URLs, stray text).
-              if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(hostname)) {
-                continue
-              }
-              const graphId = String(key.metadata?.graphId || '').trim()
-              if (!graphId) continue
-              if (!byGraph.has(graphId)) byGraph.set(graphId, new Set())
-              byGraph.get(graphId).add(hostname)
-              ownerOf.set(hostname, graphId)
-            }
-            cursor = page.list_complete ? null : page.cursor
-          } while (cursor)
-        } catch (error) {
-          console.error('[Worker] Failed to read published domain registry:', error)
-          return publishedDomainRegistryCache?.registry || { byGraph: new Map(), ownerOf: new Map() }
-        }
-
-        const registry = { byGraph, ownerOf }
-        publishedDomainRegistryCache = { at: now, registry }
-        return registry
-      }
-
-      // A node keeps its publishedDomain stamp forever, so a graph still claims a host
-      // that a later publish gave to someone else. The registry decides who serves a
-      // host today; a stamp the registry contradicts is dropped. Hosts the registry has
-      // no owner for (published before it recorded graphId) are left to the stamp.
-      const mergePublishedDomains = (graphId, stampedCsv, registry) => {
-        const stamped = String(stampedCsv || '')
-          .split(',')
-          .map((value) => value.trim().toLowerCase())
-          .filter(Boolean)
-          .filter((hostname) => {
-            const owner = registry.ownerOf.get(hostname)
-            return !owner || owner === graphId
-          })
-        return Array.from(new Set([...stamped, ...(registry.byGraph.get(graphId) || [])])).sort()
-      }
+      // readPublishedDomainRegistry and mergePublishedDomains moved to published-domains.js
+      // so MCP can give the same answer as the REST listings instead of computing its own.
 
       const parseMaybeJsonObject = (value) => {
         if (!value) return null
@@ -6199,7 +6142,7 @@ const restHandler = {
             rows = fallbackResult.results || fallbackResult.rows || []
           }
 
-          const domainRegistry = await readPublishedDomainRegistry()
+          const domainRegistry = await readPublishedDomainRegistry(env)
 
           const summaries = rows
             .map((row) => {
@@ -6349,7 +6292,7 @@ const restHandler = {
             bindings.push(nodeType)
           }
 
-          const srchDomainRegistry = await readPublishedDomainRegistry()
+          const srchDomainRegistry = await readPublishedDomainRegistry(env)
 
           // Free text search (title, description, category, node labels, node content,
           // and the domain an html-node publishes to)

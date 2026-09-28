@@ -14,7 +14,8 @@ import assert from 'node:assert/strict'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { freshDb, seedUsers, FakeAI, FakePhotosWorker } from './d1-adapter.mjs'
+import { freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike } from './d1-adapter.mjs'
+import * as pd from '../published-domains.js'
 import { registerTools, TOOL_NAMES } from '../mcp/tools.js'
 import * as gs from '../graph-service.js'
 
@@ -712,6 +713,124 @@ describe('generate_node_image fills a placeholder the node already has', () => {
       Object.keys(t.inputSchema.properties).sort(),
       ['expectedVersion', 'graphId', 'height', 'nodeId', 'placement', 'prompt', 'width'],
     )
+  })
+})
+
+
+describe('the published-site registry reaches MCP the same way it reaches the portfolio', () => {
+  const key = (host, graphId, nodeId = 'html-1') => ({
+    name: `html:${host}`,
+    metadata: { graphId, nodeId, publishedAt: '2026-09-01T10:00:00.000Z', publishedBy: 'someone' },
+  })
+
+  test('list_published_sites names the host, the graph and the node serving it', async () => {
+    pd.resetRegistryCache()
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'Landing', metaArea: '#X' })
+    env.HTML_PAGES = new PagesKVLike([key('landing.vegvisr.org', g.graphId, 'n-landing')])
+
+    const r = await callOk(client, 'list_published_sites', {})
+    assert.equal(r.count, 1)
+    const [site] = r.sites
+    assert.equal(site.hostname, 'landing.vegvisr.org')
+    assert.equal(site.siteUrl, 'https://landing.vegvisr.org')
+    assert.equal(site.graphId, g.graphId)
+    assert.equal(site.nodeId, 'n-landing')
+    assert.equal(site.viewerUrl, g.viewerUrl)
+  })
+
+  test("a site whose graph belongs to someone else is not listed, and the gap is counted", async () => {
+    pd.resetRegistryCache()
+    const { env } = freshDb()
+    const { client: alice } = await connect(env, ALICE_RW)
+    const { client: bob } = await connect(env, BOB_RW)
+    const mine = await callOk(alice, 'create_graph', { title: 'Mine', metaArea: '#X' })
+    const theirs = await callOk(bob, 'create_graph', { title: 'Theirs', metaArea: '#X' })
+    env.HTML_PAGES = new PagesKVLike([
+      key('mine.vegvisr.org', mine.graphId),
+      key('theirs.vegvisr.org', theirs.graphId),
+    ])
+
+    const r = await callOk(alice, 'list_published_sites', {})
+    assert.deepEqual(r.sites.map((s) => s.hostname), ['mine.vegvisr.org'])
+    assert.equal(r.totalRegistered, 2, 'the caller is told one was withheld, not shown a short list')
+    assert.ok(!JSON.stringify(r).includes('Theirs'))
+  })
+
+  test('a domain filter answers "who serves this host?"', async () => {
+    pd.resetRegistryCache()
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const a = await callOk(client, 'create_graph', { title: 'A', metaArea: '#X' })
+    const b = await callOk(client, 'create_graph', { title: 'B', metaArea: '#X' })
+    env.HTML_PAGES = new PagesKVLike([key('a.vegvisr.org', a.graphId), key('b.example.com', b.graphId)])
+
+    const r = await callOk(client, 'list_published_sites', { domain: 'example.com' })
+    assert.deepEqual(r.sites.map((s) => s.graphId), [b.graphId])
+  })
+
+  test('search_graphs finds a graph by the hostname it serves, with no stamp on the node', async () => {
+    pd.resetRegistryCache()
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    // The node carries no publishedDomain at all — only the registry knows.
+    const g = await callOk(client, 'create_graph', {
+      title: 'Nothing to do with the hostname',
+      metaArea: '#X',
+      nodes: [{ id: 'n1', label: 'page', type: 'html-node' }],
+    })
+    env.HTML_PAGES = new PagesKVLike([key('oppgaver.vegvisr.org', g.graphId)])
+
+    const r = await callOk(client, 'search_graphs', { query: 'oppgaver.vegvisr.org' })
+    assert.equal(r.total, 1)
+    assert.equal(r.results[0].graphId, g.graphId)
+    assert.deepEqual(r.results[0].publishedDomains, ['oppgaver.vegvisr.org'])
+  })
+
+  test('every listing reports where a graph is live, and says nothing when it is nowhere', async () => {
+    pd.resetRegistryCache()
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const live = await callOk(client, 'create_graph', { title: 'Live', metaArea: '#X' })
+    const draft = await callOk(client, 'create_graph', { title: 'Draft', metaArea: '#X' })
+    env.HTML_PAGES = new PagesKVLike([key('live.vegvisr.org', live.graphId)])
+
+    const mine = await callOk(client, 'list_my_graphs', {})
+    const byId = Object.fromEntries(mine.results.map((g) => [g.graphId, g]))
+    assert.deepEqual(byId[live.graphId].publishedDomains, ['live.vegvisr.org'])
+    assert.deepEqual(byId[draft.graphId].publishedDomains, [])
+    // The raw stamp CSV is an implementation detail of the merge and must not reach the client.
+    assert.ok(!('publishedDomainsCsv' in byId[live.graphId]))
+  })
+
+  test('a stale stamp loses to the registry, all the way through the tool', async () => {
+    pd.resetRegistryCache()
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const old = await callOk(client, 'create_graph', {
+      title: 'Used to serve it',
+      metaArea: '#X',
+      nodes: [{ id: 'n1', label: 'page', type: 'html-node', publishedDomain: 'shared.vegvisr.org' }],
+    })
+    const now = await callOk(client, 'create_graph', { title: 'Serves it now', metaArea: '#X' })
+    env.HTML_PAGES = new PagesKVLike([key('shared.vegvisr.org', now.graphId)])
+
+    const mine = await callOk(client, 'list_my_graphs', {})
+    const byId = Object.fromEntries(mine.results.map((g) => [g.graphId, g]))
+    assert.deepEqual(byId[old.graphId].publishedDomains, [], 'the stamp is stale and must be dropped')
+    assert.deepEqual(byId[now.graphId].publishedDomains, ['shared.vegvisr.org'])
+  })
+
+  test('it is read-only and needs only the scope every connection already has', async () => {
+    pd.resetRegistryCache()
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RO)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'list_published_sites')
+    assert.equal(t.annotations.readOnlyHint, true)
+    const r = await callOk(client, 'list_published_sites', {})
+    assert.equal(r.count, 0)
   })
 })
 

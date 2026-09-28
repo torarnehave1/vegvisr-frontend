@@ -800,7 +800,7 @@ function clampLimit(limit, fallback = 20) {
  * Free-text search across titles, descriptions, meta areas and node content, restricted to what
  * the actor may see. Mirrors the columns GET /searchGraphs matches on.
  */
-export async function searchGraphs(env, { query, metaArea = null, nodeType = null, limit = 20, offset = 0, actor }) {
+export async function searchGraphs(env, { query, metaArea = null, nodeType = null, limit = 20, offset = 0, actor, domainMatchIds = [] }) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
 
   const lim = clampLimit(limit)
@@ -821,6 +821,11 @@ export async function searchGraphs(env, { query, metaArea = null, nodeType = nul
   const q = String(query || '').trim()
   if (q) {
     const pattern = `%${q.toLowerCase().replace(/\*/g, '%')}%`
+    // A graph whose node never got stamped with publishedDomain is still findable by its
+    // hostname: the publish registry says which graphs serve it, and the caller resolved that
+    // into ids. Same rule as the REST /searchGraphs endpoint.
+    const ids = Array.isArray(domainMatchIds) ? domainMatchIds.filter(Boolean) : []
+    const registryClause = ids.length ? ` OR id IN (${ids.map(() => '?').join(',')})` : ''
     conditions.push(`(
       LOWER(COALESCE(json_extract(${dataSql}, '$.metadata.title'), title, '')) LIKE ?
       OR LOWER(COALESCE(json_extract(${dataSql}, '$.metadata.description'), '')) LIKE ?
@@ -829,9 +834,10 @@ export async function searchGraphs(env, { query, metaArea = null, nodeType = nul
         SELECT 1 FROM json_each(${nodesSql})
         WHERE LOWER(COALESCE(json_extract(value, '$.label'), '')) LIKE ?
            OR LOWER(COALESCE(json_extract(value, '$.info'), '')) LIKE ?
-      )
+           OR LOWER(COALESCE(json_extract(value, '$.publishedDomain'), '')) LIKE ?
+      )${registryClause}
     )`)
-    bindings.push(pattern, pattern, pattern, pattern, pattern)
+    bindings.push(pattern, pattern, pattern, pattern, pattern, pattern, ...ids)
   }
 
   if (metaArea) {
@@ -865,6 +871,11 @@ export async function searchGraphs(env, { query, metaArea = null, nodeType = nul
         COALESCE(json_extract(${dataSql}, '$.metadata.version'), 0) AS version,
         COALESCE(json_extract(${dataSql}, '$.metadata.createdBy'), created_by, '') AS created_by,
         COALESCE(json_array_length(${nodesSql}), 0) AS node_count,
+        COALESCE((
+          SELECT GROUP_CONCAT(DISTINCT json_extract(value, '$.publishedDomain'))
+          FROM json_each(${nodesSql})
+          WHERE json_extract(value, '$.publishedDomain') IS NOT NULL
+        ), '') AS published_domains_csv,
         updated_at
       FROM knowledge_graphs
       ${whereSql}
@@ -884,6 +895,9 @@ export async function searchGraphs(env, { query, metaArea = null, nodeType = nul
     nodeCount: r.node_count ?? 0,
     updatedAt: r.updated_at || null,
     isMine: Boolean(actor.email && String(r.created_by || '').toLowerCase() === actor.email),
+    // The node's own stamp only. The caller merges it with the publish registry, which is the
+    // authority on who serves a host today — the same two-step the REST listings do.
+    publishedDomainsCsv: r.published_domains_csv || '',
     ...graphLinks(r.id),
   }))
 
@@ -926,6 +940,11 @@ export async function listMyGraphs(env, { limit = 20, offset = 0, metaArea = nul
         COALESCE(json_extract(${dataSql}, '$.metadata.publicationState'), 'private') AS publication_state,
         COALESCE(json_extract(${dataSql}, '$.metadata.version'), 0) AS version,
         COALESCE(json_array_length(${nodesSql}), 0) AS node_count,
+        COALESCE((
+          SELECT GROUP_CONCAT(DISTINCT json_extract(value, '$.publishedDomain'))
+          FROM json_each(${nodesSql})
+          WHERE json_extract(value, '$.publishedDomain') IS NOT NULL
+        ), '') AS published_domains_csv,
         updated_at
       FROM knowledge_graphs
       ${whereSql}
@@ -945,6 +964,9 @@ export async function listMyGraphs(env, { limit = 20, offset = 0, metaArea = nul
     nodeCount: r.node_count ?? 0,
     updatedAt: r.updated_at || null,
     isMine: true,
+    // The node's own stamp only. The caller merges it with the publish registry, which is the
+    // authority on who serves a host today — the same two-step the REST listings do.
+    publishedDomainsCsv: r.published_domains_csv || '',
     ...graphLinks(r.id),
   }))
 

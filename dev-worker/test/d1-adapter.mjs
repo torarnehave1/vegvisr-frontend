@@ -273,3 +273,30 @@ export class FakePhotosWorker {
     return new Response(JSON.stringify({ urls: [this.url], keys: ['mcp-1.jpg'] }), { status: 200 })
   }
 }
+
+/**
+ * HTML_PAGES, faked with the one method the publish registry uses: list({prefix, cursor}).
+ * Keys carry metadata, because the metadata IS the registry — a key without a graphId is
+ * exactly the case the reader has to skip, so the stub can hold those too.
+ */
+export class PagesKVLike {
+  constructor(entries = [], { pageSize = 1000, throws = false } = {}) {
+    this.entries = entries.map((e) =>
+      typeof e === 'string' ? { name: e } : { name: e.name, metadata: e.metadata },
+    )
+    this.pageSize = pageSize
+    this.throws = throws
+    this.listCalls = 0
+  }
+  async list({ prefix = '', cursor } = {}) {
+    this.listCalls += 1
+    if (this.throws) throw new Error('KV unavailable')
+    const all = this.entries.filter((e) => e.name.startsWith(prefix))
+    const start = cursor ? Number(cursor) : 0
+    const keys = all.slice(start, start + this.pageSize)
+    const next = start + keys.length
+    return next >= all.length
+      ? { keys, list_complete: true }
+      : { keys, list_complete: false, cursor: String(next) }
+  }
+}
