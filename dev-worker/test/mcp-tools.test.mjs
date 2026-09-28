@@ -14,7 +14,7 @@ import assert from 'node:assert/strict'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { freshDb } from './d1-adapter.mjs'
+import { freshDb, seedUsers, FakeAI, FakePhotosWorker } from './d1-adapter.mjs'
 import { registerTools, TOOL_NAMES } from '../mcp/tools.js'
 import * as gs from '../graph-service.js'
 
@@ -606,6 +606,114 @@ describe('annotations tell the client the truth about each tool', () => {
   })
 })
 
+
+
+describe('generate_node_image fills a placeholder the node already has', () => {
+  const HEADER_EL =
+    "![Header|height: 200px; object-fit: 'cover'; object-position: 'center'](https://vegvisr.imgix.net/HEADERIMG.png)"
+
+  /** A connected client whose env has a working AI binding and photo service. */
+  async function withImages(authCtx = ALICE_RW) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.AI = new FakeAI()
+    env.PHOTOS_WORKER = new FakePhotosWorker()
+    const { client } = await connect(env, authCtx)
+    return { client, env }
+  }
+
+  test('end to end over the protocol: prompt in, imgix URL in the node', async () => {
+    const { client, env } = await withImages()
+    const g = await callOk(client, 'create_graph', {
+      title: 'Illustrated',
+      metaArea: '#X',
+      nodes: [{ id: 'n1', label: 'Intro', type: 'fulltext', info: `${HEADER_EL}\n\nBody text.` }],
+    })
+
+    const r = await callOk(client, 'generate_node_image', {
+      graphId: g.graphId,
+      nodeId: 'n1',
+      prompt: 'a fjord at dawn, wide angle, soft light',
+      placement: 'header',
+    })
+
+    assert.equal(r.success, true)
+    assert.equal(r.imageUrl, 'https://vegvisr.imgix.net/mcp-1.jpg')
+    assert.equal(r.remainingPlaceholders, 0)
+
+    const after = await callOk(client, 'get_graph', { graphId: g.graphId })
+    const info = after.nodes[0].info
+    assert.ok(info.includes('mcp-1.jpg'))
+    assert.ok(!info.includes('HEADERIMG.png'))
+    // The upload ran as the user, on a credential read from D1 — never from a tool argument.
+    assert.equal(env.PHOTOS_WORKER.uploads[0].token, 'sess-alice')
+  })
+
+  test('a read-only connection cannot generate anything', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.AI = new FakeAI()
+    env.PHOTOS_WORKER = new FakePhotosWorker()
+    const { client: rw } = await connect(env, ALICE_RW)
+    const g = await callOk(rw, 'create_graph', {
+      title: 'T',
+      metaArea: '#X',
+      nodes: [{ id: 'n1', label: 'a', type: 'fulltext', info: HEADER_EL }],
+    })
+
+    const { client: ro } = await connect(env, ALICE_RO)
+    const e = await callErr(ro, 'generate_node_image', { graphId: g.graphId, nodeId: 'n1', prompt: 'x' })
+    assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+    assert.equal(e.requiredScope, 'graph:write')
+    assert.equal(env.AI.calls.length, 0, 'scope is checked before anything is generated')
+  })
+
+  test("another user's graph is refused, and no image is paid for", async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.AI = new FakeAI()
+    env.PHOTOS_WORKER = new FakePhotosWorker()
+    const { client: alice } = await connect(env, ALICE_RW)
+    const g = await callOk(alice, 'create_graph', {
+      title: 'T',
+      metaArea: '#X',
+      nodes: [{ id: 'n1', label: 'a', type: 'fulltext', info: HEADER_EL }],
+    })
+
+    const { client: bob } = await connect(env, BOB_RW)
+    const e = await callErr(bob, 'generate_node_image', { graphId: g.graphId, nodeId: 'n1', prompt: 'x' })
+    assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.equal(env.AI.calls.length, 0)
+  })
+
+  test('a node with no placeholder is told what to write first, not guessed at', async () => {
+    const { client } = await withImages()
+    const g = await callOk(client, 'create_graph', {
+      title: 'T',
+      metaArea: '#X',
+      nodes: [{ id: 'n1', label: 'a', type: 'fulltext', info: 'Plain prose.' }],
+    })
+    const e = await callErr(client, 'generate_node_image', { graphId: g.graphId, nodeId: 'n1', prompt: 'x' })
+    assert.equal(e.code, gs.ERR.INVALID_INPUT)
+    assert.match(e.message, /get_fulltext_elements/)
+  })
+
+  test('it is a write but not destructive — it only overwrites a placeholder it verified', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'generate_node_image')
+    assert.equal(t.annotations.readOnlyHint, false)
+    assert.equal(t.annotations.destructiveHint, false)
+    assert.equal(t.annotations.idempotentHint, false, 'a second call would make a different picture')
+    // The prompt is the only free text; there is no imageUrl input, so a model cannot smuggle
+    // an arbitrary URL into someone's node through this tool.
+    assert.deepEqual(
+      Object.keys(t.inputSchema.properties).sort(),
+      ['expectedVersion', 'graphId', 'height', 'nodeId', 'placement', 'prompt', 'width'],
+    )
+  })
+})
 
 describe('the auth context is read the way the runtime actually supplies it', () => {
   test('identity comes from ctx.props, which is NOT a field of ctx.auth', async () => {

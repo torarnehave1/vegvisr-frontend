@@ -23,6 +23,7 @@ import { z } from 'zod'
 import * as gs from '../graph-service.js'
 import * as chat from '../chat-service.js'
 import * as templates from '../templates-service.js'
+import * as images from '../images-service.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared schemas
@@ -731,6 +732,107 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── generate_node_image ───────────────────────────────────────────────────
+  //
+  // The counterpart to get_fulltext_elements. Those element formats ship with placeholder
+  // image URLs — HEADERIMG.png, SIDEIMG.png, FANCYIMG.png — so a model that copies a format
+  // verbatim has already said "an image goes here, this size, with this much text wrapped
+  // beside it". This fills that slot in and nothing else.
+  //
+  // No image ever crosses the wire. The model sends a prompt; generation, upload and the swap
+  // all happen server-side, with the upload running as the authenticated user on a credential
+  // read from their own config row. That is deliberate: a base64 image through a tool argument
+  // would cost the model's whole context, and a URL from the model's own image tool expires.
+  server.registerTool(
+    'generate_node_image',
+    {
+      title: 'Generate the image a node is waiting for',
+      description:
+        'Generate an image from a text prompt and put it into a fulltext node that already ' +
+        'contains an image placeholder. WORKFLOW: call get_fulltext_elements, copy an image ' +
+        "element's format verbatim into the node's info (the format already contains the " +
+        'placeholder URL), then call this to fill it. It does NOT add an image element to a ' +
+        'node that has none — if the placeholder is missing it tells you so rather than ' +
+        'guessing where the image belongs. Only the first matching placeholder is replaced, so ' +
+        'a node with two pending images takes two calls. The prompt should describe the picture ' +
+        'itself — subject, setting, style, lighting — not the article it illustrates. Requires ' +
+        'the graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph containing the node.'),
+        nodeId: z.string().min(1).describe('The node whose placeholder to fill.'),
+        prompt: z
+          .string()
+          .min(1)
+          .describe('What to draw. Describe the image, not the topic: subject, setting, style, lighting, mood.'),
+        placement: z
+          .enum(['header', 'side', 'fancy'])
+          .optional()
+          .describe(
+            'Which placeholder to replace, matching the element already in the node: "header" for ' +
+              '![Header|…] (HEADERIMG.png), "side" for ![Leftside-N|…] or ![Rightside-N|…] ' +
+              '(SIDEIMG.png — the N is how many following paragraphs wrap beside the image, and it ' +
+              'is part of the element, not something this tool sets), "fancy" for a [FANCY] block ' +
+              'background (FANCYIMG.png). Default "header".',
+          ),
+        width: z.number().int().optional().describe('Pixel width, 256–2048, rounded to a multiple of 8. Omit for the model default.'),
+        height: z.number().int().optional().describe('Pixel height, 256–2048, rounded to a multiple of 8. Omit for the model default.'),
+        expectedVersion: z
+          .number()
+          .int()
+          .optional()
+          .describe("The version from get_graph. Omit to use the graph's current version — safe when nothing else is editing it."),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        nodeId: z.string(),
+        placement: z.string(),
+        imageUrl: z.string(),
+        replaced: z.string(),
+        remainingPlaceholders: z.number(),
+        currentVersion: z.number(),
+        newVersion: z.number(),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      // A write, but it only overwrites a placeholder it verified was there, so nothing the
+      // user wrote is lost. Not idempotent: calling twice generates a second, different image —
+      // though the second call finds no placeholder left and refuses, which is the intent.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ graphId, nodeId, prompt, placement, width, height, expectedVersion }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await images.generateImageForNode(env, {
+        graphId,
+        nodeId,
+        prompt,
+        placement: placement || 'header',
+        width: width ?? null,
+        height: height ?? null,
+        expectedVersion: Number.isInteger(expectedVersion) ? expectedVersion : null,
+        actor,
+      })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      const left = result.remainingPlaceholders
+      return ok(
+        { success: true, ...payload },
+        `Image generated and placed in node ${nodeId}.\n${result.imageUrl}\n` +
+          (left > 0
+            ? `${left} more ${result.placement} placeholder${left === 1 ? '' : 's'} left in this node.\n`
+            : '') +
+          `Version ${result.currentVersion} → ${result.newVersion}.\nViewer: ${result.viewerUrl}`,
+      )
+    },
+  )
+
   // ── search_graphs ─────────────────────────────────────────────────────────
   server.registerTool(
     'search_graphs',
@@ -927,6 +1029,7 @@ export const TOOL_NAMES = [
   'list_chat_groups',
   'read_chat_messages',
   'get_fulltext_elements',
+  'generate_node_image',
   'search_graphs',
   'list_my_graphs',
   'search',

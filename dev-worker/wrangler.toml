@@ -104,3 +104,11 @@ MCP_CHAT_BOT_FALLBACK_USERNAME = "ai-assistant"
 [[services]]
 binding = "CHAT_WORKER"
 service = "group-chat-worker"
+
+# photos-worker, for the MCP generate_node_image tool. Its /upload authenticates with
+# X-API-Token resolved against config.emailVerificationToken — there is no service-binding trust
+# path — so images-service.js reads the authenticated user's own token from D1 and sends it.
+# Running as the user is also what routes a World Founder's bytes into their own R2 account.
+[[services]]
+binding = "PHOTOS_WORKER"
+service = "vegvisr-photos-worker"

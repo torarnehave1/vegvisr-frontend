@@ -224,3 +224,52 @@ export function seedTemplates(raw, rows) {
     )
   }
 }
+
+/**
+ * Workers AI, faked. `run` returns the same thing the real binding does as far as this code is
+ * concerned: something `new Response(...)` can turn into bytes. The default body starts FF D8,
+ * because images-service checks the JPEG magic and a fake without it would make the
+ * happy-path tests fail for the wrong reason.
+ */
+export class FakeAI {
+  constructor({ bytes = null, throws = null } = {}) {
+    this.calls = []
+    this.throws = throws
+    this.bytes = bytes ?? new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4])
+  }
+  async run(model, input) {
+    this.calls.push({ model, input })
+    if (this.throws) throw new Error(this.throws)
+    return this.bytes
+  }
+}
+
+/**
+ * photos-worker, faked. Records the X-API-Token it was sent and the form fields, so a test can
+ * assert that the upload ran as the user rather than unauthenticated — which is exactly the bug
+ * in Agent-Builder's generate_image.
+ */
+export class FakePhotosWorker {
+  constructor({ status = 200, url = 'https://vegvisr.imgix.net/mcp-1.jpg', error = null } = {}) {
+    this.uploads = []
+    this.status = status
+    this.url = url
+    this.error = error
+  }
+  async fetch(url, init) {
+    const form = await new Response(init.body, { headers: init.headers }).formData()
+    const file = form.get('file')
+    this.uploads.push({
+      url,
+      token: new Headers(init.headers).get('X-API-Token'),
+      filename: form.get('filename'),
+      album: form.get('album'),
+      fileName: file?.name ?? null,
+      size: file?.size ?? 0,
+    })
+    if (this.status !== 200) {
+      return new Response(JSON.stringify({ error: this.error || 'refused' }), { status: this.status })
+    }
+    return new Response(JSON.stringify({ urls: [this.url], keys: ['mcp-1.jpg'] }), { status: 200 })
+  }
+}
