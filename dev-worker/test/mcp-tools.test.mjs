@@ -14,7 +14,7 @@ import assert from 'node:assert/strict'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike, FakeAgentWorker, FakeRegisterWorker } from './d1-adapter.mjs'
+import { freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike, FakeAgentWorker, FakeRegisterWorker, FakeRoleWorker } from './d1-adapter.mjs'
 import * as pd from '../published-domains.js'
 import { CONNECT_SCOPES, OPT_IN_SCOPES } from '../oauth/scopes.js'
 import { NODE_TYPES, suggestNodeType } from '../node-types.js'
@@ -94,7 +94,7 @@ describe('18. tools/list', () => {
   // Two tools act ON ANOTHER PERSON, so they have to name that person. That is a subject, not a
   // claim about the caller, and the distinction is what the two tests below pin: a directory
   // tool may name a subject, but NO tool anywhere may name the caller.
-  const DIRECTORY_TOOLS = new Set(['register_user', 'set_user_groups'])
+  const DIRECTORY_TOOLS = new Set(['register_user', 'set_user_groups', 'set_user_role'])
 
   test('no tool lets a model ask to be someone else', async () => {
     const { env } = freshDb()
@@ -128,6 +128,9 @@ describe('18. tools/list', () => {
     // set_user_groups cannot touch a role at all — it is one column wide.
     const grp = tools.find((x) => x.name === 'set_user_groups')
     assert.equal(Object.keys(grp.inputSchema.properties).includes('role'), false)
+    // set_user_role may name a role, but not the one that runs the platform.
+    const sr = tools.find((x) => x.name === 'set_user_role')
+    assert.equal(sr.inputSchema.properties.role.enum.includes('Superadmin'), false)
   })
 
   test('delete is not offered in v1', async () => {
@@ -1338,6 +1341,75 @@ describe('set_user_groups tags someone who is already registered', () => {
     const e = await callErr(client, 'set_user_groups', { email: 'kate@longwhitecloud.com', groupTags: '#X' })
     assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
     assert.equal(e.requiredScope, 'user:register')
+  })
+})
+
+
+describe('set_user_role is the only way to re-rank someone', () => {
+  const ROOT = {
+    auth: { ...ALICE_RW.auth, scope: ['graph:read', 'user:register'], userId: 'root@example.com' },
+    props: { userId: 'root@example.com', email: 'root@example.com', role: 'Superadmin', authMethod: 'oauth' },
+  }
+
+  function seeded(opts = {}) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.AGENT_WORKER = new FakeRoleWorker(opts)
+    raw.prepare("INSERT OR REPLACE INTO config (user_id, data, email, emailVerificationToken, Role) VALUES (?,?,?,?,?)")
+      .run('u-root', '{}', 'root@example.com', 'sess-root', 'Superadmin')
+    return env
+  }
+
+  test('changes the role and reports what it was before', async () => {
+    const env = seeded()
+    const { client } = await connect(env, ROOT)
+    const r = await callOk(client, 'set_user_role', { email: 'ingrid.synnove.meyer@gmail.com', role: 'Admin' })
+    assert.equal(r.changed, true)
+    assert.equal(r.previousRole, 'Realtime')
+    assert.equal(r.role, 'Admin')
+    assert.equal(env.AGENT_WORKER.calls[0].token, 'sess-root', 'runs as the caller')
+  })
+
+  test('Superadmin is not in the schema, so it cannot be granted', async () => {
+    const env = seeded()
+    const { client } = await connect(env, ROOT)
+    const r = await client.callTool({ name: 'set_user_role', arguments: { email: 'x@y.no', role: 'Superadmin' } })
+    assert.equal(r.isError, true)
+    assert.equal(env.AGENT_WORKER.calls.length, 0, 'refused by the protocol, nothing forwarded')
+  })
+
+  test("a refusal from the service reads as a permission problem, not an internal one", async () => {
+    // agent-worker refuses to change a user who IS Superadmin — a model that could demote one
+    // could lock the owner out of their own platform.
+    const env = seeded({ ok: false, status: 400, error: "msneeggen@gmail.com is a Superadmin. Changing a Superadmin's role is not available here" })
+    const { client } = await connect(env, ROOT)
+    const e = await callErr(client, 'set_user_role', { email: 'msneeggen@gmail.com', role: 'ViewOnly' })
+    assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.match(e.message, /is a Superadmin/)
+  })
+
+  test('setting the role they already have changes nothing and says so', async () => {
+    const env = seeded({ changed: false, previousRole: 'Admin' })
+    const { client } = await connect(env, ROOT)
+    const r = await callOk(client, 'set_user_role', { email: 'a@b.no', role: 'Admin' })
+    assert.equal(r.changed, false)
+  })
+
+  test('a non-Superadmin caller is refused before anything leaves this worker', async () => {
+    const env = seeded()
+    const { client } = await connect(env, { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['user:register'] } })
+    const e = await callErr(client, 'set_user_role', { email: 'a@b.no', role: 'Admin' })
+    assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.equal(env.AGENT_WORKER.calls.length, 0)
+  })
+
+  test('it declares that it can take access away', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ROOT)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'set_user_role')
+    assert.equal(t.annotations.destructiveHint, true)
+    assert.equal(t.annotations.idempotentHint, true)
   })
 })
 

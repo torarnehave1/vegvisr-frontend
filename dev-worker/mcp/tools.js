@@ -1260,6 +1260,57 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── set_user_role ─────────────────────────────────────────────────────────
+  //
+  // register_user does not re-rank an existing account, on purpose — completing a profile must
+  // not change what someone may do. That left no way to change a role at all, so a role passed
+  // to registration came back "success" with the ranking untouched.
+  server.registerTool(
+    'set_user_role',
+    {
+      title: "Change a registered person's role",
+      description:
+        'Change what an already-registered person may do. This is the ONLY way to change a role: ' +
+        'register_user completes a profile but deliberately leaves the existing role alone, so ' +
+        'passing a role there does nothing for someone who already has an account. Superadmin ' +
+        'cannot be granted here, and a person who already IS Superadmin cannot be changed. ' +
+        'Requires the user:register scope and the Superadmin role.',
+      inputSchema: {
+        email: z.string().min(3).describe('The registered person whose role to change.'),
+        role: z.enum(users.ASSIGNABLE_ROLES).describe('The new role. Admin is the ordinary member role here; ViewOnly can read but not change.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        email: z.string(),
+        role: z.string(),
+        previousRole: z.string().nullable(),
+        changed: z.boolean(),
+      },
+      // Changes what a person may do, so destructive in the sense that it can take access away.
+      // Idempotent: setting the role they already have reports changed:false.
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ email, role }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'user:register')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await users.setUserRole(env, { email, role, actor })
+      if (!r.ok) return fromService(r)
+
+      const { ok: _o, ...payload } = r
+      return ok(
+        { success: true, ...payload },
+        r.changed
+          ? `${r.email}: role ${r.previousRole || '(none)'} → ${r.role}.`
+          : `${r.email} already had role ${r.role}. Nothing changed.`,
+      )
+    },
+  )
+
   // ── list_published_sites ──────────────────────────────────────────────────
   //
   // The portfolio's "Published sites" chip, as data. brand-worker writes an HTML_PAGES key
@@ -1551,6 +1602,7 @@ export const TOOL_NAMES = [
   'register_user',
   'list_users',
   'set_user_groups',
+  'set_user_role',
   'list_published_sites',
   'search_graphs',
   'list_my_graphs',

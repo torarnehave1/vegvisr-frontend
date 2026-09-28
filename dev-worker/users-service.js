@@ -284,3 +284,55 @@ export async function setUserGroups(env, { email, groupTags, mode = 'add', actor
 
   return { ok: true, email: normalisedEmail, groupTags: data.group_tags || after, before, changed: true }
 }
+
+
+/**
+ * Change a registered person's role.
+ *
+ * Separate from registration because admin_register_user deliberately does NOT re-rank an
+ * existing account — completing a profile must not change what someone may do. That left no way
+ * to change a role at all, which is how a role passed to registration came back "success" with
+ * the ranking untouched (2026-09-28).
+ *
+ * Two ceilings, both about not letting an assistant restructure who runs the platform:
+ * Superadmin cannot be granted, and a current Superadmin cannot be changed — a model that could
+ * demote one could lock the owner out. Both are enforced again in agent-worker; this is the
+ * friendly half, so the refusal reads well instead of arriving as a 400.
+ */
+export async function setUserRole(env, { email, role, actor }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!actor.isSuperadmin) {
+    return fail(ERR.FORBIDDEN_GRAPH, "Changing someone's role requires the Superadmin role.")
+  }
+  if (!looksLikeEmail(email)) return fail(ERR.INVALID_INPUT, 'A valid email address is required.')
+  if (!ASSIGNABLE_ROLES.includes(role)) {
+    return fail(ERR.INVALID_INPUT, `role must be one of: ${ASSIGNABLE_ROLES.join(', ')}. Superadmin cannot be granted through this connection.`)
+  }
+  if (!env.AGENT_WORKER?.fetch) {
+    return fail(ERR.INTERNAL_ERROR, 'The AGENT_WORKER service binding is not configured on this worker.')
+  }
+
+  const normalisedEmail = String(email).trim().toLowerCase()
+  const token = await callerToken(env, actor)
+  if (!token) return fail(ERR.FORBIDDEN_GRAPH, 'No credential on your account. Sign in at vegvisr.org once, then try again.')
+
+  const res = await env.AGENT_WORKER.fetch('https://agent-worker/admin/set-user-role', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Token': token },
+    body: JSON.stringify({ email: normalisedEmail, role }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || data?.success === false) {
+    const msg = data?.error || `Could not change the role (status ${res.status}).`
+    const code = /Superadmin|not registered/i.test(msg) ? ERR.FORBIDDEN_GRAPH : ERR.INVALID_INPUT
+    return fail(code, msg)
+  }
+
+  return {
+    ok: true,
+    email: data.email || normalisedEmail,
+    role: data.role || role,
+    previousRole: data.previousRole ?? null,
+    changed: data.changed === true,
+  }
+}

@@ -321,6 +321,23 @@ export class FakeAgentWorker {
   }
 }
 
+/** agent-worker's /admin/set-user-role, faked. */
+export class FakeRoleWorker {
+  constructor({ ok = true, changed = true, previousRole = 'Realtime', error = null, status = 200 } = {}) {
+    this.calls = []
+    this.ok = ok; this.changed = changed; this.previousRole = previousRole; this.error = error; this.status = status
+  }
+  async fetch(url, init) {
+    const body = JSON.parse(init.body)
+    this.calls.push({ url, token: new Headers(init.headers).get('X-API-Token'), body })
+    if (!this.ok) return new Response(JSON.stringify({ success: false, error: this.error }), { status: this.status })
+    return new Response(JSON.stringify({
+      success: true, email: body.email, role: body.role,
+      previousRole: this.previousRole, changed: this.changed,
+    }), { status: 200 })
+  }
+}
+
 /** agent-worker's /admin/register-user, faked. Records what the MCP layer forwarded. */
 export class FakeRegisterWorker {
   constructor({ ok = true, updated = false, error = null, status = 200, role = 'Admin' } = {}) {
