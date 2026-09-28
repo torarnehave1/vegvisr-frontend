@@ -1311,6 +1311,52 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── list_meta_areas ───────────────────────────────────────────────────────
+  //
+  // The map before the territory. Without it the only way to learn which meta areas exist was to
+  // page every graph — 675 of them here — or to open each one. The counts come from the same
+  // tokenisation GET /getmetaareas uses, so the two surfaces cannot disagree about the same data.
+  server.registerTool(
+    'list_meta_areas',
+    {
+      title: 'List the meta areas used across my graphs',
+      description:
+        'Return every meta area used by the graphs the authenticated user owns, with how many ' +
+        'graphs each covers, most-used first, plus how many graphs have no meta area at all. ' +
+        'CALL THIS BEFORE filtering by metaArea, so the filter uses a tag that exists rather than ' +
+        'a guess. One graph can carry several tags ("#NIBI #VEGR.AI") and is counted under each, ' +
+        'so the counts add up to more than the number of graphs. Requires the graph:read scope.',
+      inputSchema: {},
+      outputSchema: {
+        success: z.boolean(),
+        count: z.number(),
+        untagged: z.number(),
+        totalGraphs: z.number(),
+        metaAreas: z.array(z.object({ metaArea: z.string(), graphCount: z.number() })),
+      },
+      annotations: READ_ONLY,
+    },
+    async () => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await gs.listMetaAreas(env, { actor })
+      if (!r.ok) return fromService(r)
+
+      const { ok: _o, ...payload } = r
+      const lines = r.metaAreas.map((m) => `${m.metaArea} — ${m.graphCount} graph${m.graphCount === 1 ? '' : 's'}`)
+      if (r.untagged) lines.push(`(none) — ${r.untagged} graph${r.untagged === 1 ? '' : 's'}`)
+      const head = r.count === 0
+        ? `None of your ${r.totalGraphs} graphs has a meta area.`
+        : `${r.count} meta area${r.count === 1 ? '' : 's'} across ${r.totalGraphs} graphs you own:`
+      return ok({ success: true, ...payload }, [head, ...lines].join('\n'))
+    },
+  )
+
   // ── list_published_sites ──────────────────────────────────────────────────
   //
   // The portfolio's "Published sites" chip, as data. brand-worker writes an HTML_PAGES key
@@ -1434,7 +1480,11 @@ export function registerTools(server, getContext) {
         (g) => `• ${g.title || '(untitled)'} — ${g.graphId} · ${g.nodeCount} nodes · ${g.publicationState}` +
           `${g.isMine ? ' · yours' : ''}${g.publishedDomains.length ? ` · live at ${g.publishedDomains.join(', ')}` : ''}`,
       )
-      return ok({ success: true, ...r, results, ok: undefined }, [head, ...lines].join('\n'))
+      // Destructure `ok` out rather than setting it undefined: a key with an undefined value is
+      // still a key, and outputSchema forbids extras — an SDK client that has fetched the tool
+      // list THROWS on the response rather than ignoring it.
+      const { ok: _drop, ...payload } = r
+      return ok({ success: true, ...payload, results }, [head, ...lines].join('\n'))
     },
   )
 
@@ -1444,11 +1494,14 @@ export function registerTools(server, getContext) {
     {
       title: 'List my knowledge graphs',
       description:
-        'List the graphs the authenticated user owns, newest first, including private ones. ' +
-        'Requires the graph:read scope.',
+        'List the graphs the authenticated user owns, newest first, including private ones. Each ' +
+        'line carries the meta areas and any live site, so the whole collection can be surveyed ' +
+        'without opening graphs one by one. limit goes up to 200, so a few hundred graphs take a ' +
+        'handful of calls — page with offset. To find out which meta areas exist before filtering, ' +
+        'call list_meta_areas. Requires the graph:read scope.',
       inputSchema: {
-        metaArea: z.string().optional().describe('Narrow to a meta-area tag, e.g. "#HISTORY".'),
-        limit: z.number().int().optional().describe('Results per page, 1–50. Default 20.'),
+        metaArea: z.string().optional().describe('Narrow to a meta-area tag, e.g. "#HISTORY". Call list_meta_areas first to see which tags exist and how many graphs each has.'),
+        limit: z.number().int().optional().describe('Results per page, 1–200. Default 20. Use 200 to survey a large collection in few calls.'),
         offset: z.number().int().optional().describe('How many results to skip, for paging.'),
       },
       outputSchema: listShape,
@@ -1470,9 +1523,14 @@ export function registerTools(server, getContext) {
         : `You own ${r.total} graph${r.total === 1 ? '' : 's'}, showing ${results.length} from ${r.offset}.`
       const lines = results.map(
         (g) => `• ${g.title || '(untitled)'} — ${g.graphId} · ${g.nodeCount} nodes · ${g.publicationState}` +
+          ` · meta: ${g.metaArea || '(none)'}` +
           `${g.publishedDomains.length ? ` · live at ${g.publishedDomains.join(', ')}` : ''}`,
       )
-      return ok({ success: true, ...r, results, ok: undefined }, [head, ...lines].join('\n'))
+      // Destructure `ok` out rather than setting it undefined: a key with an undefined value is
+      // still a key, and outputSchema forbids extras — an SDK client that has fetched the tool
+      // list THROWS on the response rather than ignoring it.
+      const { ok: _drop, ...payload } = r
+      return ok({ success: true, ...payload, results }, [head, ...lines].join('\n'))
     },
   )
 
@@ -1606,6 +1664,7 @@ export const TOOL_NAMES = [
   'list_published_sites',
   'search_graphs',
   'list_my_graphs',
+  'list_meta_areas',
   'search',
   'fetch',
 ]

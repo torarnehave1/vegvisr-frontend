@@ -630,6 +630,29 @@ describe('annotations tell the client the truth about each tool', () => {
     }
   })
 
+  test('a client that has fetched the tool list can consume every read result', async () => {
+    // The SDK client only validates structuredContent against outputSchema AFTER listTools, and
+    // it THROWS rather than flagging. list_my_graphs and search_graphs both returned an extra
+    // `ok` key — set to undefined, but a key all the same — so a strict client rejected the
+    // response. Every real client fetches the tool list first, so this is the shape that matters.
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    await client.listTools()
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X' })
+    for (const [name, args] of [
+      ['list_my_graphs', {}],
+      ['search_graphs', { query: 'T' }],
+      ['list_meta_areas', {}],
+      ['list_published_sites', {}],
+      ['get_graph', { graphId: g.graphId }],
+      ['get_graph_links', { graphId: g.graphId }],
+      ['search', { query: 'T' }],
+      ['fetch', { id: g.graphId }],
+    ]) {
+      await client.callTool({ name, arguments: args }) // throws if the schema is violated
+    }
+  })
+
   test('the declared output schema actually matches what the tools return', async () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RW)
@@ -1410,6 +1433,91 @@ describe('set_user_role is the only way to re-rank someone', () => {
     const t = tools.find((x) => x.name === 'set_user_role')
     assert.equal(t.annotations.destructiveHint, true)
     assert.equal(t.annotations.idempotentHint, true)
+  })
+})
+
+
+describe('surveying a large collection without opening every graph', () => {
+  async function withGraphs(specs) {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    for (const [title, metaArea] of specs) {
+      await callOk(client, 'create_graph', { title, metaArea })
+    }
+    return { env, client }
+  }
+
+  test('list_my_graphs shows the meta area on every line, and (none) when there is none', async () => {
+    const { client } = await withGraphs([['A', '#NIBI #VEGR.AI'], ['B', '#NIBI']])
+    const r = await client.callTool({ name: 'list_my_graphs', arguments: {} })
+    const text = r.content[0].text
+    // The structured result already carried metaArea; the TEXT a model reads did not.
+    assert.match(text, /meta: #NIBI #VEGR\.AI/)
+    assert.match(text, /meta: #NIBI(?! #)/)
+    for (const g of r.structuredContent.results) assert.ok('metaArea' in g)
+  })
+
+  test('list_meta_areas counts each tag, and a graph with two tags counts in both', async () => {
+    const { client } = await withGraphs([
+      ['A', '#NIBI #VEGR.AI'], ['B', '#NIBI'], ['C', '#NIBI'], ['D', '#OTHER'],
+    ])
+    const r = await callOk(client, 'list_meta_areas', {})
+    assert.equal(r.totalGraphs, 4)
+    assert.deepEqual(r.metaAreas, [
+      { metaArea: '#NIBI', graphCount: 3 },
+      { metaArea: '#OTHER', graphCount: 1 },
+      { metaArea: '#VEGR.AI', graphCount: 1 },
+    ])
+    assert.equal(r.untagged, 0)
+    // Counts sum to more than the number of graphs, because A carries two tags.
+    assert.equal(r.metaAreas.reduce((n, m) => n + m.graphCount, 0), 5)
+  })
+
+  test('it is sorted by count, most-used first', async () => {
+    const { client } = await withGraphs([['A', '#RARE'], ['B', '#COMMON'], ['C', '#COMMON'], ['D', '#COMMON']])
+    const r = await callOk(client, 'list_meta_areas', {})
+    assert.deepEqual(r.metaAreas.map((m) => m.metaArea), ['#COMMON', '#RARE'])
+  })
+
+  test('tags are matched case-insensitively, the way /getmetaareas splits them', async () => {
+    const { client } = await withGraphs([['A', '#nibi'], ['B', '#NIBI'], ['C', '#Nibi']])
+    const r = await callOk(client, 'list_meta_areas', {})
+    assert.deepEqual(r.metaAreas, [{ metaArea: '#NIBI', graphCount: 3 }])
+  })
+
+  test('a graph listing the same tag twice is counted once', async () => {
+    const { client } = await withGraphs([['A', '#NIBI #NIBI']])
+    const r = await callOk(client, 'list_meta_areas', {})
+    assert.deepEqual(r.metaAreas, [{ metaArea: '#NIBI', graphCount: 1 }])
+  })
+
+  test("another user's graphs are not counted", async () => {
+    const { env } = freshDb()
+    const { client: alice } = await connect(env, ALICE_RW)
+    const { client: bob } = await connect(env, BOB_RW)
+    await callOk(alice, 'create_graph', { title: 'Mine', metaArea: '#MINE' })
+    await callOk(bob, 'create_graph', { title: 'Theirs', metaArea: '#THEIRS' })
+    const r = await callOk(alice, 'list_meta_areas', {})
+    assert.deepEqual(r.metaAreas, [{ metaArea: '#MINE', graphCount: 1 }])
+    assert.equal(r.totalGraphs, 1)
+  })
+
+  test('list_my_graphs now pages up to 200, while search_graphs stays at 50', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    assert.match(tools.find((t) => t.name === 'list_my_graphs').inputSchema.properties.limit.description, /1–200/)
+    assert.match(tools.find((t) => t.name === 'search_graphs').inputSchema.properties.limit.description, /1–50/)
+
+    const r = await callOk(client, 'list_my_graphs', { limit: 200 })
+    assert.equal(r.limit, 200, 'a limit of 200 must not be clamped back to 50')
+  })
+
+  test('the metaArea filter still works unchanged', async () => {
+    const { client } = await withGraphs([['A', '#NIBI'], ['B', '#OTHER']])
+    const r = await callOk(client, 'list_my_graphs', { metaArea: '#NIBI' })
+    assert.equal(r.results.length, 1)
+    assert.equal(r.results[0].title, 'A')
   })
 })
 

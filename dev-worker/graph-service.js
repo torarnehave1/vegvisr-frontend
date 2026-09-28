@@ -790,11 +790,17 @@ function visibilityClause(actor) {
 
 const SEARCH_MAX_LIMIT = 50
 
-function clampLimit(limit, fallback = 20) {
+function clampLimit(limit, fallback = 20, max = SEARCH_MAX_LIMIT) {
   const n = Number.parseInt(limit ?? '', 10)
   if (!Number.isFinite(n)) return fallback
-  return Math.min(Math.max(n, 1), SEARCH_MAX_LIMIT)
+  return Math.min(Math.max(n, 1), max)
 }
+
+/**
+ * listMyGraphs may page bigger than search does. Someone with 675 graphs needs a handful of
+ * calls, not fourteen — and unlike search this one is a plain owner filter with no scan.
+ */
+const OWN_GRAPHS_MAX_LIMIT = 200
 
 /**
  * Free-text search across titles, descriptions, meta areas and node content, restricted to what
@@ -911,7 +917,7 @@ export async function listMyGraphs(env, { limit = 20, offset = 0, metaArea = nul
     return fail(ERR.FORBIDDEN_GRAPH, 'This token has no user identity, so it owns no graphs.')
   }
 
-  const lim = clampLimit(limit)
+  const lim = clampLimit(limit, 20, OWN_GRAPHS_MAX_LIMIT)
   const off = Math.max(Number.parseInt(offset ?? '', 10) || 0, 0)
   const dataSql = `CASE WHEN json_valid(data) THEN data END`
   const nodesSql = `COALESCE(json_extract(${dataSql}, '$.nodes'), '[]')`
@@ -1077,4 +1083,59 @@ export async function updateNode(env, { graphId, nodeId, fields, expectedVersion
     publicationState: graphData.metadata?.publicationState || 'private',
     ...graphLinks(graphId),
   }
+}
+
+
+/**
+ * Which meta areas the actor's own graphs use, and how many graphs each covers.
+ *
+ * The tokenisation is deliberately identical to GET /getmetaareas in index.js — split on '#',
+ * trim, uppercase, drop empties — because metaArea is one string holding several tags
+ * ("#NIBI #VEGR.AI") and any other splitting would make the two surfaces disagree about the
+ * same data. That endpoint counts across every graph in the system; this one is the owner's,
+ * which is why it is a separate query rather than a call to it.
+ *
+ * A graph with several tags counts toward each of them, so the counts sum to more than the
+ * number of graphs. `untagged` is the graphs with no meta area at all, which is the one number
+ * the per-area counts cannot show.
+ */
+export async function listMetaAreas(env, { actor }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!actor.email) {
+    return fail(ERR.FORBIDDEN_GRAPH, 'This token has no user identity, so it owns no graphs.')
+  }
+
+  const dataSql = `CASE WHEN json_valid(data) THEN data END`
+  const rows = await env.vegvisr_org
+    .prepare(`
+      SELECT COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '') AS meta_area
+      FROM knowledge_graphs
+      WHERE LOWER(COALESCE(creator_email, '')) = ?
+    `)
+    .bind(actor.email)
+    .all()
+
+  const counts = new Map()
+  let untagged = 0
+  let totalGraphs = 0
+
+  for (const row of rows.results || []) {
+    totalGraphs += 1
+    const areas = String(row.meta_area || '')
+      .split('#')
+      .map((a) => a.trim().toUpperCase())
+      .filter(Boolean)
+    if (!areas.length) {
+      untagged += 1
+      continue
+    }
+    // A graph listing the same tag twice must not count twice.
+    for (const area of new Set(areas)) counts.set(area, (counts.get(area) || 0) + 1)
+  }
+
+  const metaAreas = [...counts.entries()]
+    .map(([name, graphCount]) => ({ metaArea: `#${name}`, graphCount }))
+    .sort((a, b) => b.graphCount - a.graphCount || a.metaArea.localeCompare(b.metaArea))
+
+  return { ok: true, metaAreas, count: metaAreas.length, untagged, totalGraphs }
 }
