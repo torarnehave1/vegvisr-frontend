@@ -869,6 +869,106 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── update_graph_metadata ─────────────────────────────────────────────────
+  //
+  // Wraps graph-service's updateMetadata, which was written and tested when graphService was
+  // extracted but never given a caller — index.js imports it and never calls it. This is its
+  // first one, so the guard rails are here rather than assumed to exist upstream.
+  //
+  // publicationState is deliberately absent from the schema. The service refuses it too, but a
+  // model should not see a field it cannot use: publishing is its own audited action.
+  server.registerTool(
+    'update_graph_metadata',
+    {
+      title: 'Update a graph\'s title, description, meta areas or category',
+      description:
+        "Change a graph's metadata without touching its nodes or edges. THE FIELDS YOU PASS " +
+        'REPLACE THE OLD VALUES ENTIRELY — metaArea is a single space-separated string, so to ' +
+        'ADD a tag you must read the current value with get_graph and send the whole new string ' +
+        'including the tags that were already there. Sending only the new tag silently deletes ' +
+        'the rest. Meta-area tags are written #LIKETHIS, uppercase, separated by spaces. ' +
+        'Anything you omit is left untouched. This cannot publish or unpublish a graph and ' +
+        'cannot change who created it. Requires the graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph to update.'),
+        fields: z
+          .object({
+            title: z.string().optional().describe('New title. Replaces the old one.'),
+            description: z.string().optional().describe('New description. Replaces the old one.'),
+            metaArea: z
+              .string()
+              .optional()
+              .describe(
+                'The COMPLETE new meta-area string, e.g. "#MAIKENSNEEGGEN #LIVINGART #OFFER". ' +
+                  'This replaces the whole value — read the current one first and include every ' +
+                  'tag you want to keep.',
+              ),
+            category: z.string().optional().describe('New category, e.g. "#Uncategorized".'),
+          })
+          .describe('The metadata fields to change. Omit a field to leave it alone.'),
+        expectedVersion: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            'Optional concurrency guard. Omit it to use the graph\'s current version. Note this ' +
+              'is the VERSION HISTORY number, which for a handful of older graphs differs from ' +
+              'the version get_graph reports — so prefer omitting it over copying that one.',
+          ),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        newVersion: z.number(),
+        title: z.string().nullable(),
+        metaArea: z.string().nullable(),
+        publicationState: z.string(),
+        updatedFields: z.array(z.string()),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      // A write that replaces existing values, so destructive — a metaArea sent without the
+      // existing tags loses them. Idempotent: applying the same fields twice lands on the same
+      // metadata (the version moves, the content does not).
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ graphId, fields, expectedVersion }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const access = await gs.checkAccess(env, actor, graphId, 'write')
+      if (!access.ok) return fromService(access)
+
+      if (!fields || Object.keys(fields).length === 0) {
+        return err(gs.ERR.INVALID_INPUT, 'fields must name at least one metadata field to change.')
+      }
+
+      // updateMetadata compares against MAX(version) in the history table, NOT metadata.version.
+      // The two agree for all but nine of the graphs in production, and a model that copied the
+      // version out of get_graph would hit a conflict it could not explain. Defaulting from the
+      // source the service actually reads removes the trap.
+      const version = Number.isInteger(expectedVersion)
+        ? expectedVersion
+        : await gs.currentVersion(env, graphId)
+
+      const result = await gs.updateMetadata(env, { graphId, fields, expectedVersion: version, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      const updatedFields = Object.keys(fields)
+      return ok(
+        { success: true, ...payload, updatedFields },
+        `Updated ${updatedFields.join(', ')} on graph ${graphId}.` +
+          (result.metaArea ? `\nMeta areas are now: ${result.metaArea}` : '') +
+          `\nVersion is now ${result.newVersion}.\nViewer: ${result.viewerUrl}`,
+      )
+    },
+  )
+
   // ── list_published_sites ──────────────────────────────────────────────────
   //
   // The portfolio's "Published sites" chip, as data. brand-worker writes an HTML_PAGES key
@@ -1155,6 +1255,7 @@ export const TOOL_NAMES = [
   'read_chat_messages',
   'get_fulltext_elements',
   'generate_node_image',
+  'update_graph_metadata',
   'list_published_sites',
   'search_graphs',
   'list_my_graphs',

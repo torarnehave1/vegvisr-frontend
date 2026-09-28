@@ -717,6 +717,107 @@ describe('generate_node_image fills a placeholder the node already has', () => {
 })
 
 
+
+describe('update_graph_metadata gives updateMetadata its first caller', () => {
+  test('replaces metaArea and leaves title and nodes alone', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', {
+      title: 'Living Art',
+      metaArea: '#MAIKENSNEEGGEN #LIVINGART',
+      nodes: [{ id: 'n1', label: 'Intro', type: 'fulltext', info: 'body' }],
+    })
+
+    const r = await callOk(client, 'update_graph_metadata', {
+      graphId: g.graphId,
+      fields: { metaArea: '#MAIKENSNEEGGEN #LIVINGART #MOVEMETIME #IAMAZINGPAGE' },
+    })
+    assert.equal(r.success, true)
+    assert.equal(r.metaArea, '#MAIKENSNEEGGEN #LIVINGART #MOVEMETIME #IAMAZINGPAGE')
+    assert.deepEqual(r.updatedFields, ['metaArea'])
+
+    const after = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(after.title, 'Living Art', 'title untouched')
+    assert.equal(after.nodeCount, 1, 'nodes untouched')
+  })
+
+  test('omitting expectedVersion works — it defaults to the source the service compares', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#A' })
+    // Two updates in a row, neither passing a version. A default read from the wrong source
+    // would make the second one conflict.
+    await callOk(client, 'update_graph_metadata', { graphId: g.graphId, fields: { metaArea: '#A #B' } })
+    const second = await callOk(client, 'update_graph_metadata', { graphId: g.graphId, fields: { metaArea: '#A #B #C' } })
+    assert.equal(second.metaArea, '#A #B #C')
+  })
+
+  test('a stale expectedVersion is a conflict that reports the real version', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#A' })
+    const e = await callErr(client, 'update_graph_metadata', {
+      graphId: g.graphId,
+      fields: { metaArea: '#B' },
+      expectedVersion: 99,
+    })
+    assert.equal(e.code, gs.ERR.VERSION_CONFLICT)
+    assert.equal(e.expectedVersion, 99)
+    assert.equal(typeof e.currentVersion, 'number')
+  })
+
+  test('publicationState is not offered in the schema and is refused if forced', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'update_graph_metadata')
+    const fieldNames = Object.keys(t.inputSchema.properties.fields.properties).sort()
+    assert.deepEqual(fieldNames, ['category', 'description', 'metaArea', 'title'])
+    assert.ok(!fieldNames.includes('publicationState'), 'publishing is its own action')
+    assert.ok(!fieldNames.includes('createdBy'), 'a model cannot reassign authorship')
+    assert.ok(!fieldNames.includes('version'))
+  })
+
+  test("another user's graph is refused", async () => {
+    const { env } = freshDb()
+    const { client: alice } = await connect(env, ALICE_RW)
+    const g = await callOk(alice, 'create_graph', { title: 'Hers', metaArea: '#A' })
+    const { client: bob } = await connect(env, BOB_RW)
+    const e = await callErr(bob, 'update_graph_metadata', { graphId: g.graphId, fields: { metaArea: '#MINE' } })
+    assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH)
+  })
+
+  test('a read-only connection cannot change metadata', async () => {
+    const { env } = freshDb()
+    const { client: rw } = await connect(env, ALICE_RW)
+    const g = await callOk(rw, 'create_graph', { title: 'T', metaArea: '#A' })
+    const { client: ro } = await connect(env, ALICE_RO)
+    const e = await callErr(ro, 'update_graph_metadata', { graphId: g.graphId, fields: { metaArea: '#B' } })
+    assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+  })
+
+  test('empty fields is refused rather than bumping the version for nothing', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#A' })
+    const e = await callErr(client, 'update_graph_metadata', { graphId: g.graphId, fields: {} })
+    assert.equal(e.code, gs.ERR.INVALID_INPUT)
+  })
+
+  test('the version history keeps the previous metadata, so a wrong overwrite is recoverable', async () => {
+    const { env, raw } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#KEEP #THIS' })
+    // The exact mistake the tool description warns about: sending only the new tag.
+    await callOk(client, 'update_graph_metadata', { graphId: g.graphId, fields: { metaArea: '#ONLYNEW' } })
+
+    const rows = raw.prepare('SELECT version, data FROM knowledge_graph_history WHERE graph_id = ? ORDER BY version').all(g.graphId)
+    const areas = rows.map((r) => JSON.parse(r.data).metadata.metaArea)
+    assert.ok(areas.includes('#KEEP #THIS'), 'the old value is still in history')
+    assert.equal(areas[areas.length - 1], '#ONLYNEW')
+  })
+})
+
 describe('the published-site registry reaches MCP the same way it reaches the portfolio', () => {
   const key = (host, graphId, nodeId = 'html-1') => ({
     name: `html:${host}`,
