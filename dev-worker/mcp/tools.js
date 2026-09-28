@@ -26,6 +26,7 @@ import * as templates from '../templates-service.js'
 import * as images from '../images-service.js'
 import * as sites from '../published-domains.js'
 import * as publish from '../publish-service.js'
+import { NODE_TYPES, DEFAULT_NODE_TYPE, suggestNodeType } from '../node-types.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared schemas
@@ -35,10 +36,20 @@ const NodeInput = z
   .object({
     id: z.string().min(1).optional().describe('Node id. A UUID v4 is generated when omitted.'),
     label: z.string().min(1).describe('Node display label. Required.'),
+    // An enum, not a sentence. The old free-text description listed five examples and omitted
+    // html-node, so a model building an HTML page invented "html" — which has no renderer and
+    // displays as raw text. A wrong value is now refused by the protocol before anything is
+    // stored, and the list a model sees is the same one openapi.json publishes.
     type: z
-      .string()
+      .enum(NODE_TYPES)
       .optional()
-      .describe("Node content type, e.g. fulltext, image, link, video, audio, mermaid-diagram. Defaults to fulltext."),
+      .describe(
+        `The node's content type — it selects the renderer, so the exact string matters and a ` +
+          `wrong one would display as plain text. Note the -node suffix: "html-node", not "html". ` +
+          `Defaults to ${DEFAULT_NODE_TYPE}. Common: fulltext (markdown), html-node (a full HTML ` +
+          `document in an iframe), css-node (a stylesheet for the html-nodes in the same graph), ` +
+          `info (markdown in an info panel), markdown-image, youtube-video, mermaid-diagram.`,
+      ),
     info: z.string().optional().describe('Node content. Markdown for fulltext nodes.'),
     color: z.string().optional().describe('Hex colour, e.g. #4f6d7a.'),
     bibl: z.array(z.string()).optional().describe('Source URLs or references.'),
@@ -465,7 +476,7 @@ export function registerTools(server, getContext) {
           .object({
             label: z.string().optional().describe('New display label.'),
             info: z.string().optional().describe('New content. Markdown for fulltext nodes. Replaces the old content entirely.'),
-            type: z.string().optional().describe('New node type.'),
+            type: z.enum(NODE_TYPES).optional().describe('New node type. Must be one of the known types — "html-node", not "html".'),
             color: z.string().optional().describe('New hex colour.'),
             path: z.string().nullable().optional().describe('New media path.'),
             bibl: z.array(z.string()).optional().describe('New source list — replaces the old one.'),

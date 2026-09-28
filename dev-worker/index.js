@@ -23,6 +23,7 @@ import {
 } from './graph-service.js'
 import { listTemplates as gsListTemplates } from './templates-service.js'
 import { readPublishedDomainRegistry, mergePublishedDomains } from './published-domains.js'
+import { NODE_TYPES } from './node-types.js'
 import { OAuthProvider } from '@cloudflare/workers-oauth-provider'
 import { handleAuthorize, ISSUER, MCP_RESOURCE, SUPPORTED_SCOPES } from './oauth/authorize.js'
 import { mcpHandler } from './mcp/server.js'
@@ -5407,36 +5408,10 @@ const restHandler = {
                   color: { type: 'string', default: '#4f6d7a', description: 'Node color (hex)' },
                   type: {
                     type: 'string',
-                    // GENERATED FROM src/components/GNewNodeRenderer.vue — do not hand-edit.
-                    //
-                    // This enum is every key in that file's nodeComponents map, minus 'default'
-                    // (which the viewer treats as "no type"), plus the three legacy values below.
-                    // That map is what decides whether a type displays at all, so it is the only
-                    // honest source for this list. Regenerate it when a renderer is added.
-                    //
-                    // It used to hold five values. Three of them — image, link, video — have no
-                    // renderer and fall through to plain text, while html-node, used 351 times
-                    // with its own renderer and publish path, was absent. A model building an HTML
-                    // page therefore found nothing here that fit and coined "html", which renders
-                    // as raw text. Both ChatGPT and Grok did it, for the same reason (2026-09-28).
-                    // image/link/video are kept because they are in use and have been published in
-                    // this contract since v1; dropping them would be a breaking change.
-                    enum: [
-                      'REG', 'action_test', 'advertisement_manager', 'agent-config',
-                      'agent-contract', 'agent-run', 'app-viewer', 'audio',
-                      'audio-portfolio-selector', 'audio-transcription', 'background',
-                      'bubblechart', 'button_row', 'chart', 'cloudflare-live',
-                      'cloudflare-video', 'company-card', 'component', 'css-node', 'data-node',
-                      'email-brand', 'email-manager', 'email-template', 'fulltext',
-                      'guide-node', 'html-node', 'image', 'image-analysis', 'imagequote',
-                      'info', 'instagram-post', 'json-node', 'layout', 'learn-script',
-                      'linechart', 'link', 'map', 'markdown-image', 'menu', 'menu_creator',
-                      'mermaid-diagram', 'network', 'news-feed', 'password-protection',
-                      'person-network-canvas', 'person-profile', 'piechart', 'portfolio-image',
-                      'realtime-video', 'slideshow', 'stripe-button', 'subscription', 'swot',
-                      'timeline', 'title', 'video', 'worknote', 'youtube-live',
-                      'youtube-video'
-                    ],
+                    // node-types.js is the single list, shared with the MCP tool schema so the
+                    // two front doors cannot describe different systems. See that file for why
+                    // it is derived from the renderer map rather than written by hand.
+                    enum: NODE_TYPES,
                     description:
                       'Node content type. The exact string matters — it selects the renderer, and ' +
                       'an unknown value silently falls back to plain text rather than failing, so a ' +

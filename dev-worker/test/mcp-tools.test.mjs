@@ -17,6 +17,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike, FakeAgentWorker } from './d1-adapter.mjs'
 import * as pd from '../published-domains.js'
 import { CONNECT_SCOPES, OPT_IN_SCOPES } from '../oauth/scopes.js'
+import { NODE_TYPES, suggestNodeType } from '../node-types.js'
 import { registerTools, TOOL_NAMES } from '../mcp/tools.js'
 import * as gs from '../graph-service.js'
 
@@ -930,6 +931,98 @@ describe('publish_html_node is the one tool that reaches the public internet', (
     assert.equal(t.annotations.destructiveHint, true, 'it replaces the page that is there')
     // No force, and no way to name an arbitrary proxy.
     assert.deepEqual(Object.keys(t.inputSchema.properties).sort(), ['graphId', 'host', 'nodeId', 'versionPill'])
+  })
+})
+
+
+describe('node types: a graph generated over MCP cannot carry a type that will not render', () => {
+  test('the schema advertises the real types, so a model never has to guess', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'add_node')
+    const typeSchema = t.inputSchema.properties.node.properties.type
+    // An enum in the published schema, not a sentence with examples. This is the fix: the old
+    // description said "e.g. fulltext, image, link, video, audio, mermaid-diagram" and left
+    // html-node out, so ChatGPT and Grok both coined "html".
+    assert.ok(Array.isArray(typeSchema.enum), 'type must be an enum in the wire schema')
+    assert.ok(typeSchema.enum.includes('html-node'))
+    assert.ok(typeSchema.enum.includes('css-node'))
+    assert.equal(typeSchema.enum.includes('html'), false, '"html" must NOT be offered')
+  })
+
+  test('add_node refuses "html" at the protocol, before anything is stored', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X' })
+
+    // The SDK does not throw — it returns isError with the valid options listed, which is more
+    // useful to a model than an exception would be.
+    const r = await client.callTool({ name: 'add_node', arguments: { graphId: g.graphId, node: { label: 'App', type: 'html' } } })
+    assert.equal(r.isError, true, 'the invalid value must be rejected, not silently stored')
+    assert.match(r.content[0].text, /Invalid option/, 'and the reply must say what is allowed')
+    assert.match(r.content[0].text, /html-node/, 'the list it prints contains what was meant')
+
+    const after = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(after.nodeCount, 0, 'nothing was written')
+  })
+
+  test('create_graph refuses a bad type in its initial nodes too', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const r = await client.callTool({
+      name: 'create_graph',
+      arguments: { title: 'T', metaArea: '#X', nodes: [{ id: 'n1', label: 'App', type: 'html' }] },
+    })
+    assert.equal(r.isError, true)
+  })
+
+  test('update_node cannot retype a node to something that will not render', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', {
+      title: 'T', metaArea: '#X',
+      nodes: [{ id: 'n1', label: 'p', type: 'fulltext', info: 'x' }],
+    })
+    const r = await client.callTool({
+      name: 'update_node',
+      arguments: { graphId: g.graphId, nodeId: 'n1', fields: { type: 'html' }, expectedVersion: 1 },
+    })
+    assert.equal(r.isError, true)
+
+    const after = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(after.nodes[0].type, 'fulltext', 'the node keeps its valid type')
+  })
+
+  test('the right type is accepted and round-trips', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', {
+      title: 'Site', metaArea: '#X',
+      nodes: [{ id: 'page', label: 'App', type: 'html-node', info: '<h1>hi</h1>' }],
+    })
+    const after = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(after.nodes[0].type, 'html-node')
+  })
+
+  test('every wrong type seen in production maps to what was meant', () => {
+    // These are the actual strings in the data, not invented cases.
+    assert.equal(suggestNodeType('html'), 'html-node')
+    assert.equal(suggestNodeType('fulltext-node'), 'fulltext')
+    assert.equal(suggestNodeType('action_txt'), 'action_test')
+    assert.equal(suggestNodeType('nonsense-xyz'), null, 'no confident guess means no guess')
+  })
+
+  test('openapi and the MCP schema cannot drift — they are the same list', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'add_node')
+    assert.deepEqual(
+      [...t.inputSchema.properties.node.properties.type.enum].sort(),
+      [...NODE_TYPES].sort(),
+      'the wire schema must be exactly node-types.js, which openapi.json also uses',
+    )
   })
 })
 
