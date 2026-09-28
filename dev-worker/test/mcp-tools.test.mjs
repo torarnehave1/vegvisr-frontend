@@ -1079,11 +1079,23 @@ describe('register_user creates a login for a real person', () => {
     assert.ok(!/emailVerificationToken/i.test(blob))
   })
 
-  test('an existing email is completed, and says so instead of claiming a new account', async () => {
-    const { client } = await withRegistry({ updated: true, role: 'Superadmin' })
-    const r = await callOk(client, 'register_user', { email: 'msneeggen@gmail.com', name: 'Maiken' })
-    assert.equal(r.created, false)
-    assert.equal(r.role, 'Superadmin', 'an existing role is reported, not reset')
+  test('an email that already exists is REFUSED, and nothing is forwarded', async () => {
+    const { env, client } = await withRegistry()
+    // seedUsers put alice@example.com in config. Registering her again must not quietly patch
+    // her record — the whole point of checking here rather than in the executor.
+    const e = await callErr(client, 'register_user', { email: 'Alice@Example.com', name: 'Someone Else' })
+    assert.equal(e.code, gs.ERR.NODE_EXISTS)
+    assert.equal(e.email, 'alice@example.com')
+    assert.equal(e.existingRole, 'User')
+    assert.match(e.message, /already registered/)
+    assert.match(e.message, /Nothing was changed/)
+    assert.equal(env.AGENT_WORKER.calls.length, 0, 'no write was attempted')
+  })
+
+  test('group tags are normalised to the house style', async () => {
+    const { env, client } = await withRegistry()
+    await callOk(client, 'register_user', { email: 'ny@example.com', name: 'Ny', groupTags: 'iiba, demo' })
+    assert.equal(env.AGENT_WORKER.calls[0].body.group_tags, '#IIBA #DEMO')
   })
 
   test('a model cannot mint a Superadmin', async () => {
@@ -1139,6 +1151,89 @@ describe('register_user creates a login for a real person', () => {
     assert.equal(t.annotations.openWorldHint, true, 'it creates an account for a real person')
     assert.equal(t.annotations.destructiveHint, false, 'an existing account is completed, not replaced')
     assert.equal(t.annotations.idempotentHint, true)
+  })
+})
+
+
+describe('list_users answers who is already registered', () => {
+  const READ = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'user:read'] } }
+  const ROOT_READ = {
+    auth: { ...ALICE_RW.auth, scope: ['graph:read', 'user:read'], userId: 'root@example.com' },
+    props: { userId: 'root@example.com', email: 'root@example.com', role: 'Superadmin', authMethod: 'oauth' },
+  }
+
+  function seeded() {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    raw.prepare("UPDATE config SET Role='Superadmin' WHERE email='alice@example.com'").run()
+    raw.prepare("INSERT OR REPLACE INTO config (user_id, data, email, emailVerificationToken, Role, phone, group_tags) VALUES (?,?,?,?,?,?,?)")
+      .run('u-root', '{"profile":{"name":"Root"}}', 'root@example.com', 'sess-root', 'Superadmin', '+4790000009', null)
+    raw.prepare("INSERT OR REPLACE INTO config (user_id, data, email, emailVerificationToken, Role, phone, group_tags) VALUES (?,?,?,?,?,?,?)")
+      .run('u-kate', '{"profile":{"name":"Kate Dent Rennie"}}', 'kate@longwhitecloud.com', 'tok-kate', 'Admin', null, '#IIBA #DEMO')
+    raw.prepare("INSERT OR REPLACE INTO config (user_id, data, email, emailVerificationToken, Role, phone, group_tags) VALUES (?,?,?,?,?,?,?)")
+      .run('u-garet', '{"profile":{"name":"Garet Bedrosian"}}', 'garet@garetbedrosian.com', 'tok-garet', 'Admin', '+4790000010', '#IIBA')
+    return env
+  }
+
+  test('lists name, email, role and group — and no credential', async () => {
+    const env = seeded()
+    const { client } = await connect(env, ROOT_READ)
+    const r = await callOk(client, 'list_users', {})
+    const kate = r.users.find((u) => u.email === 'kate@longwhitecloud.com')
+    assert.equal(kate.name, 'Kate Dent Rennie')
+    assert.equal(kate.role, 'Admin')
+    assert.equal(kate.groupTags, '#IIBA #DEMO')
+    assert.equal(kate.canSignInBySms, false, 'no phone means no SMS sign-in')
+    // The query never selects the token, and no phone number is returned either.
+    const blob = JSON.stringify(r)
+    assert.ok(!blob.includes('tok-kate') && !blob.includes('sess-root'))
+    assert.ok(!blob.includes('+4790000010'), 'a phone book is not what was asked for')
+  })
+
+  test('a group tag filters, with or without the #', async () => {
+    const env = seeded()
+    const { client } = await connect(env, ROOT_READ)
+    const withHash = await callOk(client, 'list_users', { groupTag: '#IIBA' })
+    const without = await callOk(client, 'list_users', { groupTag: 'iiba' })
+    assert.equal(withHash.count, 2)
+    assert.deepEqual(withHash.users.map((u) => u.email).sort(), without.users.map((u) => u.email).sort())
+
+    const demo = await callOk(client, 'list_users', { groupTag: 'DEMO' })
+    assert.deepEqual(demo.users.map((u) => u.email), ['kate@longwhitecloud.com'])
+  })
+
+  test('free text matches email and name', async () => {
+    const env = seeded()
+    const { client } = await connect(env, ROOT_READ)
+    const byName = await callOk(client, 'list_users', { query: 'bedrosian' })
+    assert.deepEqual(byName.users.map((u) => u.email), ['garet@garetbedrosian.com'])
+    const byEmail = await callOk(client, 'list_users', { query: 'longwhitecloud' })
+    assert.deepEqual(byEmail.users.map((u) => u.email), ['kate@longwhitecloud.com'])
+  })
+
+  test('a non-Superadmin cannot read the directory even with the scope', async () => {
+    const env = seeded()
+    const { client } = await connect(env, READ) // alice, role User in props
+    const e = await callErr(client, 'list_users', {})
+    assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.match(e.message, /Superadmin/)
+  })
+
+  test('the scope is required and is not one an ordinary connection holds', async () => {
+    const env = seeded()
+    const { client } = await connect(env, ALICE_RW)
+    const e = await callErr(client, 'list_users', {})
+    assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+    assert.equal(e.requiredScope, 'user:read')
+  })
+
+  test('it is read-only', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ROOT_READ)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'list_users')
+    assert.equal(t.annotations.readOnlyHint, true)
+    assert.equal(t.annotations.openWorldHint, false)
   })
 })
 

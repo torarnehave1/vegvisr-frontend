@@ -98,7 +98,7 @@ describe('the opt-in step-up', () => {
 
 describe('chat:read is consented to separately from chat:write', () => {
   test('every opt-in stays out of the advertised set', () => {
-    assert.deepEqual(OPT_IN_SCOPES, ['chat:write', 'chat:read', 'graph:publish', 'user:register'])
+    assert.deepEqual(OPT_IN_SCOPES, ['chat:write', 'chat:read', 'graph:publish', 'user:register', 'user:read'])
     for (const s of OPT_IN_SCOPES) assert.equal(CONNECT_SCOPES.includes(s), false, `${s} leaked into the advertised set`)
   })
 
@@ -116,6 +116,16 @@ describe('chat:read is consented to separately from chat:write', () => {
     assert.match(d, /brukerkonto/, 'must say an account is created')
     assert.match(d, /Superadmin/, 'must say the role ceiling')
     assert.match(d, /utfylt, ikke overskrevet/, 'must say an existing account is not overwritten')
+  })
+
+  test('user:read is consented to separately from user:register', () => {
+    // Same reason chat:read is separate from chat:write: reading exposes OTHER PEOPLE. Adding one
+    // member is a smaller thing than pulling the whole directory into a model's context.
+    assert.deepEqual(sanitizeOptIns(['user:read']), ['user:read'])
+    assert.deepEqual(grantableScopes(['graph:read', 'user:read']), ['graph:read'])
+    const d = OPT_IN_SCOPE_DETAIL['user:read']
+    assert.match(d, /ANDRE personers/, 'must say whose data it exposes')
+    assert.match(d, /Innloggingsnøkler vises aldri/)
   })
 
   test('the publish copy says the page becomes public and the host must already exist', () => {

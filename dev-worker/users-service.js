@@ -48,10 +48,33 @@ async function callerToken(env, actor) {
   return row?.emailVerificationToken || null
 }
 
-export async function registerUser(env, { email, name = null, phone = null, role = null, actor }) {
+export async function registerUser(env, { email, name = null, phone = null, role = null, groupTags = null, actor }) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   if (!looksLikeEmail(email)) {
     return fail(ERR.INVALID_INPUT, 'A valid email address is required to register a user.')
+  }
+
+  const normalisedEmail = String(email).trim().toLowerCase()
+
+  // Refuse a duplicate outright, which is DIFFERENT from the Agent Builder on purpose.
+  //
+  // executeAdminRegisterUser completes an existing row — a vCard filling in an account that is
+  // already there. That is right for a human at a console who can see whose record they are
+  // touching. Over MCP it is wrong: "add this member" silently patching a stranger's profile is
+  // not what anyone asked for, and the caller cannot see what changed. So the existence check
+  // happens HERE, before anything is written, and the reply says who already holds the address.
+  const clash = await env.vegvisr_org
+    .prepare('SELECT email, Role, group_tags FROM config WHERE email = ? LIMIT 1')
+    .bind(normalisedEmail)
+    .first()
+  if (clash) {
+    return fail(
+      ERR.NODE_EXISTS,
+      `${normalisedEmail} is already registered (role ${clash.Role || 'unknown'}` +
+        `${clash.group_tags ? `, groups ${clash.group_tags}` : ''}). Nothing was changed. ` +
+        'Use list_users to look them up; changing an existing account is done in the Agent Builder.',
+      { email: normalisedEmail, existingRole: clash.Role || null, existingGroupTags: clash.group_tags || null },
+    )
   }
   if (role && !ASSIGNABLE_ROLES.includes(role)) {
     return fail(
@@ -75,10 +98,11 @@ export async function registerUser(env, { email, name = null, phone = null, role
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-Token': token },
       body: JSON.stringify({
-        email: String(email).trim().toLowerCase(),
+        email: normalisedEmail,
         ...(name ? { name: String(name).trim() } : {}),
         ...(phone ? { phone: String(phone).trim() } : {}),
         ...(role ? { role } : {}),
+        ...(groupTags ? { group_tags: normaliseGroupTags(groupTags) } : {}),
       }),
     })
     data = await res.json().catch(() => ({}))
@@ -103,8 +127,80 @@ export async function registerUser(env, { email, name = null, phone = null, role
     email: data.email || null,
     name: data.name ?? null,
     role: data.role || null,
+    groupTags: data.group_tags || null,
     created: data.updated !== true,
     loginUrl: 'https://login.vegvisr.org',
     message: data.message || null,
   }
+}
+
+
+/**
+ * Group tags in the house style: space-separated #TAGS, uppercase, deduplicated.
+ * The same shape metaArea uses on a graph, so one convention covers both.
+ */
+export function normaliseGroupTags(raw) {
+  const tags = String(raw || '')
+    .split(/[\s,]+/)
+    .map((t) => t.replace(/^#+/, '').trim().toUpperCase())
+    .filter(Boolean)
+  return tags.length ? [...new Set(tags)].map((t) => `#${t}`).join(' ') : null
+}
+
+/**
+ * The registered people, for the caller to look up who is already on the platform.
+ *
+ * Superadmin only — this is other people's contact data, and it lands in a model's context.
+ * emailVerificationToken is never selected, so it cannot be returned by accident.
+ */
+export async function listUsers(env, { actor, groupTag = null, query = null, limit = 100 } = {}) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!actor.isSuperadmin) {
+    return fail(ERR.FORBIDDEN_GRAPH, 'Listing the registered users requires the Superadmin role.')
+  }
+
+  const lim = Math.min(Math.max(Number.parseInt(limit ?? '', 10) || 100, 1), 500)
+  const where = []
+  const binds = []
+
+  if (groupTag) {
+    const tag = normaliseGroupTags(groupTag)
+    if (!tag) return fail(ERR.INVALID_INPUT, 'groupTag must contain at least one tag.')
+    // One tag at a time; the column holds "#A #B" so a LIKE on the tag is the membership test.
+    where.push('UPPER(COALESCE(group_tags, \'\')) LIKE ?')
+    binds.push(`%${tag.split(' ')[0]}%`)
+  }
+  if (query) {
+    where.push('(LOWER(email) LIKE ? OR LOWER(COALESCE(json_extract(data, \'$.profile.name\'), \'\')) LIKE ?)')
+    const p = `%${String(query).toLowerCase().trim()}%`
+    binds.push(p, p)
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
+  const rows = await env.vegvisr_org
+    .prepare(`
+      SELECT email,
+             COALESCE(json_extract(data, '$.profile.name'), display_name, '') AS name,
+             Role AS role,
+             group_tags,
+             CASE WHEN phone IS NULL OR phone = '' THEN 0 ELSE 1 END AS has_phone
+      FROM config
+      ${whereSql}
+      ORDER BY LOWER(email)
+      LIMIT ?
+    `)
+    .bind(...binds, lim)
+    .all()
+
+  const users = (rows.results || []).map((r) => ({
+    email: r.email,
+    name: r.name || null,
+    role: r.role || null,
+    groupTags: r.group_tags || null,
+    // Whether they can receive an SMS code, not the number itself: a phone book is not what was
+    // asked for, and the number is not needed to answer "who is registered".
+    canSignInBySms: r.has_phone === 1,
+  }))
+
+  return { ok: true, users, count: users.length, limit: lim }
 }

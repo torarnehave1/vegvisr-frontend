@@ -132,7 +132,8 @@ export function seedUsers(raw) {
   raw.exec(`CREATE TABLE IF NOT EXISTS config (
     user_id TEXT, data TEXT NOT NULL DEFAULT '{}', email TEXT PRIMARY KEY,
     emailVerificationToken TEXT, Role TEXT, phone TEXT,
-    phone_verification_code TEXT, phone_verification_expires_at INTEGER, phone_verified_at INTEGER
+    phone_verification_code TEXT, phone_verification_expires_at INTEGER, phone_verified_at INTEGER,
+    display_name TEXT, group_tags TEXT
   )`)
   const ins = raw.prepare(
     "INSERT OR REPLACE INTO config (user_id, data, email, emailVerificationToken, Role, phone) VALUES (?,'{}',?,?,?,?)",

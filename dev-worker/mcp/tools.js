@@ -1081,9 +1081,9 @@ export function registerTools(server, getContext) {
       description:
         'Create a user account from a name and an email address so that person can sign in at ' +
         'login.vegvisr.org. THIS CREATES AN ACCOUNT FOR A REAL PERSON — confirm the name and the ' +
-        'exact email with the user before calling it. If the email already exists the account is ' +
-        'COMPLETED with whatever fields you supply, never overwritten: its role and its sign-in ' +
-        'credential are left alone, and the reply says created:false. A phone number is worth ' +
+        'exact email with the user before calling it. An email that is ALREADY REGISTERED is ' +
+        'refused and nothing is changed, so this can never quietly edit a stranger\'s record; ' +
+        'use list_users to check first, or to find who holds the address. A phone number is worth ' +
         'adding when you have it, because it is what lets them sign in by SMS code. The sign-in ' +
         'credential is never returned. Requires the user:register scope, which an ordinary ' +
         'connection does not carry.',
@@ -1091,6 +1091,10 @@ export function registerTools(server, getContext) {
         email: z.string().min(3).describe("The person's email address. This is the identity — it is how they sign in, and it is what makes the call idempotent."),
         name: z.string().optional().describe("The person's full name."),
         phone: z.string().optional().describe('Mobile number in +47XXXXXXXX form. Optional, but without it they cannot sign in by SMS code.'),
+        groupTags: z
+          .string()
+          .optional()
+          .describe('Which group(s) this person belongs to, as space-separated tags, e.g. "#IIBA #DEMO". Written in the same style as a graph\'s metaArea; a missing # is added for you.'),
         role: z
           .enum(users.ASSIGNABLE_ROLES)
           .optional()
@@ -1107,6 +1111,7 @@ export function registerTools(server, getContext) {
         email: z.string().nullable(),
         name: z.string().nullable(),
         role: z.string().nullable(),
+        groupTags: z.string().nullable(),
         created: z.boolean(),
         loginUrl: z.string(),
         message: z.string().nullable(),
@@ -1116,7 +1121,7 @@ export function registerTools(server, getContext) {
       // email, which is why calling it twice is safe.
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    async ({ email, name, phone, role }) => {
+    async ({ email, name, phone, role, groupTags }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'user:register')
       if (scopeErr) return scopeErr
@@ -1124,18 +1129,78 @@ export function registerTools(server, getContext) {
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
-      const result = await users.registerUser(env, { email, name, phone, role, actor })
+      const result = await users.registerUser(env, { email, name, phone, role, groupTags, actor })
       if (!result.ok) return fromService(result)
 
       const { ok: _o, ...payload } = result
       return ok(
         { success: true, ...payload },
-        result.created
-          ? `Registered ${result.email}${result.name ? ` (${result.name})` : ''} with role ${result.role}. ` +
-            `They sign in at ${result.loginUrl} using that email.`
-          : `${result.email} already had an account; the fields you supplied were filled in. ` +
-            `Its role and sign-in credential were left unchanged.`,
+        `Registered ${result.email}${result.name ? ` (${result.name})` : ''} with role ${result.role}` +
+          `${result.groupTags ? ` in ${result.groupTags}` : ''}. ` +
+          `They sign in at ${result.loginUrl} using that email.`,
       )
+    },
+  )
+
+  // ── list_users ────────────────────────────────────────────────────────────
+  //
+  // Other people's contact details, so it is behind its own opt-in rather than riding along with
+  // user:register — the same split as chat:read from chat:write. Reading about people who did not
+  // ask to be in this conversation is a different decision from adding one.
+  //
+  // Superadmin only, and emailVerificationToken is never selected by the query, so it cannot be
+  // returned by accident.
+  server.registerTool(
+    'list_users',
+    {
+      title: 'List registered people',
+      description:
+        'List the people registered on the platform, with name, email, role and group tags. Use ' +
+        'it to check whether someone already has an account before calling register_user, to find ' +
+        'who holds an address, or to see who belongs to a group. THIS RETURNS OTHER PEOPLE\'S ' +
+        'CONTACT DETAILS into the conversation — ask for the narrowest filter that answers the ' +
+        'question rather than pulling the whole directory. Sign-in credentials and phone numbers ' +
+        'are never returned; the reply only says whether an SMS sign-in is possible. Requires the ' +
+        'user:read scope and the Superadmin role.',
+      inputSchema: {
+        groupTag: z.string().optional().describe('Only people in this group, e.g. "#IIBA". One tag at a time.'),
+        query: z.string().optional().describe('Free text matched against email and name.'),
+        limit: z.number().int().optional().describe('Maximum people to return, 1–500. Default 100.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        count: z.number(),
+        limit: z.number(),
+        users: z.array(
+          z.object({
+            email: z.string(),
+            name: z.string().nullable(),
+            role: z.string().nullable(),
+            groupTags: z.string().nullable(),
+            canSignInBySms: z.boolean(),
+          }),
+        ),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ groupTag, query, limit }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'user:read')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await users.listUsers(env, { actor, groupTag, query, limit })
+      if (!r.ok) return fromService(r)
+
+      const { ok: _o, ...payload } = r
+      const head = r.count === 0 ? 'Nobody matched.' : `${r.count} registered ${r.count === 1 ? 'person' : 'people'}:`
+      const lines = r.users.map(
+        (u) => `• ${u.name || '(no name)'} — ${u.email} · ${u.role || 'no role'}` +
+          `${u.groupTags ? ` · ${u.groupTags}` : ''}${u.canSignInBySms ? '' : ' · no phone'}`,
+      )
+      return ok({ success: true, ...payload }, [head, ...lines].join('\n'))
     },
   )
 
@@ -1428,6 +1493,7 @@ export const TOOL_NAMES = [
   'update_graph_metadata',
   'publish_html_node',
   'register_user',
+  'list_users',
   'list_published_sites',
   'search_graphs',
   'list_my_graphs',

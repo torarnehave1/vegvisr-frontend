@@ -27,7 +27,7 @@ export const CONNECT_SCOPES = ['graph:read', 'graph:write']
  * own data; chat:write sends a message to OTHER PEOPLE, and it cannot be taken back. It is
  * deliberately absent from CONNECT_SCOPES so no ordinary connection can even ask for it.
  */
-export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'graph:delete', 'chat:write', 'chat:read', 'user:register']
+export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'graph:delete', 'chat:write', 'chat:read', 'user:register', 'user:read']
 
 /** Human text for the consent screen. Covers every known scope, advertised or not. */
 export const SCOPE_TEXT = {
@@ -38,6 +38,7 @@ export const SCOPE_TEXT = {
   'chat:write': 'Poste meldinger i chattegrupper du er medlem av',
   'chat:read': 'Lese meldinger i chattegrupper du er medlem av',
   'user:register': 'Opprette brukerkontoer på plattformen',
+  'user:read': 'Se hvem som er registrert: navn, e-post, rolle og gruppe',
 }
 
 /**
@@ -71,10 +72,15 @@ export function grantableScopes(requested) {
  * requested, as long as the token response reports what was actually granted — which the
  * provider does.
  */
-export const OPT_IN_SCOPES = ['chat:write', 'chat:read', 'graph:publish', 'user:register']
+export const OPT_IN_SCOPES = ['chat:write', 'chat:read', 'graph:publish', 'user:register', 'user:read']
 
 /** Longer copy for the consent screen: the one-liner is not enough for an outward-facing scope. */
 export const OPT_IN_SCOPE_DETAIL = {
+  'user:read':
+    'Lar assistenten liste de registrerte brukerne på plattformen med navn, e-postadresse, ' +
+    'rolle og gruppe. Dette er ANDRE personers kontaktopplysninger, og de blir en del av ' +
+    'samtalen din hos AI-leverandøren. Innloggingsnøkler vises aldri. Egen avkryssing fra ' +
+    'det å opprette brukere, fordi det å lese om andre er noe annet enn å legge til én.',
   'user:register':
     'Lar assistenten opprette en brukerkonto for en annen person, med navn og e-post. ' +
     'Personen kan deretter logge inn på plattformen med e-posten sin. Kontoen kan ikke gis ' +
