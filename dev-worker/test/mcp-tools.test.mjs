@@ -898,3 +898,34 @@ describe('read_chat_messages is gated apart from posting', () => {
     assert.deepEqual(tools.filter((t) => t.annotations?.openWorldHint).map((t) => t.name), ['post_chat_message'])
   })
 })
+
+describe('get_fulltext_elements tells the model to read before it writes', () => {
+  test('its description says to call it BEFORE writing node content', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'get_fulltext_elements')
+    assert.match(t.description, /CALL THIS BEFORE/)
+    assert.match(t.description, /copy the format verbatim/i)
+    // The reason it matters: a wrong parameter renders as text, so nothing fails loudly.
+    assert.match(t.description, /renders as literal text/)
+  })
+
+  test('it is read-only and needs only the scope every connection has', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RO)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'get_fulltext_elements')
+    assert.equal(t.annotations.readOnlyHint, true)
+    assert.equal(t.annotations.openWorldHint, false)
+    // A read-only connection can reach it.
+    const r = await client.callTool({ name: 'get_fulltext_elements', arguments: {} })
+    assert.notEqual(r.structuredContent?.code, gs.ERR.INSUFFICIENT_SCOPE)
+  })
+
+  test('without graph:read it is refused like everything else', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, authFor('alice@example.com', ['graph:write']))
+    assert.equal((await callErr(client, 'get_fulltext_elements', {})).code, gs.ERR.INSUFFICIENT_SCOPE)
+  })
+})

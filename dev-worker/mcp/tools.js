@@ -22,6 +22,7 @@
 import { z } from 'zod'
 import * as gs from '../graph-service.js'
 import * as chat from '../chat-service.js'
+import * as templates from '../templates-service.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared schemas
@@ -666,6 +667,70 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── get_fulltext_elements ─────────────────────────────────────────────────
+  //
+  // The grammar a fulltext node's `info` is written in. It is specific to this system, so a
+  // model either reads it or invents it — and inventing produces syntax that looks right and
+  // renders as literal text. This project has the scar: a `[FLEXBOX-CARDS | gap]` parameter
+  // that never existed, written from memory on 2026-07-10.
+  //
+  // Reads through templates-service, the same function GET /plugin/fulltext-elements uses.
+  server.registerTool(
+    'get_fulltext_elements',
+    {
+      title: 'Get the fulltext element syntax',
+      description:
+        'Return the catalog of VEGR.AI fulltext elements — [FANCY], [SECTION], [QUOTE], the image ' +
+        'variants and the rest — each with its exact trigger, format, parameters and notes. ' +
+        'CALL THIS BEFORE writing or editing the `info` field of a fulltext node, and copy the ' +
+        'format verbatim. The syntax is specific to this system and cannot be inferred from ' +
+        'general markdown knowledge; a wrong parameter renders as literal text rather than ' +
+        'failing, so a mistake is silent. Pass a name to check one element without pulling the ' +
+        'whole catalog into context. Requires the graph:read scope.',
+      inputSchema: {
+        name: z.string().optional().describe('Check a single element, e.g. "FANCY". Omit for all of them.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        count: z.number(),
+        elements: z.array(
+          z.object({
+            name: z.string(),
+            trigger: z.string().nullable(),
+            insertMode: z.string().nullable(),
+            format: z.string().nullable(),
+            parameters: z.unknown().nullable(),
+            notes: z.string().nullable(),
+          }),
+        ),
+        unreadable: z.array(z.string()).optional(),
+      },
+      // Reference data about the system itself. It touches no user data, which is why the read
+      // scope every connection already has is enough.
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ name }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await templates.listFulltextElements(env, { name })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      const lines = result.elements.map(
+        (e) => `• ${e.name} — trigger ${e.trigger || '?'} (${e.insertMode || 'block'})\n    ${e.format || ''}`,
+      )
+      return ok(
+        { success: true, ...payload },
+        [`${result.count} fulltext element${result.count === 1 ? '' : 's'}. Copy each format verbatim:`, ...lines].join('\n'),
+      )
+    },
+  )
+
   // ── search_graphs ─────────────────────────────────────────────────────────
   server.registerTool(
     'search_graphs',
@@ -861,6 +926,7 @@ export const TOOL_NAMES = [
   'post_chat_message',
   'list_chat_groups',
   'read_chat_messages',
+  'get_fulltext_elements',
   'search_graphs',
   'list_my_graphs',
   'search',

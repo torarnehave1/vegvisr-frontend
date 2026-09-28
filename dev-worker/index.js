@@ -21,6 +21,7 @@ import {
   encryptDataNodeInfo,
   decryptDataNodeInfo,
 } from './graph-service.js'
+import { listTemplates as gsListTemplates } from './templates-service.js'
 import { OAuthProvider } from '@cloudflare/workers-oauth-provider'
 import { handleAuthorize, ISSUER, MCP_RESOURCE, SUPPORTED_SCOPES } from './oauth/authorize.js'
 import { mcpHandler } from './mcp/server.js'
@@ -2194,81 +2195,25 @@ const restHandler = {
         try {
           const requestedPlugin = url.searchParams.get('plugin')
           const pluginValue = requestedPlugin === null ? 1 : ((requestedPlugin === '1' || requestedPlugin === 'true') ? 1 : 0)
-          const explicitCategory = url.searchParams.get('category')
+          const mode = (pathname.endsWith('/node-types') || pathname === '/plugin/node-templates')
+            ? 'node-templates'
+            : 'fulltext-elements'
 
-          let requestedCategory = explicitCategory
-          let mode = 'fulltext-elements'
-          let query
-          let bindings
-
-          if (pathname.endsWith('/node-types') || pathname === '/plugin/node-templates') {
-            mode = 'node-templates'
-            query = `
-              SELECT
-                id,
-                name,
-                nodes,
-                edges,
-                ai_instructions,
-                category,
-                thumbnail_path,
-                standard_question,
-                gemini,
-                tool,
-                plugin
-              FROM graphTemplates
-              WHERE plugin = ?
-                AND category != 'Fulltext Elements'
-                AND (? IS NULL OR category = ?)
-              ORDER BY category, name
-            `
-            bindings = [pluginValue, requestedCategory, requestedCategory]
-          } else {
-            requestedCategory = requestedCategory || 'Fulltext Elements'
-            query = `
-              SELECT
-                id,
-                name,
-                nodes,
-                edges,
-                ai_instructions,
-                category,
-                thumbnail_path,
-                standard_question,
-                gemini,
-                tool,
-                plugin
-              FROM graphTemplates
-              WHERE plugin = ?
-                AND (? IS NULL OR category = ?)
-              ORDER BY category, name
-            `
-            bindings = [pluginValue, requestedCategory, requestedCategory]
-          }
-
-          const results = await env.vegvisr_org.prepare(query).bind(...bindings).all()
-
-          const templates = (results.results || []).map((template) => ({
-            id: template.id,
-            name: template.name,
-            nodes: JSON.parse(template.nodes || '[]'),
-            edges: JSON.parse(template.edges || '[]'),
-            ai_instructions: template.ai_instructions || '',
-            category: template.category || 'General',
-            thumbnail_path: template.thumbnail_path || null,
-            standard_question: template.standard_question || '',
-            gemini: template.gemini || 0,
-            tool: template.tool || 0,
-            plugin: template.plugin || 0,
-          }))
+          // Listed through templates-service — the SAME function the MCP get_fulltext_elements
+          // tool calls. The response shape below is unchanged from when this query lived inline.
+          const listed = await gsListTemplates(env, {
+            plugin: pluginValue,
+            category: url.searchParams.get('category'),
+            mode,
+          })
 
           return new Response(JSON.stringify({
             success: true,
-            plugin: pluginValue,
-            mode,
-            category: requestedCategory,
-            count: templates.length,
-            results: templates,
+            plugin: listed.plugin,
+            mode: listed.mode,
+            category: listed.category,
+            count: listed.count,
+            results: listed.results,
           }), {
             status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },

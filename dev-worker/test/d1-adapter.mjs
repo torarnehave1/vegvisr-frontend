@@ -204,3 +204,23 @@ export class FakeChatWorker {
     })
   }
 }
+
+
+/** The graphTemplates rows the fulltext-element catalog is read from. */
+export function seedTemplates(raw, rows) {
+  raw.exec(`CREATE TABLE IF NOT EXISTS graphTemplates (
+    id TEXT PRIMARY KEY, name TEXT, nodes TEXT, edges TEXT, ai_instructions TEXT,
+    category TEXT, thumbnail_path TEXT, standard_question TEXT,
+    gemini INTEGER DEFAULT 0, tool INTEGER DEFAULT 0, plugin INTEGER DEFAULT 0
+  )`)
+  const ins = raw.prepare(
+    'INSERT OR REPLACE INTO graphTemplates (id,name,nodes,edges,ai_instructions,category,plugin) VALUES (?,?,?,?,?,?,?)',
+  )
+  for (const r of rows) {
+    ins.run(
+      r.id, r.name, r.nodes ?? '[]', r.edges ?? '[]',
+      r.ai === undefined ? null : (typeof r.ai === 'string' ? r.ai : JSON.stringify(r.ai)),
+      r.category ?? 'Fulltext Elements', r.plugin ?? 1,
+    )
+  }
+}
