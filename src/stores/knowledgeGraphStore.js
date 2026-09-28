@@ -58,7 +58,13 @@ export const useKnowledgeGraphStore = defineStore('knowledgeGraph', () => {
         id: node.id,
         label: node.label || node.id,
         color: node.color || 'gray',
-        type: node.type || 'default',
+        // Do NOT invent a type here. updateGraph() feeds node.data straight into the saved JSON
+        // (see graphJson below: nodes.value.map((node) => node.data)), so stamping the display
+        // fallback made it PERSISTENT: loading a graph with a typeless node and saving it wrote
+        // "type": "default" into the data for good. 33 nodes across 16 graphs carry it that way.
+        // The renderer keeps its own `node.type || 'default'` fallback, which is where a display
+        // default belongs — computed, not stored.
+        type: node.type || null,
         info: node.info || null,
         bibl: Array.isArray(node.bibl) ? node.bibl : [],
         visible: node.visible !== false,

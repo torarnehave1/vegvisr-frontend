@@ -5407,8 +5407,25 @@ const restHandler = {
                   color: { type: 'string', default: '#4f6d7a', description: 'Node color (hex)' },
                   type: {
                     type: 'string',
-                    enum: ['fulltext', 'image', 'link', 'video', 'audio'],
-                    description: 'Node content type'
+                    // The seven after 'audio' were in production but in no contract: a model
+                    // building an HTML page found nothing here that fit and coined "html", which
+                    // renders as raw text because GNewNodeRenderer has no such key (2026-09-28).
+                    // Each one listed here has a renderer in GNewNodeRenderer.vue — that map is
+                    // what decides whether a type displays, so it is what this enum must track.
+                    enum: [
+                      'fulltext', 'image', 'link', 'video', 'audio',
+                      'html-node', 'info', 'action_test', 'person-profile',
+                      'css-node', 'imagequote', 'background'
+                    ],
+                    description:
+                      'Node content type. The exact string matters — it selects the renderer, and ' +
+                      'an unknown value silently falls back to plain text. Note the -node suffix on ' +
+                      'html-node and css-node: "html" is NOT a valid type. fulltext = markdown; ' +
+                      'info = markdown shown as an info panel (what the analysis nodes emit); ' +
+                      'html-node = a full HTML document rendered in an iframe; css-node = a ' +
+                      'stylesheet for the html-nodes in the same graph; person-profile, imagequote, ' +
+                      'background and action_test have their own renderers. Types not listed here ' +
+                      'may still render — see GET /plugin/templates/node-types.'
                   },
                   info: { type: 'string', description: 'Node content (markdown for fulltext)' },
                   bibl: {
