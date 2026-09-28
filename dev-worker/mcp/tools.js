@@ -1204,6 +1204,62 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── set_user_groups ───────────────────────────────────────────────────────
+  //
+  // register_user refuses an email that already exists, which left no way to tag someone who is
+  // already registered. This is that way. It shares user:register — the scope that covers writing
+  // to the user directory — rather than adding a sixth opt-in that would force another reconnect.
+  server.registerTool(
+    'set_user_groups',
+    {
+      title: 'Change which groups a person belongs to',
+      description:
+        "Add, replace or remove group tags on someone who is ALREADY registered. Use mode 'add' " +
+        "to put them in another group while keeping the ones they have, 'replace' to set the " +
+        "whole list, and 'remove' to take a group away. Tags are written like \"#IIBA #DEMO\"; a " +
+        'missing # is added for you. For someone who does not have an account yet, use ' +
+        'register_user instead — it takes groupTags directly. Requires the user:register scope ' +
+        'and the Superadmin role.',
+      inputSchema: {
+        email: z.string().min(3).describe('The registered person to change.'),
+        groupTags: z.string().min(1).describe('The tags to act on, e.g. "#IIBA" or "#IIBA #DEMO".'),
+        mode: z
+          .enum(['add', 'replace', 'remove'])
+          .optional()
+          .describe("What to do with them. 'add' (default) keeps existing tags, 'replace' sets exactly these, 'remove' takes them away."),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        email: z.string(),
+        groupTags: z.string().nullable(),
+        before: z.string().nullable(),
+        changed: z.boolean(),
+      },
+      // Writes to someone's record, but only this one field, and the reply shows before and
+      // after. Idempotent: adding a tag they already have changes nothing and says so.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ email, groupTags, mode }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'user:register')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await users.setUserGroups(env, { email, groupTags, mode: mode || 'add', actor })
+      if (!r.ok) return fromService(r)
+
+      const { ok: _o, ...payload } = r
+      return ok(
+        { success: true, ...payload },
+        r.changed
+          ? `${r.email}: ${r.before || '(no groups)'} → ${r.groupTags || '(no groups)'}`
+          : `${r.email} was already ${r.groupTags ? `in ${r.groupTags}` : 'in no groups'}. Nothing changed.`,
+      )
+    },
+  )
+
   // ── list_published_sites ──────────────────────────────────────────────────
   //
   // The portfolio's "Published sites" chip, as data. brand-worker writes an HTML_PAGES key
@@ -1494,6 +1550,7 @@ export const TOOL_NAMES = [
   'publish_html_node',
   'register_user',
   'list_users',
+  'set_user_groups',
   'list_published_sites',
   'search_graphs',
   'list_my_graphs',

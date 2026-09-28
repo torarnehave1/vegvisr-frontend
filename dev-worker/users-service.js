@@ -204,3 +204,83 @@ export async function listUsers(env, { actor, groupTag = null, query = null, lim
 
   return { ok: true, users, count: users.length, limit: lim }
 }
+
+
+/**
+ * Change which groups a person belongs to.
+ *
+ * The write goes through the same agent-worker route registration uses: supplying group_tags for
+ * an email that already exists is exactly what its completion path is for, so there is still one
+ * writer. What lives here is the add/remove arithmetic — the route can only set a whole string,
+ * and "add #IIBA to whatever they already have" is the thing a caller actually asks for.
+ *
+ * Superadmin only, like listing. Changing someone else's record is not an ordinary user action.
+ */
+export async function setUserGroups(env, { email, groupTags, mode = 'add', actor }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!actor.isSuperadmin) {
+    return fail(ERR.FORBIDDEN_GRAPH, "Changing someone's groups requires the Superadmin role.")
+  }
+  if (!looksLikeEmail(email)) return fail(ERR.INVALID_INPUT, 'A valid email address is required.')
+  if (!['add', 'replace', 'remove'].includes(mode)) {
+    return fail(ERR.INVALID_INPUT, "mode must be 'add', 'replace' or 'remove'.")
+  }
+
+  const asked = normaliseGroupTags(groupTags)
+  if (!asked) return fail(ERR.INVALID_INPUT, 'groupTags must contain at least one tag.')
+
+  const normalisedEmail = String(email).trim().toLowerCase()
+  const row = await env.vegvisr_org
+    .prepare('SELECT email, group_tags FROM config WHERE email = ? LIMIT 1')
+    .bind(normalisedEmail)
+    .first()
+  if (!row) {
+    return fail(
+      ERR.GRAPH_NOT_FOUND,
+      `${normalisedEmail} is not registered. Use register_user to create the account — it takes groupTags directly.`,
+    )
+  }
+
+  const before = row.group_tags || null
+  const current = before ? before.split(/\s+/).filter(Boolean) : []
+  const wanted = asked.split(' ')
+
+  let next
+  if (mode === 'replace') next = wanted
+  else if (mode === 'add') next = [...new Set([...current, ...wanted])]
+  else next = current.filter((t) => !wanted.includes(t))
+
+  const after = next.length ? next.join(' ') : null
+
+  if (after === before) {
+    return { ok: true, email: normalisedEmail, groupTags: after, before, changed: false }
+  }
+
+  // The route's completion path treats an empty string as "leave alone", so clearing the last
+  // tag has to be done here rather than by sending ''.
+  if (after === null) {
+    await env.vegvisr_org
+      .prepare('UPDATE config SET group_tags = NULL WHERE email = ?')
+      .bind(normalisedEmail)
+      .run()
+    return { ok: true, email: normalisedEmail, groupTags: null, before, changed: true }
+  }
+
+  const token = await callerToken(env, actor)
+  if (!token) return fail(ERR.FORBIDDEN_GRAPH, 'No credential on your account. Sign in at vegvisr.org once, then try again.')
+  if (!env.AGENT_WORKER?.fetch) {
+    return fail(ERR.INTERNAL_ERROR, 'The AGENT_WORKER service binding is not configured on this worker.')
+  }
+
+  const res = await env.AGENT_WORKER.fetch('https://agent-worker/admin/register-user', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Token': token },
+    body: JSON.stringify({ email: normalisedEmail, group_tags: after }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || data?.success === false) {
+    return fail(ERR.INVALID_INPUT, data?.error || `Could not update groups (status ${res.status}).`)
+  }
+
+  return { ok: true, email: normalisedEmail, groupTags: data.group_tags || after, before, changed: true }
+}

@@ -115,7 +115,10 @@ describe('chat:read is consented to separately from chat:write', () => {
     const d = OPT_IN_SCOPE_DETAIL['user:register']
     assert.match(d, /brukerkonto/, 'must say an account is created')
     assert.match(d, /Superadmin/, 'must say the role ceiling')
-    assert.match(d, /utfylt, ikke overskrevet/, 'must say an existing account is not overwritten')
+    // The copy has to track the behaviour: a duplicate is REFUSED, not completed, and the scope
+    // also covers changing group tags — set_user_groups rides on it rather than a sixth opt-in.
+    assert.match(d, /avvist/, 'must say an existing email is refused')
+    assert.match(d, /grupper/, 'must say it also covers group changes')
   })
 
   test('user:read is consented to separately from user:register', () => {

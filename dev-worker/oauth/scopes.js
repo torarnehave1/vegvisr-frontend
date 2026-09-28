@@ -37,7 +37,7 @@ export const SCOPE_TEXT = {
   'graph:delete': 'Slette grafer',
   'chat:write': 'Poste meldinger i chattegrupper du er medlem av',
   'chat:read': 'Lese meldinger i chattegrupper du er medlem av',
-  'user:register': 'Opprette brukerkontoer på plattformen',
+  'user:register': 'Opprette brukerkontoer og endre gruppene deres',
   'user:read': 'Se hvem som er registrert: navn, e-post, rolle og gruppe',
 }
 
@@ -82,10 +82,11 @@ export const OPT_IN_SCOPE_DETAIL = {
     'samtalen din hos AI-leverandøren. Innloggingsnøkler vises aldri. Egen avkryssing fra ' +
     'det å opprette brukere, fordi det å lese om andre er noe annet enn å legge til én.',
   'user:register':
-    'Lar assistenten opprette en brukerkonto for en annen person, med navn og e-post. ' +
-    'Personen kan deretter logge inn på plattformen med e-posten sin. Kontoen kan ikke gis ' +
-    'Superadmin-rolle herfra, og en e-post som allerede finnes blir utfylt, ikke overskrevet — ' +
-    'eksisterende rolle og innloggingsnøkkel beholdes.',
+    'Lar assistenten opprette en brukerkonto for en annen person, med navn og e-post, og endre ' +
+    'hvilke grupper registrerte personer tilhører. Personen kan deretter logge inn på ' +
+    'plattformen med e-posten sin. Kontoen kan ikke gis Superadmin-rolle herfra, og en e-post ' +
+    'som allerede finnes blir avvist i stedet for endret — bare gruppetaggene kan endres ' +
+    'etterpå.',
   'graph:publish':
     'Lar assistenten publisere en html-node til en nettadresse som ALLEREDE er satt opp, slik ' +
     'at siden blir synlig for hvem som helst på internett. Den kan ikke opprette nye ' +

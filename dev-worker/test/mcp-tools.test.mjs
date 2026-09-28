@@ -88,35 +88,46 @@ describe('18. tools/list', () => {
     }
   })
 
-  test('no tool accepts an identity argument — a model cannot ask to be someone else', async () => {
+  // The brief's rule: no client may choose role, email or user id through ordinary tool
+  // arguments. It protects one thing — a model must not be able to claim it IS someone else.
+  //
+  // Two tools act ON ANOTHER PERSON, so they have to name that person. That is a subject, not a
+  // claim about the caller, and the distinction is what the two tests below pin: a directory
+  // tool may name a subject, but NO tool anywhere may name the caller.
+  const DIRECTORY_TOOLS = new Set(['register_user', 'set_user_groups'])
+
+  test('no tool lets a model ask to be someone else', async () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RW)
     const { tools } = await client.listTools()
     for (const t of tools) {
-      // register_user is the one exception, and it is a different thing: its email/name/role
-      // describe the PERSON BEING REGISTERED, not a claim about who is calling. It is asserted
-      // separately below that it still cannot name the caller or grant Superadmin.
-      if (t.name === 'register_user') continue
       const props = Object.keys(t.inputSchema.properties || {})
-      for (const forbidden of ['email', 'userId', 'user_id', 'createdBy', 'role', 'actor']) {
+      // Nothing, anywhere, may name the caller.
+      for (const forbidden of ['userId', 'user_id', 'createdBy', 'actor', 'authToken', 'token']) {
+        assert.equal(props.includes(forbidden), false, `${t.name} exposes ${forbidden}`)
+      }
+      // And outside the directory tools, a subject cannot be named either.
+      if (DIRECTORY_TOOLS.has(t.name)) continue
+      for (const forbidden of ['email', 'role']) {
         assert.equal(props.includes(forbidden), false, `${t.name} exposes ${forbidden}`)
       }
     }
   })
 
-  test('register_user names a subject, never the caller', async () => {
+  test('a directory tool names a subject, and cannot hand out Superadmin', async () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RW)
     const { tools } = await client.listTools()
-    const t = tools.find((x) => x.name === 'register_user')
-    const props = Object.keys(t.inputSchema.properties)
-    // The caller is still whoever the token says. There is nowhere to assert otherwise:
-    // no userId, no actor, no createdBy, no token.
-    for (const forbidden of ['userId', 'user_id', 'createdBy', 'actor', 'authToken', 'token']) {
-      assert.equal(props.includes(forbidden), false, `register_user exposes ${forbidden}`)
+    for (const name of DIRECTORY_TOOLS) {
+      const t = tools.find((x) => x.name === name)
+      assert.ok(t, `${name} should be registered`)
+      assert.ok(Object.keys(t.inputSchema.properties).includes('email'), `${name} names its subject by email`)
     }
-    // And the subject cannot be given a role that outranks every access check in the system.
-    assert.equal(t.inputSchema.properties.role.enum.includes('Superadmin'), false)
+    const reg = tools.find((x) => x.name === 'register_user')
+    assert.equal(reg.inputSchema.properties.role.enum.includes('Superadmin'), false)
+    // set_user_groups cannot touch a role at all — it is one column wide.
+    const grp = tools.find((x) => x.name === 'set_user_groups')
+    assert.equal(Object.keys(grp.inputSchema.properties).includes('role'), false)
   })
 
   test('delete is not offered in v1', async () => {
@@ -1234,6 +1245,99 @@ describe('list_users answers who is already registered', () => {
     const t = tools.find((x) => x.name === 'list_users')
     assert.equal(t.annotations.readOnlyHint, true)
     assert.equal(t.annotations.openWorldHint, false)
+  })
+})
+
+
+describe('set_user_groups tags someone who is already registered', () => {
+  const REG = {
+    auth: { ...ALICE_RW.auth, scope: ['graph:read', 'user:register'], userId: 'root@example.com' },
+    props: { userId: 'root@example.com', email: 'root@example.com', role: 'Superadmin', authMethod: 'oauth' },
+  }
+
+  function seeded() {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.AGENT_WORKER = new FakeRegisterWorker({ updated: true })
+    raw.prepare("INSERT OR REPLACE INTO config (user_id, data, email, emailVerificationToken, Role, group_tags) VALUES (?,?,?,?,?,?)")
+      .run('u-root', '{}', 'root@example.com', 'sess-root', 'Superadmin', null)
+    raw.prepare("INSERT OR REPLACE INTO config (user_id, data, email, emailVerificationToken, Role, group_tags) VALUES (?,?,?,?,?,?)")
+      .run('u-kate', '{}', 'kate@longwhitecloud.com', 'tok-kate', 'Admin', '#IIBA #DEMO')
+    raw.prepare("INSERT OR REPLACE INTO config (user_id, data, email, emailVerificationToken, Role, group_tags) VALUES (?,?,?,?,?,?)")
+      .run('u-garet', '{}', 'garet@garetbedrosian.com', 'tok-garet', 'Admin', null)
+    return env
+  }
+
+  test("add keeps what they already have", async () => {
+    const env = seeded()
+    const { client } = await connect(env, REG)
+    const r = await callOk(client, 'set_user_groups', { email: 'kate@longwhitecloud.com', groupTags: 'workshop' })
+    assert.equal(r.before, '#IIBA #DEMO')
+    assert.equal(r.groupTags, '#IIBA #DEMO #WORKSHOP')
+    assert.equal(r.changed, true)
+    assert.equal(env.AGENT_WORKER.calls[0].body.group_tags, '#IIBA #DEMO #WORKSHOP')
+  })
+
+  test('add is the default mode', async () => {
+    const env = seeded()
+    const { client } = await connect(env, REG)
+    const r = await callOk(client, 'set_user_groups', { email: 'garet@garetbedrosian.com', groupTags: '#IIBA' })
+    assert.equal(r.before, null)
+    assert.equal(r.groupTags, '#IIBA')
+  })
+
+  test('replace sets exactly what was asked for', async () => {
+    const env = seeded()
+    const { client } = await connect(env, REG)
+    const r = await callOk(client, 'set_user_groups', { email: 'kate@longwhitecloud.com', groupTags: 'alumni', mode: 'replace' })
+    assert.equal(r.groupTags, '#ALUMNI')
+  })
+
+  test('remove takes one away and leaves the rest', async () => {
+    const env = seeded()
+    const { client } = await connect(env, REG)
+    const r = await callOk(client, 'set_user_groups', { email: 'kate@longwhitecloud.com', groupTags: '#DEMO', mode: 'remove' })
+    assert.equal(r.groupTags, '#IIBA')
+  })
+
+  test('removing the last tag clears the column rather than sending an empty string', async () => {
+    const env = seeded()
+    const { client } = await connect(env, REG)
+    const r = await callOk(client, 'set_user_groups', { email: 'kate@longwhitecloud.com', groupTags: '#IIBA #DEMO', mode: 'remove' })
+    assert.equal(r.groupTags, null)
+    // The route's completion path reads '' as "leave alone", so a clear cannot go through it.
+    assert.equal(env.AGENT_WORKER.calls.length, 0, 'cleared directly, not via the register route')
+  })
+
+  test('adding a tag they already have changes nothing and says so', async () => {
+    const env = seeded()
+    const { client } = await connect(env, REG)
+    const r = await callOk(client, 'set_user_groups', { email: 'kate@longwhitecloud.com', groupTags: '#IIBA' })
+    assert.equal(r.changed, false)
+    assert.equal(env.AGENT_WORKER.calls.length, 0, 'no write for a no-op')
+  })
+
+  test('an unregistered email is refused and points at register_user', async () => {
+    const env = seeded()
+    const { client } = await connect(env, REG)
+    const e = await callErr(client, 'set_user_groups', { email: 'nobody@example.com', groupTags: '#IIBA' })
+    assert.equal(e.code, gs.ERR.GRAPH_NOT_FOUND)
+    assert.match(e.message, /register_user/)
+  })
+
+  test('a non-Superadmin cannot change someone else\'s groups', async () => {
+    const env = seeded()
+    const { client } = await connect(env, { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['user:register'] } })
+    const e = await callErr(client, 'set_user_groups', { email: 'kate@longwhitecloud.com', groupTags: '#X' })
+    assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH)
+  })
+
+  test('the scope is required', async () => {
+    const env = seeded()
+    const { client } = await connect(env, ALICE_RW)
+    const e = await callErr(client, 'set_user_groups', { email: 'kate@longwhitecloud.com', groupTags: '#X' })
+    assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+    assert.equal(e.requiredScope, 'user:register')
   })
 })
 
