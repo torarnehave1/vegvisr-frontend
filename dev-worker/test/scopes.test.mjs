@@ -97,9 +97,24 @@ describe('the opt-in step-up', () => {
 })
 
 describe('chat:read is consented to separately from chat:write', () => {
-  test('both are opt-ins, neither is advertised', () => {
-    assert.deepEqual(OPT_IN_SCOPES, ['chat:write', 'chat:read'])
+  test('every opt-in stays out of the advertised set', () => {
+    assert.deepEqual(OPT_IN_SCOPES, ['chat:write', 'chat:read', 'graph:publish'])
     for (const s of OPT_IN_SCOPES) assert.equal(CONNECT_SCOPES.includes(s), false, `${s} leaked into the advertised set`)
+  })
+
+  test('graph:publish cannot be obtained by a client asking for it', () => {
+    // The invariant that makes an opt-in an opt-in: advertising is what made ChatGPT request
+    // graph:publish in the first place, so it must be grantable ONLY by a ticked box.
+    assert.deepEqual(grantableScopes(['graph:read', 'graph:write', 'graph:publish']), ['graph:read', 'graph:write'])
+    assert.deepEqual(sanitizeOptIns(['graph:publish']), ['graph:publish'])
+  })
+
+  test('the publish copy says the page becomes public and the host must already exist', () => {
+    const d = OPT_IN_SCOPE_DETAIL['graph:publish']
+    assert.ok(d && d.length > 80, 'an outward-facing scope needs real copy')
+    assert.match(d, /hvem som helst/, 'must say the page becomes public')
+    assert.match(d, /ikke opprette nye/, 'must say it cannot create subdomains')
+    assert.match(d, /allerede er knyttet til/, 'must say the host is constrained to the node')
   })
 
   test('granting one does not grant the other — that is the whole point of two boxes', () => {

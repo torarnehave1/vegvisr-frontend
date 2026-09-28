@@ -300,3 +300,22 @@ export class PagesKVLike {
       : { keys, list_complete: false, cursor: String(next) }
   }
 }
+
+/** agent-worker, faked. Records what the publish request carried. */
+export class FakeAgentWorker {
+  constructor({ ok = true, verified = true, error = null, status = 200 } = {}) {
+    this.calls = []
+    this.ok = ok
+    this.verified = verified
+    this.error = error
+    this.status = status
+  }
+  async fetch(url, init) {
+    const body = JSON.parse(init.body)
+    this.calls.push({ url, token: new Headers(init.headers).get('X-API-Token'), body })
+    if (!this.ok) {
+      return new Response(JSON.stringify({ success: false, error: this.error || 'refused' }), { status: this.status })
+    }
+    return new Response(JSON.stringify({ success: true, verified: this.verified, message: 'published' }), { status: 200 })
+  }
+}

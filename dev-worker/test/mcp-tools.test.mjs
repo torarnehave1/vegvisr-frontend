@@ -14,8 +14,9 @@ import assert from 'node:assert/strict'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike } from './d1-adapter.mjs'
+import { freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike, FakeAgentWorker } from './d1-adapter.mjs'
 import * as pd from '../published-domains.js'
+import { CONNECT_SCOPES, OPT_IN_SCOPES } from '../oauth/scopes.js'
 import { registerTools, TOOL_NAMES } from '../mcp/tools.js'
 import * as gs from '../graph-service.js'
 
@@ -571,13 +572,16 @@ describe('annotations tell the client the truth about each tool', () => {
     assert.equal(c.annotations.destructiveHint, false)
   })
 
-  test('every graph tool stays inside this system; only chat reaches out', async () => {
+  test('only the two tools whose effect leaves this system are flagged outward', async () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RW)
     const { tools } = await client.listTools()
+    // post_chat_message reaches other people; publish_html_node reaches the public internet.
+    // Every other tool touches graphs the caller can already see, where a mistake is private
+    // and undoable. Both outward tools are gated behind a scope no client can request.
+    const outward = new Set(['post_chat_message', 'publish_html_node'])
     for (const t of tools) {
-      const expected = t.name === 'post_chat_message'
-      assert.equal(t.annotations?.openWorldHint, expected, `${t.name} openWorldHint`)
+      assert.equal(t.annotations?.openWorldHint, outward.has(t.name), `${t.name} openWorldHint`)
     }
   })
 
@@ -815,6 +819,117 @@ describe('update_graph_metadata gives updateMetadata its first caller', () => {
     const areas = rows.map((r) => JSON.parse(r.data).metadata.metaArea)
     assert.ok(areas.includes('#KEEP #THIS'), 'the old value is still in history')
     assert.equal(areas[areas.length - 1], '#ONLYNEW')
+  })
+})
+
+
+describe('publish_html_node is the one tool that reaches the public internet', () => {
+  const PUB = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'graph:write', 'graph:publish'] } }
+
+  /** A graph with an html-node already associated with one host. */
+  async function withPage(hosts = ['fonemer.vegvisr.org'], authCtx = PUB) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.AGENT_WORKER = new FakeAgentWorker()
+    const { client } = await connect(env, authCtx)
+    const g = await callOk(client, 'create_graph', {
+      title: 'Site',
+      metaArea: '#X',
+      nodes: [{ id: 'page', label: 'Landing', type: 'html-node', info: '<h1>hi</h1>', bibl: hosts.map((h) => `https://${h}/`) }],
+    })
+    return { env, client, graphId: g.graphId }
+  }
+
+  test('republishes to the host the node already points at, as the caller', async () => {
+    const { env, client, graphId } = await withPage()
+    const r = await callOk(client, 'publish_html_node', { graphId, nodeId: 'page', host: 'fonemer.vegvisr.org' })
+    assert.equal(r.success, true)
+    assert.equal(r.verified, true)
+    assert.equal(r.siteUrl, 'https://fonemer.vegvisr.org')
+
+    const [call] = env.AGENT_WORKER.calls
+    assert.equal(call.token, 'sess-alice', 'publishes as the caller, on a server-read token')
+    assert.equal(call.body.host, 'fonemer.vegvisr.org')
+    // The whole reason a model is allowed near this: the host guard cannot be overridden.
+    assert.ok(!('force' in call.body), 'force must never be forwarded')
+  })
+
+  test('a host the node does not point at is refused, and the real ones are named', async () => {
+    const { env, client, graphId } = await withPage(['fonemer.vegvisr.org'])
+    const e = await callErr(client, 'publish_html_node', { graphId, nodeId: 'page', host: 'ponemer.vegvisr.org' })
+    assert.equal(e.code, gs.ERR.INVALID_INPUT)
+    assert.deepEqual(e.associatedHosts, ['fonemer.vegvisr.org'])
+    assert.equal(env.AGENT_WORKER.calls.length, 0, 'refused before anything left this worker')
+  })
+
+  test('a node with no host at all cannot be used to claim one', async () => {
+    const { env, client, graphId } = await withPage([])
+    const e = await callErr(client, 'publish_html_node', { graphId, nodeId: 'page', host: 'brand-new.vegvisr.org' })
+    assert.equal(e.code, gs.ERR.INVALID_INPUT)
+    assert.equal(env.AGENT_WORKER.calls.length, 0)
+  })
+
+  test('a read+write connection cannot publish — the scope is not in CONNECT_SCOPES', async () => {
+    const { env, client, graphId } = await withPage(['fonemer.vegvisr.org'], ALICE_RW)
+    const e = await callErr(client, 'publish_html_node', { graphId, nodeId: 'page', host: 'fonemer.vegvisr.org' })
+    assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+    assert.equal(e.requiredScope, 'graph:publish')
+    assert.equal(env.AGENT_WORKER.calls.length, 0)
+  })
+
+  test("another user's graph is refused even with the publish scope", async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.AGENT_WORKER = new FakeAgentWorker()
+    const { client: alice } = await connect(env, ALICE_RW)
+    const g = await callOk(alice, 'create_graph', {
+      title: 'Hers', metaArea: '#X',
+      nodes: [{ id: 'page', label: 'p', type: 'html-node', info: '<h1>x</h1>', bibl: ['https://hers.vegvisr.org/'] }],
+    })
+    const bobPub = { ...BOB_RW, auth: { ...BOB_RW.auth, scope: ['graph:read', 'graph:write', 'graph:publish'] } }
+    const { client: bob } = await connect(env, bobPub)
+    const e = await callErr(bob, 'publish_html_node', { graphId: g.graphId, nodeId: 'page', host: 'hers.vegvisr.org' })
+    assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.equal(env.AGENT_WORKER.calls.length, 0)
+  })
+
+  test('only an html-node or css-node can be published', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.AGENT_WORKER = new FakeAgentWorker()
+    const { client } = await connect(env, PUB)
+    const g = await callOk(client, 'create_graph', {
+      title: 'T', metaArea: '#X',
+      nodes: [{ id: 'n1', label: 'prose', type: 'fulltext', info: 'text', bibl: ['https://x.vegvisr.org/'] }],
+    })
+    const e = await callErr(client, 'publish_html_node', { graphId: g.graphId, nodeId: 'n1', host: 'x.vegvisr.org' })
+    assert.match(e.message, /html-node or css-node/)
+  })
+
+  test('verified:false is reported as NOT live rather than dressed up as success', async () => {
+    const { env, client, graphId } = await withPage()
+    env.AGENT_WORKER = new FakeAgentWorker({ verified: false })
+    const r = await callOk(client, 'publish_html_node', { graphId, nodeId: 'page', host: 'fonemer.vegvisr.org' })
+    assert.equal(r.verified, false)
+  })
+
+  test("a refusal from the publish service is passed through, not swallowed", async () => {
+    const { env, client, graphId } = await withPage()
+    env.AGENT_WORKER = new FakeAgentWorker({ ok: false, status: 400, error: 'Superadmin role required to publish an html-node.' })
+    const e = await callErr(client, 'publish_html_node', { graphId, nodeId: 'page', host: 'fonemer.vegvisr.org' })
+    assert.match(e.message, /Superadmin role required/)
+  })
+
+  test('it is the only tool besides chat that declares it reaches the outside world', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, PUB)
+    const { tools } = await client.listTools()
+    const outward = tools.filter((t) => t.annotations?.openWorldHint).map((t) => t.name).sort()
+    assert.deepEqual(outward, ['post_chat_message', 'publish_html_node'])
+    const t = tools.find((x) => x.name === 'publish_html_node')
+    assert.equal(t.annotations.destructiveHint, true, 'it replaces the page that is there')
+    // No force, and no way to name an arbitrary proxy.
+    assert.deepEqual(Object.keys(t.inputSchema.properties).sort(), ['graphId', 'host', 'nodeId', 'versionPill'])
   })
 })
 
@@ -1147,8 +1262,8 @@ describe('post_chat_message is gated harder than everything else', () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RW)
     const { tools } = await client.listTools()
-    const outward = tools.filter((t) => t.annotations?.openWorldHint === true).map((t) => t.name)
-    assert.deepEqual(outward, ['post_chat_message'])
+    const outward = tools.filter((t) => t.annotations?.openWorldHint === true).map((t) => t.name).sort()
+    assert.deepEqual(outward, ['post_chat_message', 'publish_html_node'])
   })
 
   test('its description warns that the action cannot be undone', async () => {
@@ -1219,11 +1334,18 @@ describe('read_chat_messages is gated apart from posting', () => {
     assert.match(t.description, /never their e-mail addresses/)
   })
 
-  test('still exactly one outward-facing tool', async () => {
+  test('every outward-facing tool is gated behind a scope no client can request', async () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RW)
     const { tools } = await client.listTools()
-    assert.deepEqual(tools.filter((t) => t.annotations?.openWorldHint).map((t) => t.name), ['post_chat_message'])
+    const outward = tools.filter((t) => t.annotations?.openWorldHint).map((t) => t.name).sort()
+    assert.deepEqual(outward, ['post_chat_message', 'publish_html_node'])
+    // The property that makes adding a second one safe: neither scope is advertised, so both
+    // require a person to tick a box on the consent screen.
+    for (const scope of ['chat:write', 'graph:publish']) {
+      assert.equal(CONNECT_SCOPES.includes(scope), false, `${scope} must stay unadvertised`)
+      assert.equal(OPT_IN_SCOPES.includes(scope), true, `${scope} must be reachable by an opt-in`)
+    }
   })
 })
 

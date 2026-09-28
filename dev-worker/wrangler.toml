@@ -112,3 +112,12 @@ service = "group-chat-worker"
 [[services]]
 binding = "PHOTOS_WORKER"
 service = "vegvisr-photos-worker"
+
+# agent-worker, for the MCP publish_html_node tool. Publishing is NOT reimplemented here: the
+# ~250 lines of rules in agent-worker's executePublishHtmlNode — the wrong-host guard, the
+# dead-backend probe, gate and version-pill persistence, which proxy signs the token, the
+# read-back verification — each came from a real failure, and a second copy would drift from
+# them one bug at a time. This binding is the door to the single implementation.
+[[services]]
+binding = "AGENT_WORKER"
+service = "agent-worker"

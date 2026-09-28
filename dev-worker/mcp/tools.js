@@ -25,6 +25,7 @@ import * as chat from '../chat-service.js'
 import * as templates from '../templates-service.js'
 import * as images from '../images-service.js'
 import * as sites from '../published-domains.js'
+import * as publish from '../publish-service.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared schemas
@@ -969,6 +970,90 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── publish_html_node ─────────────────────────────────────────────────────
+  //
+  // The only tool here that puts something on the public internet. It is narrowed twice over
+  // compared with the same action in the Agent Builder:
+  //
+  //   * graph:publish is not advertised, so no client can request it. It is granted only by a
+  //     person ticking an unticked box on the consent screen, for one authorization at a time.
+  //   * the host must be one the node already points at. The Agent Builder lets a Superadmin
+  //     publish anywhere and override the guard with force:true; that override is simply not
+  //     reachable from here, so a model cannot take over another World's host by naming it.
+  //
+  // The publishing itself is agent-worker's executePublishHtmlNode, reached over a service
+  // binding. There is no second implementation.
+  server.registerTool(
+    'publish_html_node',
+    {
+      title: 'Republish an html-node to its live site',
+      description:
+        'Push an html-node\'s current HTML to the live website it already serves, replacing what ' +
+        'is there. THIS PUTS CONTENT ON THE PUBLIC INTERNET AND REPLACES THE EXISTING PAGE — ' +
+        'confirm with the user before calling it. It can only publish to a host the node is ' +
+        'ALREADY associated with, so it republishes an existing site and can neither create a new ' +
+        'one nor take over a different address; if you are unsure which host a node belongs to, ' +
+        'call list_published_sites rather than guessing. Check `verified` in the result: only ' +
+        'verified:true means the page is actually live. Requires the graph:publish scope, which ' +
+        'an ordinary connection does not carry.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph containing the html-node.'),
+        nodeId: z.string().min(1).describe('The html-node (or css-node) to publish.'),
+        host: z
+          .string()
+          .min(1)
+          .describe(
+            'The live host to republish, e.g. "fonemer.vegvisr.org". Must be a host this node is ' +
+              'already associated with — read it from list_published_sites or the node itself, never invent it.',
+          ),
+        versionPill: z
+          .boolean()
+          .optional()
+          .describe('Show a small version pill on the served page (host, version, publish time). Omit to keep the current setting.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        nodeId: z.string(),
+        host: z.string(),
+        siteUrl: z.string(),
+        verified: z.boolean(),
+        message: z.string().nullable(),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      // Destructive: it replaces whatever page is currently served at that host. openWorldHint
+      // because, like chat, its effect leaves this system and is seen by other people.
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ graphId, nodeId, host, versionPill }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:publish')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await publish.publishHtmlNode(env, {
+        graphId,
+        nodeId,
+        host,
+        versionPill: typeof versionPill === 'boolean' ? versionPill : null,
+        actor,
+      })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        result.verified
+          ? `Published node ${nodeId} to ${result.siteUrl} — verified live.`
+          : `Published node ${nodeId} to ${result.siteUrl}, but the page could NOT be verified as live. ` +
+            `Report it as not live. ${result.message || ''}`.trim(),
+      )
+    },
+  )
+
   // ── list_published_sites ──────────────────────────────────────────────────
   //
   // The portfolio's "Published sites" chip, as data. brand-worker writes an HTML_PAGES key
@@ -1256,6 +1341,7 @@ export const TOOL_NAMES = [
   'get_fulltext_elements',
   'generate_node_image',
   'update_graph_metadata',
+  'publish_html_node',
   'list_published_sites',
   'search_graphs',
   'list_my_graphs',

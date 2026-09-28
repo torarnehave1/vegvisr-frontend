@@ -70,10 +70,15 @@ export function grantableScopes(requested) {
  * requested, as long as the token response reports what was actually granted — which the
  * provider does.
  */
-export const OPT_IN_SCOPES = ['chat:write', 'chat:read']
+export const OPT_IN_SCOPES = ['chat:write', 'chat:read', 'graph:publish']
 
 /** Longer copy for the consent screen: the one-liner is not enough for an outward-facing scope. */
 export const OPT_IN_SCOPE_DETAIL = {
+  'graph:publish':
+    'Lar assistenten publisere en html-node til en nettadresse som ALLEREDE er satt opp, slik ' +
+    'at siden blir synlig for hvem som helst på internett. Den kan ikke opprette nye ' +
+    'subdomener, og den kan bare publisere til en adresse noden allerede er knyttet til — et ' +
+    'forsøk på en annen adresse blir avvist. En publisert side erstatter det som lå der fra før.',
   'chat:write':
     'Lar assistenten skrive meldinger i chattegrupper du er medlem av. Meldingene postes av ' +
     'assistentens egen bot og merkes alltid med at en AI skrev dem på dine vegne. Den kan bare ' +
