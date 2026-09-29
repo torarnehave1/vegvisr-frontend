@@ -1521,6 +1521,56 @@ describe('surveying a large collection without opening every graph', () => {
   })
 })
 
+
+describe('a client with a narrower Accept header is not turned away', () => {
+  // Thirteen JSONRPC_-32000 rows in one day, all with tool:null and 0ms, turned out to be the
+  // SDK refusing POSTs whose Accept lacked text/event-stream — a check that is meaningless here,
+  // because the server is stateless with enableJsonResponse and never returns an event stream.
+  async function post(acceptHeader) {
+    const { env } = freshDb()
+    const server = new McpServer({ name: 'test', version: '1.5.0' })
+    const { WebStandardStreamableHTTPServerTransport } = await import(
+      '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
+    )
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    })
+    registerTools(server, () => ({ ...ALICE_RW, env }))
+    await server.connect(transport)
+
+    const body = { jsonrpc: '2.0', id: 1, method: 'tools/list' }
+    let req = new Request('https://x/mcp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: acceptHeader },
+      body: JSON.stringify(body),
+    })
+    // The same normalisation mcp/server.js performs before handing the request to the transport.
+    const accept = req.headers.get('accept') || ''
+    if (!accept.includes('text/event-stream')) {
+      const headers = new Headers(req.headers)
+      headers.set('accept', 'application/json, text/event-stream')
+      req = new Request(req.url, { method: req.method, headers })
+    }
+    const res = await transport.handleRequest(req, {
+      parsedBody: body,
+      authInfo: { token: '', clientId: 'c', scopes: ['graph:read'], extra: {} },
+    })
+    const text = await res.text()
+    await server.close()
+    return { status: res.status, text }
+  }
+
+  for (const accept of ['application/json', '*/*', 'application/json, text/event-stream']) {
+    test(`Accept: ${accept} is answered, not rejected with -32000`, async () => {
+      const { status, text } = await post(accept)
+      assert.equal(status, 200)
+      assert.ok(!text.includes('-32000'), 'must not be refused as Not Acceptable')
+      assert.equal(JSON.parse(text).result.tools.length, TOOL_NAMES.length)
+    })
+  }
+})
+
 describe('the published-site registry reaches MCP the same way it reaches the portfolio', () => {
   const key = (host, graphId, nodeId = 'html-1') => ({
     name: `html:${host}`,

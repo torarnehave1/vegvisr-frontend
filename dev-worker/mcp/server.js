@@ -33,7 +33,7 @@ import { registerTools, TOOL_NAMES } from './tools.js'
 // Bump it with the surface from here; MCP_OAUTH_DEPLOYMENT.md carries the changelog.
 const SERVER_INFO = {
   name: 'vegvisr-knowledge-graph',
-  version: '1.5.0',
+  version: '1.5.1',
 }
 
 const INSTRUCTIONS = `VEGR.AI Knowledge Graph.
@@ -75,14 +75,17 @@ async function audit(env, row) {
   try {
     await env.vegvisr_org
       .prepare(
-        `INSERT INTO mcp_audit_log (id, ts, user_id, client_id, tool, graph_id, result_code, duration_ms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO mcp_audit_log (id, ts, user_id, client_id, method, tool, graph_id, result_code, duration_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         crypto.randomUUID(),
         new Date().toISOString(),
         row.userId || null,
         row.clientId || null,
+        // `tool` is NULL for everything that is not tools/call, so a row for a rejected
+        // handshake used to say nothing at all about what had been rejected.
+        row.method || null,
         row.tool || null,
         row.graphId || null,
         row.resultCode || null,
@@ -181,10 +184,30 @@ export const mcpHandler = {
     // One context per request; the tools read it when they run.
     registerTools(server, () => ({ auth, env, props }))
 
+    // Widen Accept before the transport sees it.
+    //
+    // The SDK refuses a POST that does not accept BOTH application/json and text/event-stream,
+    // with 406 and JSON-RPC -32000. Claude sends a narrower Accept on some requests, which is
+    // where the run of JSONRPC_-32000 rows in the audit log came from — thirteen in one day,
+    // every one a rejected request the client then retried.
+    //
+    // That check is meaningless for this server: it is stateless and runs with
+    // enableJsonResponse, so it NEVER returns an event stream. Refusing a client for not
+    // accepting something we never send is a formality that costs real requests, so the header
+    // is normalised here rather than the client being asked to change. The body is already
+    // parsed and passed as parsedBody, so rebuilding the Request without it is safe.
+    const accept = request.headers.get('accept') || ''
+    let mcpRequest = request
+    if (!accept.includes('text/event-stream')) {
+      const headers = new Headers(request.headers)
+      headers.set('accept', 'application/json, text/event-stream')
+      mcpRequest = new Request(request.url, { method: request.method, headers })
+    }
+
     let response
     try {
       await server.connect(transport)
-      response = await transport.handleRequest(request, {
+      response = await transport.handleRequest(mcpRequest, {
         parsedBody: parsed,
         authInfo: {
           token: '', // deliberately not propagated: nothing downstream needs the raw token
@@ -199,6 +222,7 @@ export const mcpHandler = {
         audit(env, {
           userId: props.userId,
           clientId: auth.clientId,
+          method: described.method,
           tool: described.tool,
           graphId: described.graphId,
           resultCode: 'INTERNAL_ERROR',
@@ -230,6 +254,7 @@ export const mcpHandler = {
       audit(env, {
         userId: props.userId,
         clientId: auth.clientId,
+        method: described.method,
         tool: described.tool,
         graphId: described.graphId,
         resultCode,
