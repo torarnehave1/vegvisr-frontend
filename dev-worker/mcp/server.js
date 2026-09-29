@@ -25,9 +25,15 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { registerTools, TOOL_NAMES } from './tools.js'
 
+// What the server reports in the MCP initialize handshake. A client shows this, and a bug
+// report that names a version is worth more than one that does not.
+//
+// This said 1.0.0 from launch on 2026-09-27 through every addition since — four tools became
+// twenty-two and one scope became seven while the handshake still claimed the launch version.
+// Bump it with the surface from here; MCP_OAUTH_DEPLOYMENT.md carries the changelog.
 const SERVER_INFO = {
   name: 'vegvisr-knowledge-graph',
-  version: '1.0.0',
+  version: '1.5.0',
 }
 
 const INSTRUCTIONS = `VEGR.AI Knowledge Graph.
