@@ -5,6 +5,37 @@
  * decision that deserves one obvious home, and authorize.js pulls in
  * @cloudflare/workers-oauth-provider, which imports `cloudflare:workers` and therefore cannot be
  * loaded by a plain Node test. Constants that encode a security decision should be testable.
+ *
+ * ── THIS LIST IS FROZEN ──────────────────────────────────────────────────────────────────────
+ *
+ * Adding a scope string is the most expensive change in this codebase, and the cost lands on
+ * every user rather than on the developer. A grant is never widened: an existing connection
+ * keeps exactly the scopes it was created with, so a new scope means every person must DELETE
+ * their connector and add it again — and ChatGPT refuses to reuse the old connector name, so
+ * they end up with "KM2". Five scopes were added over two days in September 2026 and each one
+ * cost that.
+ *
+ * The mistake was naming scopes after FEATURES. chat:write arrived with chat, graph:publish with
+ * publishing, user:register with the directory — so every new capability implied a new scope.
+ *
+ * The eight below are named after RISK CLASSES instead, and are meant to be final. A new tool
+ * picks the class its damage belongs to; it does not get its own scope:
+ *
+ *   graph:read     reading content the user may already see
+ *   graph:write    creating or changing the user's own content — including attaching files,
+ *                  images and metadata to it
+ *   graph:publish  making something reachable by people who are not signed in
+ *   graph:delete   destroying content (reserved; no tool uses it yet)
+ *   chat:write     sending a message that reaches other people, in any channel
+ *   chat:read      reading messages other people wrote
+ *   user:register  creating or altering an account in the user directory
+ *   user:read      seeing other people's names, addresses and roles
+ *
+ * Before adding a ninth, answer: which of these does the new damage resemble? If the honest
+ * answer is "none", the scope is justified — and the runbook must say what it cost. If the
+ * answer is "one of them, roughly", use that one and widen its consent copy to match, because
+ * consent must never be narrower than what the scope permits.
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
  */
 
 /**
@@ -18,27 +49,27 @@
 export const CONNECT_SCOPES = ['graph:read', 'graph:write']
 
 /**
- * Every scope the server understands. graph:publish and graph:delete are real — api_scopes
- * carries both rows and graphService.publishGraph() is implemented and tested — but nothing
- * advertises them, nothing requests them, and no tool uses them. They are what a step-up
- * authorization will ask for once a publish tool exists.
+ * Every scope the server understands — the frozen vocabulary described at the top of this file.
  *
- * chat:write is different in kind, not just in degree. Every graph scope touches the caller's
- * own data; chat:write sends a message to OTHER PEOPLE, and it cannot be taken back. It is
- * deliberately absent from CONNECT_SCOPES so no ordinary connection can even ask for it.
+ * A test pins this array exactly. That test failing is not a nuisance to be silenced: it means
+ * someone is about to make every connected user re-authorize. Change it only with that
+ * understood, and record the reason in MCP_OAUTH_DEPLOYMENT.md.
+ *
+ * graph:delete is reserved and unused. It is listed so the vocabulary is complete and so a
+ * future delete tool costs a tool-list refresh rather than a re-authorization.
  */
 export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'graph:delete', 'chat:write', 'chat:read', 'user:register', 'user:read']
 
 /** Human text for the consent screen. Covers every known scope, advertised or not. */
 export const SCOPE_TEXT = {
   'graph:read': 'Lese kunnskapsgrafene dine',
-  'graph:write': 'Opprette og endre grafer og noder',
-  'graph:publish': 'Publisere en graf offentlig',
+  'graph:write': 'Opprette og endre innholdet ditt — grafer, noder, bilder og metadata',
+  'graph:publish': 'Gjøre innhold synlig for folk som ikke er innlogget',
   'graph:delete': 'Slette grafer',
-  'chat:write': 'Poste meldinger i chattegrupper du er medlem av',
-  'chat:read': 'Lese meldinger i chattegrupper du er medlem av',
-  'user:register': 'Opprette brukerkontoer og endre gruppene deres',
-  'user:read': 'Se hvem som er registrert: navn, e-post, rolle og gruppe',
+  'chat:write': 'Sende meldinger som når andre mennesker, på dine vegne',
+  'chat:read': 'Lese meldinger andre har skrevet',
+  'user:register': 'Opprette brukerkontoer og endre dem — rolle og gruppe',
+  'user:read': 'Se andre registrerte personer: navn, e-post, rolle og gruppe',
 }
 
 /**
@@ -82,7 +113,8 @@ export const OPT_IN_SCOPE_DETAIL = {
     'samtalen din hos AI-leverandøren. Innloggingsnøkler vises aldri. Egen avkryssing fra ' +
     'det å opprette brukere, fordi det å lese om andre er noe annet enn å legge til én.',
   'user:register':
-    'Lar assistenten opprette en brukerkonto for en annen person, med navn og e-post, og endre ' +
+    'Lar assistenten skrive i brukerkatalogen på dine vegne: opprette en konto for en annen ' +
+    'person med navn og e-post, og endre ' +
     'hvilke grupper registrerte personer tilhører. Personen kan deretter logge inn på ' +
     'plattformen med e-posten sin. Kontoen kan ikke gis Superadmin-rolle herfra, og en e-post ' +
     'som allerede finnes blir avvist i stedet for endret — bare gruppetaggene kan endres ' +
@@ -93,7 +125,10 @@ export const OPT_IN_SCOPE_DETAIL = {
     'subdomener, og den kan bare publisere til en adresse noden allerede er knyttet til — et ' +
     'forsøk på en annen adresse blir avvist. En publisert side erstatter det som lå der fra før.',
   'chat:write':
-    'Lar assistenten skrive meldinger i chattegrupper du er medlem av. Meldingene postes av ' +
+    'Lar assistenten sende meldinger som når andre mennesker, på dine vegne. I dag betyr det ' +
+    'chattegrupper du er medlem av; scopen dekker meldingskanaler generelt, så et framtidig ' +
+    'verktøy i samme klasse vil bruke den i stedet for å be deg autorisere på nytt. ' +
+    'Meldingene postes av ' +
     'assistentens egen bot og merkes alltid med at en AI skrev dem på dine vegne. Den kan bare ' +
     'poste i grupper der boten er lagt til. Meldinger kan ikke slettes av assistenten etterpå.',
   'chat:read':

@@ -97,6 +97,29 @@ describe('the opt-in step-up', () => {
 })
 
 describe('chat:read is consented to separately from chat:write', () => {
+  test('the scope vocabulary is FROZEN — changing this makes every user re-authorize', () => {
+    // A grant is never widened: an existing connection keeps the scopes it was created with, so
+    // a new scope string means every person must delete their connector and add it again.
+    // ChatGPT will not even reuse the old connector name. Five scopes were added over two days
+    // in September 2026 and each one cost that, because they were named after FEATURES.
+    //
+    // These eight are named after RISK CLASSES and are meant to be final. If this assertion
+    // fails, that is the point: decide deliberately, and record the reason in the runbook.
+    assert.deepEqual(KNOWN_SCOPES, [
+      'graph:read', 'graph:write', 'graph:publish', 'graph:delete',
+      'chat:write', 'chat:read', 'user:register', 'user:read',
+    ])
+  })
+
+  test('consent copy describes the risk class, not just today\'s tool', () => {
+    // Consent must never be narrower than what the scope permits, or the next tool placed in an
+    // existing scope is doing something the user did not agree to.
+    assert.match(SCOPE_TEXT['chat:write'], /andre mennesker/, 'not "chat groups" specifically')
+    assert.match(SCOPE_TEXT['graph:write'], /innholdet ditt/, 'not "graphs and nodes" specifically')
+    assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /meldingskanaler generelt/,
+      'must say the scope covers the class, so a future tool does not need a new scope')
+  })
+
   test('every opt-in stays out of the advertised set', () => {
     assert.deepEqual(OPT_IN_SCOPES, ['chat:write', 'chat:read', 'graph:publish', 'user:register', 'user:read'])
     for (const s of OPT_IN_SCOPES) assert.equal(CONNECT_SCOPES.includes(s), false, `${s} leaked into the advertised set`)
@@ -113,7 +136,7 @@ describe('chat:read is consented to separately from chat:write', () => {
     assert.deepEqual(grantableScopes(['graph:read', 'user:register']), ['graph:read'])
     assert.deepEqual(sanitizeOptIns(['user:register']), ['user:register'])
     const d = OPT_IN_SCOPE_DETAIL['user:register']
-    assert.match(d, /brukerkonto/, 'must say an account is created')
+    assert.match(d, /opprette en konto/, 'must say an account is created')
     assert.match(d, /Superadmin/, 'must say the role ceiling')
     // The copy has to track the behaviour: a duplicate is REFUSED, not completed, and the scope
     // also covers changing group tags — set_user_groups rides on it rather than a sixth opt-in.
