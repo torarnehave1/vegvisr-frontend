@@ -1044,6 +1044,7 @@ import GraphGallery from './GraphGallery.vue'
 import GraphTable from './GraphTable.vue'
 import MetaAreaSidebar from '@/components/MetaAreaSidebar.vue'
 import { apiUrls, getApiUrl } from '@/config/api'
+import { kgAuthHeaders } from '@/utils/kgAuth'
 
 const props = defineProps({
   theme: {
@@ -2286,6 +2287,10 @@ const confirmDelete = async (graph) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          // /deleteknowgraph requires graph:delete. Without these the request authenticates
+          // only as a trusted origin, which is capped at graph:read, and the worker answers
+          // 403 "Insufficient permissions. Required scope: graph:delete".
+          ...kgAuthHeaders(userStore),
         },
         body: JSON.stringify({
           id: graph.id,
@@ -2733,6 +2738,7 @@ const insertPortfolioImage = async (imageUrl = null) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...kgAuthHeaders(userStore),
       },
       body: JSON.stringify({
         id: graphToUpdate.id,
