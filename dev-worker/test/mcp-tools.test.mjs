@@ -772,8 +772,12 @@ describe('generate_node_image fills a placeholder the node already has', () => {
     // an arbitrary URL into someone's node through this tool.
     assert.deepEqual(
       Object.keys(t.inputSchema.properties).sort(),
-      ['expectedVersion', 'graphId', 'height', 'nodeId', 'placement', 'prompt', 'width'],
+      ['expectedVersion', 'graphId', 'height', 'model', 'nodeId', 'placement', 'prompt', 'width'],
     )
+    // model is an enum of what the account actually has, not a free string — a model asked to
+    // pick from prose invents a plausible id, and an invented one fails only at generation time.
+    assert.ok(Array.isArray(t.inputSchema.properties.model.enum))
+    assert.ok(t.inputSchema.properties.model.enum.includes('@cf/leonardo/lucid-origin'))
   })
 })
 

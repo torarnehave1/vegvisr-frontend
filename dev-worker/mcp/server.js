@@ -33,7 +33,7 @@ import { registerTools, TOOL_NAMES } from './tools.js'
 // Bump it with the surface from here; MCP_OAUTH_DEPLOYMENT.md carries the changelog.
 const SERVER_INFO = {
   name: 'vegvisr-knowledge-graph',
-  version: '1.7.0',
+  version: '1.8.0',
 }
 
 const INSTRUCTIONS = `VEGR.AI Knowledge Graph.

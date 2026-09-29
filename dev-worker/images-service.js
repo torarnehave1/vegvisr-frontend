@@ -24,8 +24,46 @@ function fail(code, message, extra = {}) {
   return { ok: false, code, status: statusForCode(code), message, ...extra }
 }
 
-/** Workers AI. The same model Agent-Builder's generate_image uses. */
-const IMAGE_MODEL = '@cf/bytedance/stable-diffusion-xl-lightning'
+/**
+ * The text-to-image models on this account's AI binding, listed by `wrangler ai models`.
+ *
+ * An enum rather than a free string, for the reason node types are: a model asked to pick from
+ * prose invents a plausible value, and an invented model id fails at generation time after the
+ * caller has already been told the call is running.
+ *
+ * The default WAS stable-diffusion-xl-lightning, inherited from Agent-Builder's generate_image
+ * without anyone asking whether it suited the job. "Lightning" is a distilled SDXL that trades
+ * quality for a 4-8 step run — right for a preview, wrong for a header image in a published
+ * article, which is what this tool actually produces. Lucid Origin is the default now; lightning
+ * is still here for when speed matters more than the result.
+ */
+export const IMAGE_MODELS = [
+  '@cf/leonardo/lucid-origin',
+  '@cf/leonardo/phoenix-1.0',
+  '@cf/black-forest-labs/flux-1-schnell',
+  '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+  '@cf/bytedance/stable-diffusion-xl-lightning',
+]
+
+export const DEFAULT_IMAGE_MODEL = '@cf/leonardo/lucid-origin'
+
+/**
+ * What kind of picture arrived, sniffed from the bytes rather than assumed per model.
+ *
+ * Models differ in BOTH the envelope and the format: SDXL streams raw bytes, the Leonardo models
+ * return `{ image: "<base64>" }`, and nothing documents which of them emits PNG rather than
+ * JPEG. Guessing per model would be another contract written from memory, so the bytes are
+ * asked instead. Returning null is how "this is not an image at all" is still caught — the
+ * failure that made the original JPEG check worth having.
+ */
+function sniffImageType(bytes) {
+  if (bytes.length < 12) return null
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return { ext: 'jpg', mime: 'image/jpeg' }
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return { ext: 'png', mime: 'image/png' }
+  const tag = String.fromCharCode(...bytes.slice(0, 4)) + String.fromCharCode(...bytes.slice(8, 12))
+  if (tag === 'RIFFWEBP') return { ext: 'webp', mime: 'image/webp' }
+  return null
+}
 
 /**
  * The placeholder each element family carries, and the name a caller uses for it.
@@ -65,38 +103,49 @@ async function uploadTokenFor(env, actor) {
   return row?.emailVerificationToken || null
 }
 
-/** Generate the bytes. Returns {ok, bytes} or a structured failure. */
-export async function generateImageBytes(env, { prompt, width = null, height = null }) {
+/** Generate the bytes. Returns {ok, bytes, type} or a structured failure. */
+export async function generateImageBytes(env, { prompt, width = null, height = null, model = null }) {
   if (!env.AI) return fail(ERR.INTERNAL_ERROR, 'The AI binding is not configured on this worker.')
 
+  const chosen = model && IMAGE_MODELS.includes(model) ? model : DEFAULT_IMAGE_MODEL
   const w = pixelSide(width)
   const h = pixelSide(height)
 
   let response
   try {
-    response = await env.AI.run(IMAGE_MODEL, {
+    response = await env.AI.run(chosen, {
       prompt,
       ...(w ? { width: w } : {}),
       ...(h ? { height: h } : {}),
     })
   } catch (e) {
-    console.error('[images] generation failed:', e.message)
-    return fail(ERR.INTERNAL_ERROR, `Image generation failed: ${e.message}`)
+    console.error('[images] generation failed on', chosen, '-', e.message)
+    return fail(ERR.INTERNAL_ERROR, `Image generation failed (${chosen}): ${e.message}`)
   }
-  if (!response) return fail(ERR.INTERNAL_ERROR, 'Workers AI returned nothing.')
+  if (!response) return fail(ERR.INTERNAL_ERROR, `${chosen} returned nothing.`)
 
-  // env.AI.run returns a ReadableStream of JPEG bytes; buffer it through Response.
-  const bytes = new Uint8Array(await new Response(response).arrayBuffer())
-  if (bytes.length === 0) return fail(ERR.INTERNAL_ERROR, 'Workers AI returned an empty image.')
+  // Two envelopes. SDXL streams raw bytes; the Leonardo models answer { image: "<base64>" }.
+  // agent-worker's /generate-image already handles both — the same branch, not a new invention.
+  let bytes
+  if (typeof response === 'object' && response !== null && typeof response.image === 'string') {
+    const binary = atob(response.image)
+    bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  } else {
+    bytes = new Uint8Array(await new Response(response).arrayBuffer())
+  }
 
-  // A JPEG starts FF D8. Anything else is an error payload wearing an image's clothes, and
-  // storing it would put a permanently broken URL into someone's node.
-  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+  if (bytes.length === 0) return fail(ERR.INTERNAL_ERROR, `${chosen} returned an empty image.`)
+
+  // Ask the bytes what they are. An error payload wearing an image's clothes would otherwise be
+  // stored and put a permanently broken URL into someone's node — the reason this check exists.
+  const type = sniffImageType(bytes)
+  if (!type) {
     const preview = new TextDecoder().decode(bytes.slice(0, 120))
-    return fail(ERR.INTERNAL_ERROR, `Workers AI returned non-image data: ${preview.slice(0, 100)}`)
+    return fail(ERR.INTERNAL_ERROR, `${chosen} returned non-image data: ${preview.slice(0, 100)}`)
   }
 
-  return { ok: true, bytes, width: w, height: h }
+  return { ok: true, bytes, type, model: chosen, width: w, height: h }
 }
 
 /**
@@ -108,7 +157,7 @@ export async function generateImageBytes(env, { prompt, width = null, height = n
  * for whoever called first and lock the rest out. The image is reachable by its URL from the
  * node either way; that is the deliverable.
  */
-export async function uploadImage(env, { bytes, actor }) {
+export async function uploadImage(env, { bytes, actor, type = { ext: 'jpg', mime: 'image/jpeg' } }) {
   if (!env.PHOTOS_WORKER?.fetch) {
     return fail(ERR.INTERNAL_ERROR, 'The PHOTOS_WORKER service binding is not configured on this worker.')
   }
@@ -125,7 +174,7 @@ export async function uploadImage(env, { bytes, actor }) {
   // stem must NOT carry .jpg itself — that is where the `.jpg.jpg` keys in the album came from.
   const stem = `mcp-${Date.now()}`
   const form = new FormData()
-  form.append('file', new File([bytes], `${stem}.jpg`, { type: 'image/jpeg' }))
+  form.append('file', new File([bytes], `${stem}.${type.ext}`, { type: type.mime }))
   form.append('filename', stem)
 
   const res = await env.PHOTOS_WORKER.fetch('https://vegvisr-photos-worker/upload', {
@@ -167,7 +216,7 @@ function countOccurrences(haystack, needle) {
  */
 export async function generateImageForNode(
   env,
-  { graphId, nodeId, prompt, placement = 'header', expectedVersion = null, actor, width = null, height = null },
+  { graphId, nodeId, prompt, placement = 'header', expectedVersion = null, actor, width = null, height = null, model = null },
 ) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   if (!graphId || !nodeId) return fail(ERR.INVALID_INPUT, 'graphId and nodeId are required.')
@@ -210,10 +259,10 @@ export async function generateImageForNode(
 
   // Generate and store BEFORE touching the graph. A failed upload must not bump a version or
   // leave a node half-edited.
-  const generated = await generateImageBytes(env, { prompt, width, height })
+  const generated = await generateImageBytes(env, { prompt, width, height, model })
   if (!generated.ok) return generated
 
-  const stored = await uploadImage(env, { bytes: generated.bytes, actor })
+  const stored = await uploadImage(env, { bytes: generated.bytes, type: generated.type, actor })
   if (!stored.ok) return stored
 
   const at = info.indexOf(placeholder)
@@ -238,6 +287,7 @@ export async function generateImageForNode(
     nodeId,
     placement,
     imageUrl: stored.url,
+    model: generated.model,
     replaced: placeholder,
     remainingPlaceholders: countOccurrences(newInfo, placeholder),
     currentVersion: patched.currentVersion,

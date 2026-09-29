@@ -144,7 +144,8 @@ describe("generate_node_image — the caller's own credential", () => {
     // The stem must not already carry .jpg — photos-worker appends the File's extension, which
     // is where the `.jpg.jpg` keys in the shared album came from.
     assert.ok(!up.filename.endsWith('.jpg'), up.filename)
-    assert.equal(up.size, 8)
+    // 12, not 8: sniffImageType needs twelve bytes to rule out WebP's RIFF....WEBP header.
+    assert.equal(up.size, 12)
   })
 
   test('no album is claimed — uploading into one would stamp createdBy and lock other users out', async () => {
@@ -320,5 +321,60 @@ describe('generate_node_image — version defaulting', () => {
     const r = await images.generateImageForNode(env, { graphId, nodeId: 'n1', prompt: 'x', actor: ALICE })
     assert.ok(r.ok, JSON.stringify(r))
     assert.equal(r.currentVersion, bump.newVersion)
+  })
+})
+
+describe('choosing an image model', () => {
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
+
+  test('defaults to Lucid Origin, not the lightning model it inherited', async () => {
+    const { env, graphId } = await withGraph(HEADER_EL)
+    const r = await images.generateImageForNode(env, { graphId, nodeId: 'n1', prompt: 'x', actor: ALICE })
+    assert.ok(r.ok, JSON.stringify(r))
+    assert.equal(env.AI.calls[0].model, '@cf/leonardo/lucid-origin')
+    assert.equal(r.model, '@cf/leonardo/lucid-origin')
+  })
+
+  test('an explicit model is honoured', async () => {
+    const { env, graphId } = await withGraph(HEADER_EL)
+    const r = await images.generateImageForNode(env, {
+      graphId, nodeId: 'n1', prompt: 'x', actor: ALICE,
+      model: '@cf/bytedance/stable-diffusion-xl-lightning',
+    })
+    assert.equal(env.AI.calls[0].model, '@cf/bytedance/stable-diffusion-xl-lightning')
+    assert.equal(r.model, '@cf/bytedance/stable-diffusion-xl-lightning')
+  })
+
+  test('an unknown model falls back rather than failing at generation time', async () => {
+    const { env, graphId } = await withGraph(HEADER_EL)
+    await images.generateImageForNode(env, { graphId, nodeId: 'n1', prompt: 'x', actor: ALICE, model: '@cf/made/up' })
+    assert.equal(env.AI.calls[0].model, images.DEFAULT_IMAGE_MODEL)
+  })
+
+  test('a base64 envelope is decoded — the Leonardo models do not stream', async () => {
+    const { env, graphId } = await withGraph(HEADER_EL)
+    env.AI = new FakeAI({ envelope: 'base64' })
+    const r = await images.generateImageForNode(env, { graphId, nodeId: 'n1', prompt: 'x', actor: ALICE })
+    assert.ok(r.ok, JSON.stringify(r))
+    assert.equal(env.PHOTOS_WORKER.uploads[0].fileName.endsWith('.jpg'), true)
+  })
+
+  test('a PNG is stored as .png, not mislabelled .jpg', async () => {
+    const { env, graphId } = await withGraph(HEADER_EL)
+    env.AI = new FakeAI({ bytes: PNG })
+    const r = await images.generateImageForNode(env, { graphId, nodeId: 'n1', prompt: 'x', actor: ALICE })
+    assert.ok(r.ok, JSON.stringify(r))
+    // photos-worker names the object from the File's extension, so a wrong one would serve a
+    // PNG as image/jpeg forever.
+    assert.equal(env.PHOTOS_WORKER.uploads[0].fileName.endsWith('.png'), true)
+  })
+
+  test('something that is not an image at all is still refused', async () => {
+    const { env, graphId } = await withGraph(HEADER_EL)
+    env.AI = new FakeAI({ bytes: new TextEncoder().encode('{"error":"model overloaded, try later"}') })
+    const r = await images.generateImageForNode(env, { graphId, nodeId: 'n1', prompt: 'x', actor: ALICE })
+    assert.equal(r.ok, false)
+    assert.match(r.message, /non-image data/)
+    assert.equal(env.PHOTOS_WORKER.uploads.length, 0)
   })
 })

@@ -233,14 +233,20 @@ export function seedTemplates(raw, rows) {
  * happy-path tests fail for the wrong reason.
  */
 export class FakeAI {
-  constructor({ bytes = null, throws = null } = {}) {
+  constructor({ bytes = null, throws = null, envelope = 'stream' } = {}) {
     this.calls = []
     this.throws = throws
-    this.bytes = bytes ?? new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4])
+    this.envelope = envelope
+    // 12 bytes minimum: the sniffer needs enough to rule out WebP's RIFF....WEBP.
+    this.bytes = bytes ?? new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6, 7, 8])
   }
   async run(model, input) {
     this.calls.push({ model, input })
     if (this.throws) throw new Error(this.throws)
+    // The Leonardo models answer { image: "<base64>" } rather than streaming bytes.
+    if (this.envelope === 'base64') {
+      return { image: btoa(String.fromCharCode(...this.bytes)) }
+    }
     return this.bytes
   }
 }

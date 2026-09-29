@@ -823,6 +823,15 @@ export function registerTools(server, getContext) {
               'is part of the element, not something this tool sets), "fancy" for a [FANCY] block ' +
               'background (FANCYIMG.png). Default "header".',
           ),
+        model: z
+          .enum(images.IMAGE_MODELS)
+          .optional()
+          .describe(
+            'Which image model to use. Omit for the default, Lucid Origin, which is the most ' +
+              'prompt-responsive of the ones available. Pick ' +
+              '"@cf/bytedance/stable-diffusion-xl-lightning" only when speed matters more than ' +
+              'the result — it is a distilled model that runs in a few steps and looks it.',
+          ),
         width: z.number().int().optional().describe('Pixel width, 256–2048, rounded to a multiple of 8. Omit for the model default.'),
         height: z.number().int().optional().describe('Pixel height, 256–2048, rounded to a multiple of 8. Omit for the model default.'),
         expectedVersion: z
@@ -837,6 +846,7 @@ export function registerTools(server, getContext) {
         nodeId: z.string(),
         placement: z.string(),
         imageUrl: z.string(),
+        model: z.string(),
         replaced: z.string(),
         remainingPlaceholders: z.number(),
         currentVersion: z.number(),
@@ -849,7 +859,7 @@ export function registerTools(server, getContext) {
       // though the second call finds no placeholder left and refuses, which is the intent.
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    async ({ graphId, nodeId, prompt, placement, width, height, expectedVersion }) => {
+    async ({ graphId, nodeId, prompt, placement, width, height, expectedVersion, model }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:write')
       if (scopeErr) return scopeErr
@@ -864,6 +874,7 @@ export function registerTools(server, getContext) {
         placement: placement || 'header',
         width: width ?? null,
         height: height ?? null,
+        model: model ?? null,
         expectedVersion: Number.isInteger(expectedVersion) ? expectedVersion : null,
         actor,
       })
@@ -873,7 +884,7 @@ export function registerTools(server, getContext) {
       const left = result.remainingPlaceholders
       return ok(
         { success: true, ...payload },
-        `Image generated and placed in node ${nodeId}.\n${result.imageUrl}\n` +
+        `Image generated with ${result.model} and placed in node ${nodeId}.\n${result.imageUrl}\n` +
           (left > 0
             ? `${left} more ${result.placement} placeholder${left === 1 ? '' : 's'} left in this node.\n`
             : '') +
