@@ -73,7 +73,10 @@ describe('the opt-in step-up', () => {
 
   test('only real opt-in scopes survive sanitising — the form is untrusted input', () => {
     assert.deepEqual(sanitizeOptIns(['chat:write']), ['chat:write'])
-    assert.deepEqual(sanitizeOptIns(['graph:delete']), [], 'a scope that is not an opt-in was accepted')
+    // graph:delete used to be the example here, until it became a real opt-in. Use something
+    // that will never be one: a plausible-looking scope the form could carry but must not grant.
+    assert.deepEqual(sanitizeOptIns(['graph:admin']), [], 'an invented scope was accepted')
+    assert.deepEqual(sanitizeOptIns(['graph:read']), [], 'an advertised scope is not an opt-in')
     assert.deepEqual(sanitizeOptIns(['admin:all', 'chat:write', 'nonsense']), ['chat:write'])
     assert.deepEqual(sanitizeOptIns('chat:write'), ['chat:write'], 'a single checkbox arrives as a string')
     assert.deepEqual(sanitizeOptIns([]), [])
@@ -97,6 +100,17 @@ describe('the opt-in step-up', () => {
 })
 
 describe('chat:read is consented to separately from chat:write', () => {
+  test('every scope in the vocabulary can actually be granted', () => {
+    // graph:delete sat in KNOWN_SCOPES with no checkbox for two days: in the vocabulary, but
+    // impossible to obtain. The first delete tool would therefore have cost a re-authorization
+    // anyway — exactly what freezing the vocabulary is meant to prevent. A scope nobody can be
+    // granted is not frozen, it is a trap.
+    const grantable = new Set([...CONNECT_SCOPES, ...OPT_IN_SCOPES])
+    for (const scope of KNOWN_SCOPES) {
+      assert.equal(grantable.has(scope), true, `${scope} is in the vocabulary but cannot be granted`)
+    }
+  })
+
   test('the scope vocabulary is FROZEN — changing this makes every user re-authorize', () => {
     // A grant is never widened: an existing connection keeps the scopes it was created with, so
     // a new scope string means every person must delete their connector and add it again.
@@ -121,7 +135,7 @@ describe('chat:read is consented to separately from chat:write', () => {
   })
 
   test('every opt-in stays out of the advertised set', () => {
-    assert.deepEqual(OPT_IN_SCOPES, ['chat:write', 'chat:read', 'graph:publish', 'user:register', 'user:read'])
+    assert.deepEqual(OPT_IN_SCOPES, ['chat:write', 'chat:read', 'graph:publish', 'graph:delete', 'user:register', 'user:read'])
     for (const s of OPT_IN_SCOPES) assert.equal(CONNECT_SCOPES.includes(s), false, `${s} leaked into the advertised set`)
   })
 

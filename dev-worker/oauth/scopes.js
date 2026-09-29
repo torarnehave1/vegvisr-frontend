@@ -65,7 +65,7 @@ export const SCOPE_TEXT = {
   'graph:read': 'Lese kunnskapsgrafene dine',
   'graph:write': 'Opprette og endre innholdet ditt — grafer, noder, bilder og metadata',
   'graph:publish': 'Gjøre innhold synlig for folk som ikke er innlogget',
-  'graph:delete': 'Slette grafer',
+  'graph:delete': 'Slette innhold permanent',
   'chat:write': 'Sende meldinger som når andre mennesker, på dine vegne',
   'chat:read': 'Lese meldinger andre har skrevet',
   'user:register': 'Opprette brukerkontoer og endre dem — rolle og gruppe',
@@ -103,10 +103,22 @@ export function grantableScopes(requested) {
  * requested, as long as the token response reports what was actually granted — which the
  * provider does.
  */
-export const OPT_IN_SCOPES = ['chat:write', 'chat:read', 'graph:publish', 'user:register', 'user:read']
+export const OPT_IN_SCOPES = [
+  'chat:write',
+  'chat:read',
+  'graph:publish',
+  'graph:delete',
+  'user:register',
+  'user:read',
+]
 
 /** Longer copy for the consent screen: the one-liner is not enough for an outward-facing scope. */
 export const OPT_IN_SCOPE_DETAIL = {
+  'graph:delete':
+    'Lar assistenten slette innhold permanent. INGEN VERKTØY BRUKER DENNE ENNÅ — boksen finnes ' +
+    'fordi et grant aldri utvides: uten den her ville det første slette-verktøyet tvunget alle ' +
+    'til å koble fra og til på nytt. Kryss av bare hvis du vil at et slikt verktøy skal virke ' +
+    'med én gang det finnes. Å la den stå tom koster ingenting i dag.',
   'user:read':
     'Lar assistenten liste de registrerte brukerne på plattformen med navn, e-postadresse, ' +
     'rolle og gruppe. Dette er ANDRE personers kontaktopplysninger, og de blir en del av ' +
