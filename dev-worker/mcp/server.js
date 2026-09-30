@@ -33,7 +33,7 @@ import { registerTools, TOOL_NAMES } from './tools.js'
 // Bump it with the surface from here; MCP_OAUTH_DEPLOYMENT.md carries the changelog.
 const SERVER_INFO = {
   name: 'vegvisr-knowledge-graph',
-  version: '1.12.2',
+  version: '1.12.3',
 }
 
 const INSTRUCTIONS = `VEGR.AI Knowledge Graph.
@@ -130,6 +130,7 @@ function describeClient(msg) {
 
 /** What the SDK insists a POST must accept, and what we substitute when it does not. */
 export const ACCEPT_BOTH = 'application/json, text/event-stream'
+export const CONTENT_JSON = 'application/json'
 
 /**
  * True when the SDK would refuse this Accept header.
@@ -141,6 +142,31 @@ export const ACCEPT_BOTH = 'application/json, text/event-stream'
 export function acceptNeedsWidening(accept) {
   const a = accept || ''
   return !a.includes('application/json') || !a.includes('text/event-stream')
+}
+
+/**
+ * True when the SDK would refuse this Content-Type with 415 and -32000.
+ *
+ * The transport parses the media type rather than substring-matching it, so a missing header, an
+ * empty one, `text/plain` or `application/jsonrequest` are all refused; `application/json` with
+ * any charset parameter is fine. Verified against the transport, not inferred.
+ *
+ * WHY WE OVERRIDE IT. That check exists to protect the SDK's own reading of the request body.
+ * This handler has already read and parsed the body itself and hands the result over as
+ * `parsedBody`, so the transport never touches the stream — it is validating a header describing
+ * something it will not read. If `request.json()` succeeded, the payload IS JSON, whatever the
+ * header claims.
+ *
+ * AND WHY THAT IS SAFE. A JSON Content-Type requirement is also a CSRF defence: it forces a
+ * preflight on cross-origin requests, because a plain HTML form can only send
+ * form-urlencoded, multipart or text/plain. That defence is not what is holding this endpoint
+ * shut. /mcp requires a validated OAuth bearer token, and no form post can set an Authorization
+ * header — cross-origin, that header itself forces a preflight. The token is the gate; the
+ * media type never was.
+ */
+export function contentTypeNeedsFixing(contentType) {
+  const essence = String(contentType || '').split(';')[0].trim().toLowerCase()
+  return essence !== 'application/json'
 }
 
 /**
@@ -249,10 +275,18 @@ export const mcpHandler = {
     //
     // The body is already parsed and passed as parsedBody, so rebuilding the Request without it
     // is safe.
+    // Content-Type is normalised for the same reason and in the same breath. `server/discover`
+    // kept auditing as -32000 after the Accept fix landed, which is how the second header came to
+    // light: the transport refuses a POST whose Content-Type is not application/json with 415 and
+    // the same -32000 code, and our own request.json() had already parsed the body regardless, so
+    // the method name reached the audit while the request never reached dispatch.
+    const needsAccept = acceptNeedsWidening(request.headers.get('accept'))
+    const needsType = contentTypeNeedsFixing(request.headers.get('content-type'))
     let mcpRequest = request
-    if (acceptNeedsWidening(request.headers.get('accept'))) {
+    if (needsAccept || needsType) {
       const headers = new Headers(request.headers)
-      headers.set('accept', ACCEPT_BOTH)
+      if (needsAccept) headers.set('accept', ACCEPT_BOTH)
+      if (needsType) headers.set('content-type', CONTENT_JSON)
       mcpRequest = new Request(request.url, { method: request.method, headers })
     }
 

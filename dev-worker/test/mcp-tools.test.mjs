@@ -2218,6 +2218,34 @@ describe('Accept normalisation — why JSONRPC_-32000 appeared at all', () => {
     assert.equal(r.body.error.code, -32000)
   })
 
+  test('the transport also refuses a Content-Type it will never read', async () => {
+    // The second cause of the same -32000, found only because server/discover kept appearing
+    // after the Accept fix shipped. Our handler parses the body itself and passes parsedBody, so
+    // the transport never touches the stream — it is validating a header describing something it
+    // will not read.
+    for (const ct of ['text/plain', 'application/jsonrequest', '']) {
+      const s2 = new McpServer({ name: 'probe', version: '0.0.0' })
+      const t2 = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
+      await s2.connect(t2)
+      const res = await t2.handleRequest(
+        new Request('https://example.test/mcp', { method: 'POST', headers: { accept: server.ACCEPT_BOTH, 'content-type': ct } }),
+        { parsedBody: { jsonrpc: '2.0', id: 1, method: 'ping' } },
+      )
+      assert.equal(res.status, 415, ct || '(empty)')
+      assert.equal(JSON.parse(await res.text()).error.code, -32000, ct || '(empty)')
+    }
+  })
+
+  test('a Content-Type is fixed unless it is application/json, charset and all', () => {
+    assert.equal(server.contentTypeNeedsFixing('application/json'), false)
+    assert.equal(server.contentTypeNeedsFixing('application/json; charset=utf-8'), false)
+    assert.equal(server.contentTypeNeedsFixing('APPLICATION/JSON'), false, 'media types are case-insensitive')
+    assert.equal(server.contentTypeNeedsFixing('text/plain'), true)
+    assert.equal(server.contentTypeNeedsFixing('application/jsonrequest'), true, 'a prefix is not a match')
+    assert.equal(server.contentTypeNeedsFixing(''), true)
+    assert.equal(server.contentTypeNeedsFixing(null), true, 'a missing header is the common case')
+  })
+
   test('the same request goes through once the header is widened', async () => {
     const narrow = 'text/event-stream'
     assert.equal(server.acceptNeedsWidening(narrow), true)
