@@ -189,6 +189,13 @@ export const IMAGE_STYLES = {
   illustration: 'illustrated style, crafted visual storytelling, clean shapes',
   'pixar-3d': 'internal test render, Pixar style, polished 3D animated look',
   'concept-art': 'concept art, artstation quality, atmospheric visual development',
+  // Added 2026-09-30. Every style above describes a way of RENDERING a subject; these two are
+  // the first that change what a subject even is. They were missing, and it showed the moment
+  // anyone asked for the two most ordinary non-photographic requests a person makes — "draw it
+  // as a rough sketch" and "something abstract" — which had to be written into the prompt by
+  // hand, with no wording this model is known to respond to.
+  sketch: 'hand-drawn sketch, loose pen strokes, minimal line work',
+  abstract: 'abstract composition, non-representational forms, bold colour fields',
 }
 
 /**

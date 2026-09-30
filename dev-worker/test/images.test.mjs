@@ -390,6 +390,11 @@ describe('style, lighting and format — the dropdowns a chat does not have', ()
     // surface and another elsewhere is worse than no preset at all.
     assert.equal(images.IMAGE_STYLES.cinematic, 'cinematic precision, dramatic composition, widescreen film still')
     assert.equal(images.IMAGE_STYLES['concept-art'], 'concept art, artstation quality, atmospheric visual development')
+    // Added 2026-09-30 and pinned the same way, because the chat UI holds its own copy in a
+    // different repo. A style meaning one thing on one surface and something else on the other
+    // is worse than no preset at all.
+    assert.equal(images.IMAGE_STYLES.sketch, 'hand-drawn sketch, loose pen strokes, minimal line work')
+    assert.equal(images.IMAGE_STYLES.abstract, 'abstract composition, non-representational forms, bold colour fields')
     assert.equal(images.IMAGE_LIGHTING['golden-hour'], 'golden hour, warm diffused natural light')
     assert.deepEqual(images.IMAGE_FORMATS['landscape-16:9'], { width: 1152, height: 648 })
   })
@@ -470,6 +475,24 @@ describe('render traits and text in the image', () => {
   test('a treatment without text adds nothing — it describes lettering that is not there', () => {
     assert.equal(images.composeImagePrompt({ prompt: 'a poster', textTreatment: 'neon' }), 'a poster')
     assert.equal(images.composeImagePrompt({ prompt: 'a poster', imageText: '   ' }), 'a poster')
+  })
+
+  test('there are nine styles — the count is the only guard against one-sided additions', () => {
+    // src/components/VegvisrAgentChat.tsx holds a mirror of this table in another repo, so
+    // nothing can import one into the other. Changing this number without changing that file is
+    // how the two drift; the failure is meant to be the reminder.
+    assert.equal(Object.keys(images.IMAGE_STYLES).length, 9)
+  })
+
+  test('a style token is appended to the prompt, not substituted for it', () => {
+    assert.equal(
+      images.composeImagePrompt({ prompt: 'en katt', style: 'sketch' }),
+      'en katt, hand-drawn sketch, loose pen strokes, minimal line work',
+    )
+    assert.equal(
+      images.composeImagePrompt({ prompt: 'blå og oker', style: 'abstract' }),
+      'blå og oker, abstract composition, non-representational forms, bold colour fields',
+    )
   })
 
   test('everything together lands in the order the UI uses', async () => {
