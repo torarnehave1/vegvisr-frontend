@@ -398,10 +398,17 @@ async function handleQuery(db, d1, body, request) {
   // as non-existent (2026-09-30).
   if (search && typeof search === 'object' && search.term) {
     const searchCols = (Array.isArray(search.columns) ? search.columns : []).filter(c => validCols.has(c));
-    if (searchCols.length > 0) {
-      conditions.push(`(${searchCols.map(c => `${caseFoldSql(c)} LIKE ?`).join(' OR ')})`);
-      const term = `%${caseFoldTerm(search.term)}%`;
-      for (let i = 0; i < searchCols.length; i++) params.push(term);
+    // Match every WORD of the term, in any order — not the term as one contiguous string.
+    // A person searching a contact types the name they remember: "Olve Storås" found nothing
+    // while "Olve Aleksander Storås" found the row, because the middle name broke the
+    // substring (2026-09-30). Each word must appear in some column; the words need not be
+    // adjacent or in the stored order.
+    const words = caseFoldTerm(search.term).split(/\s+/).filter(Boolean).slice(0, 8);
+    if (searchCols.length > 0 && words.length > 0) {
+      for (const word of words) {
+        conditions.push(`(${searchCols.map(c => `${caseFoldSql(c)} LIKE ?`).join(' OR ')})`);
+        for (let i = 0; i < searchCols.length; i++) params.push(`%${word}%`);
+      }
     }
   }
 
@@ -1218,7 +1225,7 @@ const openApiSpec = {
                 properties: {
                   tableId: { type: 'string', description: 'The app_tables.id to query' },
                   where: { type: 'object', additionalProperties: true, description: 'Equality filters as key-value pairs' },
-                  search: { type: 'object', description: 'Server-side substring search: { term: "olve", columns: ["full_name","organization"] }. Case-insensitive, matches any of the columns.', properties: { term: { type: 'string' }, columns: { type: 'array', items: { type: 'string' } } } },
+                  search: { type: 'object', description: 'Server-side search: { term: "olve storås", columns: ["full_name","organization"] }. Case-insensitive (Nordic letters included); EVERY word of the term must appear in one of the columns, in any order.', properties: { term: { type: 'string' }, columns: { type: 'array', items: { type: 'string' } } } },
                   notEmpty: { type: 'array', items: { type: 'string' }, description: 'Only rows where these columns are non-NULL and non-empty' },
                   orderBy: { type: 'string', description: 'Column name to order by (default: _created_at)' },
                   order: { type: 'string', enum: ['asc', 'desc'], description: 'Sort direction (default: desc)' },
