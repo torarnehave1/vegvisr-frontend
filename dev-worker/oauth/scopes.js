@@ -66,7 +66,7 @@ export const SCOPE_TEXT = {
   'graph:write': 'Opprette og endre innholdet ditt — grafer, noder, bilder og metadata',
   'graph:publish': 'Gjøre innhold synlig for folk som ikke er innlogget',
   'graph:delete': 'Slette innhold permanent',
-  'chat:write': 'Sende meldinger som når andre mennesker, på dine vegne',
+  'chat:write': 'Sende meldinger som når andre mennesker, og styre hvem som er med i gruppene dine',
   'chat:read': 'Lese meldinger andre har skrevet',
   'user:register': 'Opprette brukerkontoer og endre dem — rolle og gruppe',
   'user:read': 'Se andre registrerte personer: navn, e-post, rolle og gruppe',
@@ -136,13 +136,19 @@ export const OPT_IN_SCOPE_DETAIL = {
     'at siden blir synlig for hvem som helst på internett. Den kan ikke opprette nye ' +
     'subdomener, og den kan bare publisere til en adresse noden allerede er knyttet til — et ' +
     'forsøk på en annen adresse blir avvist. En publisert side erstatter det som lå der fra før.',
+  // Widened 2026-09-30 to name group membership, when the member tools landed. The TEXT is not
+  // frozen — only the scope names are — so describing more of a risk class costs a consent
+  // screen that reads correctly and nothing else. Naming it matters: someone reading only
+  // "sende meldinger" would not expect an assistant to be able to add a person to a group.
   'chat:write':
-    'Lar assistenten sende meldinger som når andre mennesker, på dine vegne. I dag betyr det ' +
-    'chattegrupper du er medlem av; scopen dekker meldingskanaler generelt, så et framtidig ' +
-    'verktøy i samme klasse vil bruke den i stedet for å be deg autorisere på nytt. ' +
-    'Meldingene postes av ' +
+    'Lar assistenten sende meldinger som når andre mennesker, på dine vegne, og endre hvem som ' +
+    'er med i chattegrupper DU eier eller er admin i. I dag betyr det chattegrupper du er ' +
+    'medlem av; scopen dekker meldingskanaler generelt, så et framtidig verktøy i samme klasse ' +
+    'vil bruke den i stedet for å be deg autorisere på nytt. Meldingene postes av ' +
     'assistentens egen bot og merkes alltid med at en AI skrev dem på dine vegne. Den kan bare ' +
-    'poste i grupper der boten er lagt til. Meldinger kan ikke slettes av assistenten etterpå.',
+    'poste i grupper der boten er lagt til. Meldinger kan ikke slettes av assistenten etterpå. ' +
+    'Den kan bare legge til folk som allerede er registrerte VEGR.AI-brukere, og bare i grupper ' +
+    'der du selv er eier eller admin — ikke i grupper du bare er medlem av.',
   'chat:read':
     'Lar assistenten lese meldinger — også fra andre deltakere — i grupper du er medlem av og ' +
     'der assistentens bot er lagt til. Den ser bare det du selv allerede ser i chatten, og får ' +

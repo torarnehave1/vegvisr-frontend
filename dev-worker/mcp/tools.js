@@ -22,6 +22,7 @@
 import { z } from 'zod'
 import * as gs from '../graph-service.js'
 import * as chat from '../chat-service.js'
+import * as members from '../chat-members.js'
 import * as templates from '../templates-service.js'
 import * as images from '../images-service.js'
 import * as sites from '../published-domains.js'
@@ -650,6 +651,213 @@ export function registerTools(server, getContext) {
         : result.note || 'No groups available.'
       const lines = result.groups.map((g) => `• ${g.name || '(unnamed)'} — ${g.groupId} · ${g.members} members · ${g.messages} messages`)
       return ok({ success: true, ...payload }, [head, ...lines].join('\n'))
+    },
+  )
+
+  // ── list_group_members ────────────────────────────────────────────────────
+  //
+  // The four tools below change or expose WHO IS IN a group, which is a different risk from
+  // saying something in one. The gate they share lives in chat-members.js, and the reason it has
+  // to: group-chat-worker's /join endpoint checks the credentials of the person being added and
+  // nothing about who is asking, so without an ownership check here any connected user could add
+  // anybody to any group whose id they could guess.
+  server.registerTool(
+    'list_group_members',
+    {
+      title: 'List who is in a chat group',
+      description:
+        'List the members of a VEGR.AI chat group you belong to, with each one\'s role (owner, ' +
+        'admin or member) and when they joined. Use it before add_group_member or ' +
+        'remove_group_member to see who is already there and whether you have the standing to ' +
+        'change it — your own role is in the reply. E-mail addresses are included only if you ' +
+        'are the owner or an admin; an ordinary member sees display names. Requires the ' +
+        'chat:write scope.',
+      inputSchema: {
+        groupId: z.string().min(1).describe('The group. Use list_chat_groups to find one.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        groupId: z.string(),
+        yourRole: z.string(),
+        count: z.number(),
+        members: z.array(
+          z.object({
+            userId: z.string(),
+            name: z.string().nullable(),
+            role: z.string(),
+            joinedAt: z.string().nullable(),
+            email: z.string().nullable().optional(),
+          }),
+        ),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ groupId }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await members.listGroupMembers(env, { groupId, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      const lines = result.members.map(
+        (m) => `• ${m.name || m.userId}${m.email ? ` <${m.email}>` : ''} — ${m.role}`,
+      )
+      return ok(
+        { success: true, ...payload },
+        [`${result.count} member${result.count === 1 ? '' : 's'} (you are ${result.yourRole}):`, ...lines].join('\n'),
+      )
+    },
+  )
+
+  // ── add_group_member ──────────────────────────────────────────────────────
+  //
+  // Mirrors Agent-Builder's add_user_to_chat_group, with the one difference that matters: there,
+  // every caller is a Superadmin running their own system, so no ownership check was needed. Here
+  // the caller is whoever holds a token, so the check is the tool.
+  server.registerTool(
+    'add_group_member',
+    {
+      title: 'Add a registered person to a chat group',
+      description:
+        'Add an existing VEGR.AI user to a chat group, by e-mail. Only works in groups where YOU ' +
+        'are the owner or an admin, and only for people who are already registered — someone who ' +
+        'has no account cannot be added this way; use create_group_invite for them. The person ' +
+        'appears in the group immediately and can read everything posted from then on, so ' +
+        'confirm the address with the user before calling this. Adding someone who is already a ' +
+        'member changes nothing and says so. Requires the chat:write scope.',
+      inputSchema: {
+        groupId: z.string().min(1).describe('The group. Use list_chat_groups to find one.'),
+        email: z.string().min(3).describe("The person's registered VEGR.AI e-mail address."),
+        role: z
+          .enum(['member', 'admin'])
+          .optional()
+          .describe('Their role in the group. Default "member". Ownership cannot be granted here.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        groupId: z.string(),
+        email: z.string(),
+        userId: z.string(),
+        role: z.string(),
+        alreadyMember: z.boolean(),
+      },
+      // A write that reaches other people, and not idempotent in effect: the person is in the
+      // group afterwards and can read what is said there. Not destructive — nothing is lost.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ groupId, email, role }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await members.addGroupMember(env, { groupId, email, role: role || 'member', actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        result.alreadyMember
+          ? `${result.email} was already a ${result.role} of that group. Nothing changed.`
+          : `Added ${result.email} to the group as ${result.role}. They can now read everything posted there.`,
+      )
+    },
+  )
+
+  // ── remove_group_member ───────────────────────────────────────────────────
+  server.registerTool(
+    'remove_group_member',
+    {
+      title: 'Remove someone from a chat group',
+      description:
+        'Remove a member from a chat group you OWN, by e-mail. Admins cannot do this — only the ' +
+        'owner. An owner cannot remove themselves and cannot remove another owner; the chat ' +
+        'service refuses both. The person loses access to anything posted from then on but ' +
+        'remains a registered user. Confirm with the user before calling this. Requires the ' +
+        'chat:write scope.',
+      inputSchema: {
+        groupId: z.string().min(1).describe('The group you own.'),
+        email: z.string().min(3).describe("The member's registered e-mail address. Use list_group_members to check it."),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        groupId: z.string(),
+        email: z.string(),
+        removedUserId: z.string(),
+      },
+      // Destructive: it takes away access, and this tool cannot put it back — re-adding is a
+      // separate deliberate act.
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ groupId, email }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await members.removeGroupMember(env, { groupId, email, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok({ success: true, ...payload }, `Removed ${result.email} from the group.`)
+    },
+  )
+
+  // ── create_group_invite ───────────────────────────────────────────────────
+  //
+  // The path for someone the system does NOT already know. It keeps the consent with the person
+  // joining — they follow the link themselves — which add_group_member cannot do and does not
+  // need to, because the people it can add were vetted at registration.
+  server.registerTool(
+    'create_group_invite',
+    {
+      title: 'Create an invite link to a chat group',
+      description:
+        'Create a time-limited invite link to a chat group where you are the owner or an admin. ' +
+        'Anyone holding the link can join the group themselves, so treat it as a secret and give ' +
+        'it only to the people it is meant for. Use this for someone who is NOT yet a registered ' +
+        'VEGR.AI user; for someone who is, add_group_member is direct and needs no link. ' +
+        'Requires the chat:write scope.',
+      inputSchema: {
+        groupId: z.string().min(1).describe('The group you own or administer.'),
+        expiresInDays: z
+          .number()
+          .int()
+          .optional()
+          .describe('How long the link stays valid, 1–30 days. Default 7. Shorter is safer.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        groupId: z.string(),
+        inviteLink: z.string().nullable(),
+        code: z.string().nullable(),
+        expiresAt: z.string().nullable(),
+        expiresInDays: z.number(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ groupId, expiresInDays }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await members.createGroupInvite(env, { groupId, expiresInDays, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `Invite link, valid ${result.expiresInDays} day${result.expiresInDays === 1 ? '' : 's'}:\n${result.inviteLink}\n` +
+          'Anyone with this link can join the group. Give it only to the people it is for.',
+      )
     },
   )
 
@@ -1957,6 +2165,10 @@ export const TOOL_NAMES = [
   'post_chat_message',
   'list_chat_groups',
   'read_chat_messages',
+  'list_group_members',
+  'add_group_member',
+  'remove_group_member',
+  'create_group_invite',
   'get_fulltext_elements',
   'get_image_guide',
   'generate_node_image',

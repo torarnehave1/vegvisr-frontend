@@ -94,10 +94,21 @@ describe('18. tools/list', () => {
   // The brief's rule: no client may choose role, email or user id through ordinary tool
   // arguments. It protects one thing — a model must not be able to claim it IS someone else.
   //
-  // Two tools act ON ANOTHER PERSON, so they have to name that person. That is a subject, not a
-  // claim about the caller, and the distinction is what the two tests below pin: a directory
-  // tool may name a subject, but NO tool anywhere may name the caller.
-  const DIRECTORY_TOOLS = new Set(['register_user', 'set_user_groups', 'set_user_role'])
+  // Some tools act ON ANOTHER PERSON, so they have to name that person. That is a SUBJECT, not a
+  // claim about the caller, and the distinction is what the tests below pin: naming a subject is
+  // allowed for the tools whose whole purpose is acting on someone else, but NO tool anywhere
+  // may name the caller. The caller comes from the validated token and from nowhere else.
+  //
+  // The chat membership tools joined this set on 2026-09-30. They belong to the same category as
+  // the directory tools and not to a new one: add_group_member names the person being added, in
+  // exactly the way register_user names the person being registered.
+  const SUBJECT_TOOLS = new Set([
+    'register_user',
+    'set_user_groups',
+    'set_user_role',
+    'add_group_member',
+    'remove_group_member',
+  ])
 
   test('no tool lets a model ask to be someone else', async () => {
     const { env } = freshDb()
@@ -110,7 +121,7 @@ describe('18. tools/list', () => {
         assert.equal(props.includes(forbidden), false, `${t.name} exposes ${forbidden}`)
       }
       // And outside the directory tools, a subject cannot be named either.
-      if (DIRECTORY_TOOLS.has(t.name)) continue
+      if (SUBJECT_TOOLS.has(t.name)) continue
       for (const forbidden of ['email', 'role']) {
         assert.equal(props.includes(forbidden), false, `${t.name} exposes ${forbidden}`)
       }
@@ -121,7 +132,7 @@ describe('18. tools/list', () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RW)
     const { tools } = await client.listTools()
-    for (const name of DIRECTORY_TOOLS) {
+    for (const name of SUBJECT_TOOLS) {
       const t = tools.find((x) => x.name === name)
       assert.ok(t, `${name} should be registered`)
       assert.ok(Object.keys(t.inputSchema.properties).includes('email'), `${name} names its subject by email`)
@@ -134,13 +145,30 @@ describe('18. tools/list', () => {
     // set_user_role may name a role, but not the one that runs the platform.
     const sr = tools.find((x) => x.name === 'set_user_role')
     assert.equal(sr.inputSchema.properties.role.enum.includes('Superadmin'), false)
+
+    // The same ceiling one level down: add_group_member may name a group role, but not the one
+    // that controls the group. Superadmin is to the platform what owner is to a group, and
+    // neither is grantable through a tool argument.
+    const agm = tools.find((x) => x.name === 'add_group_member')
+    assert.deepEqual([...agm.inputSchema.properties.role.enum].sort(), ['admin', 'member'])
   })
 
-  test('delete is not offered in v1', async () => {
+  test('nothing deletes content, and the one removal tool takes access rather than data', async () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RW)
     const { tools } = await client.listTools()
-    assert.equal(tools.some((t) => /delete|remove/i.test(t.name)), false)
+
+    // The invariant this has always protected: no graph, node or message can be destroyed
+    // through this server. Still true, and graph:delete remains a scope with no tool behind it.
+    assert.equal(tools.some((t) => /delete/i.test(t.name)), false)
+
+    // remove_group_member arrived on 2026-09-30 and is an exception to the NAME, not the rule.
+    // It removes a person's access to a group; the person stays registered, their account is
+    // untouched, and every message they wrote remains. Owner-only, and re-adding is a separate
+    // deliberate act — which is why it is the one tool flagged destructive.
+    const removals = tools.filter((t) => /remove/i.test(t.name)).map((t) => t.name)
+    assert.deepEqual(removals, ['remove_group_member'])
+    assert.equal(tools.find((t) => t.name === 'remove_group_member').annotations.destructiveHint, true)
   })
 })
 
@@ -616,7 +644,18 @@ describe('annotations tell the client the truth about each tool', () => {
     // post_chat_message reaches other people; publish_html_node reaches the public internet.
     // Every other tool touches graphs the caller can already see, where a mistake is private
     // and undoable. Both outward tools are gated behind a scope no client can request.
-    const outward = new Set(['post_chat_message', 'publish_html_node', 'register_user'])
+    const outward = new Set([
+      'post_chat_message',
+      'publish_html_node',
+      'register_user',
+      // Added 2026-09-30. Each one's effect lands on ANOTHER PERSON: someone gains access to a
+      // group and can read what is said there, loses that access, or gets a link that lets
+      // anyone holding it walk in. list_group_members is deliberately not here — it reads this
+      // system's own database and changes nothing.
+      'add_group_member',
+      'remove_group_member',
+      'create_group_invite',
+    ])
     for (const t of tools) {
       assert.equal(t.annotations?.openWorldHint, outward.has(t.name), `${t.name} openWorldHint`)
     }
@@ -1009,7 +1048,14 @@ describe('publish_html_node is the one tool that reaches the public internet', (
     const { client } = await connect(env, PUB)
     const { tools } = await client.listTools()
     const outward = tools.filter((t) => t.annotations?.openWorldHint).map((t) => t.name).sort()
-    assert.deepEqual(outward, ['post_chat_message', 'publish_html_node', 'register_user'])
+    assert.deepEqual(outward, [
+      'add_group_member',
+      'create_group_invite',
+      'post_chat_message',
+      'publish_html_node',
+      'register_user',
+      'remove_group_member',
+    ])
     const t = tools.find((x) => x.name === 'publish_html_node')
     assert.equal(t.annotations.destructiveHint, true, 'it replaces the page that is there')
     // No force, and no way to name an arbitrary proxy.
@@ -1928,7 +1974,14 @@ describe('post_chat_message is gated harder than everything else', () => {
     const { client } = await connect(env, ALICE_RW)
     const { tools } = await client.listTools()
     const outward = tools.filter((t) => t.annotations?.openWorldHint === true).map((t) => t.name).sort()
-    assert.deepEqual(outward, ['post_chat_message', 'publish_html_node', 'register_user'])
+    assert.deepEqual(outward, [
+      'add_group_member',
+      'create_group_invite',
+      'post_chat_message',
+      'publish_html_node',
+      'register_user',
+      'remove_group_member',
+    ])
   })
 
   test('its description warns that the action cannot be undone', async () => {
@@ -2004,7 +2057,14 @@ describe('read_chat_messages is gated apart from posting', () => {
     const { client } = await connect(env, ALICE_RW)
     const { tools } = await client.listTools()
     const outward = tools.filter((t) => t.annotations?.openWorldHint).map((t) => t.name).sort()
-    assert.deepEqual(outward, ['post_chat_message', 'publish_html_node', 'register_user'])
+    assert.deepEqual(outward, [
+      'add_group_member',
+      'create_group_invite',
+      'post_chat_message',
+      'publish_html_node',
+      'register_user',
+      'remove_group_member',
+    ])
     // The property that makes adding another one safe: no such scope is advertised, so every
     // one of them requires a person to tick a box on the consent screen.
     for (const scope of ['chat:write', 'graph:publish', 'user:register']) {
