@@ -169,12 +169,55 @@ function consentForm(tx, scopes) {
   </label>`).join('')}
   <button type="submit">Godkjenn tilgang</button>
 </form>
+<script>
+// A second submit cannot be honoured: approving deletes the transaction, so the next POST finds
+// nothing and can only say so. The two POSTs a second apart that produced the 2026-09-30 error
+// page came from here, after the grant had already succeeded. Disabling on submit removes the
+// cause; expiredPage() handles whatever still gets through.
+for (const form of document.querySelectorAll('form')) {
+  form.addEventListener('submit', () => {
+    for (const b of form.querySelectorAll('button')) { b.disabled = true }
+    const go = form.querySelector('button[type=submit]')
+    if (go) { go.textContent = 'Vent litt…' }
+  }, { once: true })
+}
+</script>
 <form method="POST" action="/authorize">
   <input type="hidden" name="tx" value="${esc(tx.txId)}">
   <input type="hidden" name="action" value="deny">
   <button class="secondary" type="submit">Avslå</button>
 </form>
 <p class="sub" style="margin-top:18px">Du kan trekke tilgangen tilbake senere. Tilgangen gjelder bare grafene du selv eier.</p>`)
+}
+
+/**
+ * The transaction is gone. Called whenever getTx returns nothing.
+ *
+ * This function was referenced from two places and never written. Both references sit behind
+ * `if (!tx)`, which is not the common path, so it survived every walkthrough of the flow and
+ * threw a ReferenceError in production instead — the Error 1101 seen at 15:25 and again at 20:06
+ * on 2026-09-30. The error boundary added in between named it in twelve seconds.
+ *
+ * TWO DIFFERENT SITUATIONS ARRIVE HERE AND CANNOT BE TOLD APART. The transaction may have
+ * expired after its 15-minute TTL, or it may have been approved a moment ago and deleted on the
+ * way out — which is exactly what happened: an approve at 20:06:41 granted the scopes and removed
+ * the transaction, and a second submit one second later found nothing. Keeping a spent
+ * transaction in KV so the two could be distinguished would leave a replayable consent sitting
+ * around for the rest of its TTL, which is the thing deleteTx exists to prevent.
+ *
+ * So the page covers both, and tells the likelier one first: someone reading it has almost
+ * certainly just clicked Approve.
+ */
+function expiredPage() {
+  return page(
+    'Vinduet er ferdig',
+    `<h1>Dette vinduet er ferdig</h1>
+     <p class="sub">Har du nettopp godkjent tilgang, er tilkoblingen alt aktiv — lukk vinduet og
+     gå tilbake til appen. Du trenger ikke gjøre noe mer.</p>
+     <p class="sub">Ellers har innloggingen gått ut. Den varer i 15 minutter. Start tilkoblingen
+     på nytt fra appen.</p>`,
+    { status: 400 },
+  )
 }
 
 const OTP_MESSAGES = {
