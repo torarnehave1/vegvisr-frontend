@@ -14,6 +14,7 @@ import assert from 'node:assert/strict'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike, FakeAgentWorker, FakeRegisterWorker, FakeRoleWorker } from './d1-adapter.mjs'
 import * as pd from '../published-domains.js'
 import { CONNECT_SCOPES, OPT_IN_SCOPES } from '../oauth/scopes.js'
@@ -2163,5 +2164,65 @@ describe('audit facts derived from a request', () => {
     })
     assert.deepEqual(d, { method: 'tools/call', tool: 'update_node', graphId: 'g1', clientInfo: null })
     assert.ok(!JSON.stringify(d).includes('secret prose'), 'node content must never reach the audit row')
+  })
+})
+
+/**
+ * The Accept header the SDK insists on, and the -32000 rows it produced.
+ *
+ * Two facts, both established against the real transport rather than reasoned about:
+ *   1. An UNKNOWN METHOD answers -32601 "Method not found" with HTTP 200. So a -32000 in the
+ *      audit log never means "the client asked for something we do not have" — it means the
+ *      request was refused before dispatch. `server/discover` was misread as the former.
+ *   2. The refusal is the Accept check, and it requires BOTH types. The first fix widened only
+ *      when text/event-stream was missing, leaving a client that sends text/event-stream ALONE
+ *      refused exactly as before.
+ *
+ * The integration cases below drive the SDK transport directly, so if a future SDK relaxes this
+ * check the tests say so instead of the workaround quietly outliving its reason.
+ */
+describe('Accept normalisation — why JSONRPC_-32000 appeared at all', () => {
+  test('widening is needed unless BOTH types are listed', () => {
+    assert.equal(server.acceptNeedsWidening('application/json'), true, 'missing event-stream')
+    assert.equal(server.acceptNeedsWidening('text/event-stream'), true, 'missing json — the case the first fix missed')
+    assert.equal(server.acceptNeedsWidening(''), true)
+    assert.equal(server.acceptNeedsWidening(null), true)
+    assert.equal(server.acceptNeedsWidening('*/*'), true, 'a wildcard does not satisfy a substring test')
+    assert.equal(server.acceptNeedsWidening('application/json, text/event-stream'), false)
+    assert.equal(server.acceptNeedsWidening('text/event-stream, application/json;q=0.9'), false)
+  })
+
+  /** Drive the real transport the way mcp/server.js does, and read what it answers. */
+  async function throughTransport(accept, body) {
+    const s = new McpServer({ name: 'probe', version: '0.0.0' })
+    const t = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
+    await s.connect(t)
+    const res = await t.handleRequest(
+      new Request('https://example.test/mcp', { method: 'POST', headers: { accept, 'content-type': 'application/json' } }),
+      { parsedBody: body },
+    )
+    return { status: res.status, body: JSON.parse(await res.text()) }
+  }
+
+  test('an unknown method is -32601 and HTTP 200 — never -32000', async () => {
+    for (const method of ['server/discover', 'totally/made-up']) {
+      const r = await throughTransport(server.ACCEPT_BOTH, { jsonrpc: '2.0', id: 1, method })
+      assert.equal(r.status, 200, method)
+      assert.equal(r.body.error.code, -32601, method)
+    }
+  })
+
+  test('Accept with only text/event-stream is refused 406 with -32000', async () => {
+    const r = await throughTransport('text/event-stream', { jsonrpc: '2.0', id: 1, method: 'ping' })
+    assert.equal(r.status, 406)
+    assert.equal(r.body.error.code, -32000)
+  })
+
+  test('the same request goes through once the header is widened', async () => {
+    const narrow = 'text/event-stream'
+    assert.equal(server.acceptNeedsWidening(narrow), true)
+    const r = await throughTransport(server.ACCEPT_BOTH, { jsonrpc: '2.0', id: 1, method: 'ping' })
+    assert.equal(r.status, 200)
+    assert.deepEqual(r.body.result, {})
   })
 })

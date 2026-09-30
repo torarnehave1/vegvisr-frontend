@@ -33,7 +33,7 @@ import { registerTools, TOOL_NAMES } from './tools.js'
 // Bump it with the surface from here; MCP_OAUTH_DEPLOYMENT.md carries the changelog.
 const SERVER_INFO = {
   name: 'vegvisr-knowledge-graph',
-  version: '1.12.1',
+  version: '1.12.2',
 }
 
 const INSTRUCTIONS = `VEGR.AI Knowledge Graph.
@@ -128,6 +128,21 @@ function describeClient(msg) {
   return `${name} proto:${msg?.params?.protocolVersion || '?'} caps:${caps.join(',') || 'none'}`.slice(0, 300)
 }
 
+/** What the SDK insists a POST must accept, and what we substitute when it does not. */
+export const ACCEPT_BOTH = 'application/json, text/event-stream'
+
+/**
+ * True when the SDK would refuse this Accept header.
+ *
+ * Mirrors the transport's own test, which requires BOTH types — not either. Written as one
+ * function because the version that lived inline checked only one of the two and therefore only
+ * fixed half the clients.
+ */
+export function acceptNeedsWidening(accept) {
+  const a = accept || ''
+  return !a.includes('application/json') || !a.includes('text/event-stream')
+}
+
 /**
  * Pull the auditable facts out of a JSON-RPC request without keeping the payload.
  * Only graphId is taken from the arguments — never content, never anything identifying.
@@ -219,21 +234,25 @@ export const mcpHandler = {
 
     // Widen Accept before the transport sees it.
     //
-    // The SDK refuses a POST that does not accept BOTH application/json and text/event-stream,
-    // with 406 and JSON-RPC -32000. Claude sends a narrower Accept on some requests, which is
-    // where the run of JSONRPC_-32000 rows in the audit log came from — thirteen in one day,
-    // every one a rejected request the client then retried.
+    // The SDK refuses a POST whose Accept does not list BOTH application/json and
+    // text/event-stream, with 406 and JSON-RPC -32000. That check is meaningless for this server:
+    // it is stateless and runs with enableJsonResponse, so it NEVER returns an event stream.
+    // Refusing a client for not accepting something we never send costs real requests, so the
+    // header is normalised here rather than the client being asked to change.
     //
-    // That check is meaningless for this server: it is stateless and runs with
-    // enableJsonResponse, so it NEVER returns an event stream. Refusing a client for not
-    // accepting something we never send is a formality that costs real requests, so the header
-    // is normalised here rather than the client being asked to change. The body is already
-    // parsed and passed as parsedBody, so rebuilding the Request without it is safe.
-    const accept = request.headers.get('accept') || ''
+    // The first version of this only widened when text/event-stream was MISSING — which left the
+    // other half of the SDK's condition wide open. A client sending `Accept: text/event-stream`
+    // alone sailed past it and was refused anyway. That is where the `server/discover` rows with
+    // JSONRPC_-32000 came from: three per connector setup, and NOT, as first assumed, the method
+    // being unknown. An unknown method answers -32601 "Method not found" with HTTP 200 — verified
+    // against this transport — so a -32000 always means the request never reached dispatch at all.
+    //
+    // The body is already parsed and passed as parsedBody, so rebuilding the Request without it
+    // is safe.
     let mcpRequest = request
-    if (!accept.includes('text/event-stream')) {
+    if (acceptNeedsWidening(request.headers.get('accept'))) {
       const headers = new Headers(request.headers)
-      headers.set('accept', 'application/json, text/event-stream')
+      headers.set('accept', ACCEPT_BOTH)
       mcpRequest = new Request(request.url, { method: request.method, headers })
     }
 
