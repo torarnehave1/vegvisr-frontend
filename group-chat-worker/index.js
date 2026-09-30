@@ -1057,7 +1057,7 @@ var index_default = {
                 parameters: [groupIdParam],
                 requestBody: {
                   required: true,
-                  content: { "application/json": { schema: { type: "object", required: ["user_id", "phone"], properties: { ...authBodyProps, role: { type: "string", default: "member" } } } } }
+                  content: { "application/json": { schema: { type: "object", required: ["user_id", "phone"], properties: { ...authBodyProps, role: { type: "string", default: "member" }, added_by_user_id: { type: "string", description: "Optional. The user_id of the person DOING the adding, when this is not a self-join. Must be an owner or admin of the group; sent together with added_by_phone." }, added_by_phone: { type: "string", description: "Optional. Phone number of the person doing the adding. Required whenever added_by_user_id is present." }, added_by_email: { type: "string", description: "Optional e-mail of the person doing the adding." } } } } }
                 },
                 responses: {
                   "200": { description: "Joined successfully", content: { "application/json": { schema: { type: "object", properties: { ...successProp, group_id: { type: "string" }, user_id: { type: "string" } } } } } },
@@ -1743,6 +1743,46 @@ var index_default = {
         if (!group) {
           return errorResponse("Group not found", 404);
         }
+
+        // An OPTIONAL authorising actor, added 2026-09-30.
+        //
+        // This route does double duty and always has. It is the self-join path, and it is also
+        // how a caller with standing adds somebody else: Agent-Builder's add_user_to_chat_group
+        // and the MCP server's add_group_member both look the TARGET up and present the target's
+        // credentials, because that is the only shape this endpoint accepts. Serving both means
+        // it cannot tell them apart, which is why it has never checked ownership — there was no
+        // requester to check.
+        //
+        // added_by_* names the requester when there is one. When present it is validated and must
+        // be an owner or admin of this group, so an add-by-proxy is authorised HERE as well as in
+        // whatever called it. When absent the behaviour is exactly what it was, because the full
+        // set of callers of this endpoint is not knowable from this repository — the last time a
+        // shared endpoint here was tightened without enumerating its callers, six of them broke
+        // and the sixth was found three days later. So this closes nothing on its own; it makes
+        // the authorised path available, and the log line below measures what still uses the
+        // other one.
+        const byUserId = (body.added_by_user_id || "").trim();
+        const byPhone = (body.added_by_phone || "").trim();
+        if (byUserId || byPhone) {
+          if (!byUserId || !byPhone) {
+            return errorResponse("added_by_user_id and added_by_phone must be sent together");
+          }
+          const byAuth = await validateUser(env, byUserId, byPhone, (body.added_by_email || "").trim());
+          if (!byAuth.ok) {
+            return errorResponse(byAuth.error, byAuth.status);
+          }
+          const actor = await env.CHAT_DB.prepare(
+            "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?"
+          ).bind(groupId, byUserId).first();
+          if (!actor || actor.role !== "owner" && actor.role !== "admin") {
+            return errorResponse("Only the group owner or an admin can add another member", 403);
+          }
+        } else {
+          // No phone numbers, no tokens: who joined what, so the unauthorised path can be counted
+          // before anyone decides whether it can be removed.
+          console.log(`[join] no added_by: ${userId} joined ${groupId} on their own credentials`);
+        }
+
         const joinedAt = Date.now();
         await env.CHAT_DB.prepare(
           `INSERT OR IGNORE INTO group_members (group_id, user_id, role, joined_at)
