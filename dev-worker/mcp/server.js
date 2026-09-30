@@ -33,7 +33,7 @@ import { registerTools, TOOL_NAMES } from './tools.js'
 // Bump it with the surface from here; MCP_OAUTH_DEPLOYMENT.md carries the changelog.
 const SERVER_INFO = {
   name: 'vegvisr-knowledge-graph',
-  version: '1.12.3',
+  version: '1.12.4',
 }
 
 const INSTRUCTIONS = `VEGR.AI Knowledge Graph.
@@ -330,6 +330,22 @@ export const mcpHandler = {
       const text = await clone.text()
       if (text) resultCode = resultCodeOf(JSON.parse(text))
       auditable = new Response(text, { status: response.status, headers: response.headers })
+
+      // A JSONRPC_-32000 means the transport refused the request before dispatch, and its own
+      // message says which check did it. Two rounds were spent inferring that from the audit
+      // code alone — first the Accept header, then Content-Type, neither of which explained
+      // `server/discover`. The message was available the whole time and was being thrown away.
+      // Logged with the headers AS RECEIVED, so a refusal names its own cause from now on.
+      if (resultCode.startsWith('JSONRPC_-32000') || resultCode.startsWith('JSONRPC_-32600')) {
+        const body = JSON.parse(text)
+        console.error(
+          `[MCP refused] ${described.method || '?'} → HTTP ${response.status} ${resultCode}: ` +
+            `${body?.error?.message || '(no message)'} | accept=${request.headers.get('accept') || '(none)'}` +
+            ` | content-type=${request.headers.get('content-type') || '(none)'}` +
+            ` | mcp-protocol-version=${request.headers.get('mcp-protocol-version') || '(none)'}` +
+            ` | mcp-session-id=${request.headers.get('mcp-session-id') ? 'present' : '(none)'}`,
+        )
+      }
     } catch {
       /* a non-JSON or already-consumed body simply audits as OK */
     }
