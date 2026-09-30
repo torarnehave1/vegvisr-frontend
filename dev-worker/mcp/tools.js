@@ -803,9 +803,11 @@ export function registerTools(server, getContext) {
         'placeholder URL), then call this to fill it. It does NOT add an image element to a ' +
         'node that has none — if the placeholder is missing it tells you so rather than ' +
         'guessing where the image belongs. Only the first matching placeholder is replaced, so ' +
-        'a node with two pending images takes two calls. The prompt should describe the picture ' +
-        'itself — subject, setting, style, lighting — not the article it illustrates. Requires ' +
-        'the graph:write scope.',
+        'a node with two pending images takes two calls. Put the SUBJECT in the prompt — what is ' +
+        'in the picture — and use the style, lighting and format arguments for how it should ' +
+        'look, rather than writing those words into the prompt yourself: they map to wording this ' +
+        'image model responds to, and the reply shows the exact text that was sent. Requires the ' +
+        'graph:write scope.',
       inputSchema: {
         graphId: z.string().min(1).describe('The graph containing the node.'),
         nodeId: z.string().min(1).describe('The node whose placeholder to fill.'),
@@ -822,6 +824,27 @@ export function registerTools(server, getContext) {
               '(SIDEIMG.png — the N is how many following paragraphs wrap beside the image, and it ' +
               'is part of the element, not something this tool sets), "fancy" for a [FANCY] block ' +
               'background (FANCYIMG.png). Default "header".',
+          ),
+        style: z
+          .enum(Object.keys(images.IMAGE_STYLES))
+          .optional()
+          .describe(
+            'Visual treatment. Pick the one matching what the user asked for in their own words — ' +
+              '"make it look like a photo" is photoreal, "like a film still" is cinematic, ' +
+              '"for an article" is editorial. Each adds wording this model is known to respond to, ' +
+              'so choosing one beats writing style adjectives into the prompt yourself.',
+          ),
+        lighting: z
+          .enum(Object.keys(images.IMAGE_LIGHTING))
+          .optional()
+          .describe('Lighting treatment, e.g. golden-hour for warm low sun, nordic-twilight for cool blue hour. Omit unless the user implies one.'),
+        format: z
+          .enum(Object.keys(images.IMAGE_FORMATS))
+          .optional()
+          .describe(
+            'Aspect ratio and size, named. landscape-16:9 (1120x630) suits a header; square-1:1 ' +
+              'a thumbnail; portrait-4:5 or story-9:16 a vertical image. Prefer this over width ' +
+              'and height — the numbers are the ones the Vegvisr chat UI uses.',
           ),
         model: z
           .enum(images.IMAGE_MODELS)
@@ -847,6 +870,7 @@ export function registerTools(server, getContext) {
         placement: z.string(),
         imageUrl: z.string(),
         model: z.string(),
+        finalPrompt: z.string(),
         replaced: z.string(),
         remainingPlaceholders: z.number(),
         currentVersion: z.number(),
@@ -859,7 +883,7 @@ export function registerTools(server, getContext) {
       // though the second call finds no placeholder left and refuses, which is the intent.
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    async ({ graphId, nodeId, prompt, placement, width, height, expectedVersion, model }) => {
+    async ({ graphId, nodeId, prompt, placement, width, height, expectedVersion, model, style, lighting, format }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:write')
       if (scopeErr) return scopeErr
@@ -875,6 +899,9 @@ export function registerTools(server, getContext) {
         width: width ?? null,
         height: height ?? null,
         model: model ?? null,
+        style: style ?? null,
+        lighting: lighting ?? null,
+        format: format ?? null,
         expectedVersion: Number.isInteger(expectedVersion) ? expectedVersion : null,
         actor,
       })
@@ -885,6 +912,7 @@ export function registerTools(server, getContext) {
       return ok(
         { success: true, ...payload },
         `Image generated with ${result.model} and placed in node ${nodeId}.\n${result.imageUrl}\n` +
+          `Prompt sent: ${result.finalPrompt}\n` +
           (left > 0
             ? `${left} more ${result.placement} placeholder${left === 1 ? '' : 's'} left in this node.\n`
             : '') +

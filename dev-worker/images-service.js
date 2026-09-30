@@ -48,6 +48,58 @@ export const IMAGE_MODELS = [
 export const DEFAULT_IMAGE_MODEL = '@cf/leonardo/lucid-origin'
 
 /**
+ * The prompt vocabulary, copied VERBATIM from IMAGE_*_PRESETS in
+ * Agent-Builder/src/components/VegvisrAgentChat.tsx.
+ *
+ * Copied rather than imported because the two live in different repos and deploy separately —
+ * but copied exactly, token for token, so the same choice produces the same picture through the
+ * chat UI and through MCP. If the UI's wording changes, change it here too; a style that means
+ * one thing in one surface and another elsewhere is worse than no preset at all.
+ *
+ * WHY presets exist on an MCP tool at all: the UI gives a person dropdowns. A chat gives them
+ * nothing, so either the model knows which phrases this model responds to — it does not — or
+ * the server does. These enums put the vocabulary in the tool schema where a model can SEE it,
+ * which is the same reason node types are an enum and not prose.
+ */
+export const IMAGE_FORMATS = {
+  'landscape-16:9': { width: 1120, height: 630 },
+  'cinematic-4:2': { width: 1200, height: 600 },
+  'square-1:1': { width: 1024, height: 1024 },
+  'portrait-4:5': { width: 896, height: 1120 },
+  'story-9:16': { width: 630, height: 1120 },
+}
+
+export const IMAGE_STYLES = {
+  photoreal: 'photorealistic rendering, professional clarity, rich textures',
+  cinematic: 'cinematic precision, dramatic composition, widescreen film still',
+  editorial: 'editorial photography, magazine-quality composition, clean subject separation',
+  poster: 'poster design, strong composition, striking visual hierarchy',
+  illustration: 'illustrated style, crafted visual storytelling, clean shapes',
+  'pixar-3d': 'internal test render, Pixar style, polished 3D animated look',
+  'concept-art': 'concept art, artstation quality, atmospheric visual development',
+}
+
+export const IMAGE_LIGHTING = {
+  'golden-hour': 'golden hour, warm diffused natural light',
+  'soft-studio': 'softbox lighting, clean studio illumination',
+  'low-key': 'low key lighting, moody high contrast shadows',
+  overcast: 'diffused overcast light, matte editorial tone',
+  candlelight: 'candlelight glow, warm amber practical lighting',
+  'nordic-twilight': 'Nordic twilight, cool blue hour atmosphere',
+}
+
+/**
+ * Assemble the text actually sent to the model: subject first, then style, then lighting —
+ * the same order and the same comma joining composeImagePrompt() uses in the chat UI.
+ */
+export function composeImagePrompt({ prompt, style = null, lighting = null }) {
+  const parts = [String(prompt || '').trim()]
+  if (style && IMAGE_STYLES[style]) parts.push(IMAGE_STYLES[style])
+  if (lighting && IMAGE_LIGHTING[lighting]) parts.push(IMAGE_LIGHTING[lighting])
+  return parts.filter(Boolean).join(', ').replace(/\s+,/g, ',').trim()
+}
+
+/**
  * What kind of picture arrived, sniffed from the bytes rather than assumed per model.
  *
  * Models differ in BOTH the envelope and the format: SDXL streams raw bytes, the Leonardo models
@@ -104,17 +156,23 @@ async function uploadTokenFor(env, actor) {
 }
 
 /** Generate the bytes. Returns {ok, bytes, type} or a structured failure. */
-export async function generateImageBytes(env, { prompt, width = null, height = null, model = null }) {
+export async function generateImageBytes(env, { prompt, width = null, height = null, model = null, style = null, lighting = null, format = null }) {
   if (!env.AI) return fail(ERR.INTERNAL_ERROR, 'The AI binding is not configured on this worker.')
 
   const chosen = model && IMAGE_MODELS.includes(model) ? model : DEFAULT_IMAGE_MODEL
-  const w = pixelSide(width)
-  const h = pixelSide(height)
+  const finalPrompt = composeImagePrompt({ prompt, style, lighting })
+
+  // A named format carries exact dimensions and is NOT rounded: the chat UI sends 1120x630 and
+  // it works, so forcing multiples of 8 here would quietly change the aspect ratio a caller
+  // asked for by name. Explicit width/height are still clamped, because those are free numbers.
+  const preset = format && IMAGE_FORMATS[format] ? IMAGE_FORMATS[format] : null
+  const w = preset ? preset.width : pixelSide(width)
+  const h = preset ? preset.height : pixelSide(height)
 
   let response
   try {
     response = await env.AI.run(chosen, {
-      prompt,
+      prompt: finalPrompt,
       ...(w ? { width: w } : {}),
       ...(h ? { height: h } : {}),
     })
@@ -145,7 +203,7 @@ export async function generateImageBytes(env, { prompt, width = null, height = n
     return fail(ERR.INTERNAL_ERROR, `${chosen} returned non-image data: ${preview.slice(0, 100)}`)
   }
 
-  return { ok: true, bytes, type, model: chosen, width: w, height: h }
+  return { ok: true, bytes, type, model: chosen, width: w, height: h, finalPrompt }
 }
 
 /**
@@ -216,7 +274,7 @@ function countOccurrences(haystack, needle) {
  */
 export async function generateImageForNode(
   env,
-  { graphId, nodeId, prompt, placement = 'header', expectedVersion = null, actor, width = null, height = null, model = null },
+  { graphId, nodeId, prompt, placement = 'header', expectedVersion = null, actor, width = null, height = null, model = null, style = null, lighting = null, format = null },
 ) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   if (!graphId || !nodeId) return fail(ERR.INVALID_INPUT, 'graphId and nodeId are required.')
@@ -259,7 +317,7 @@ export async function generateImageForNode(
 
   // Generate and store BEFORE touching the graph. A failed upload must not bump a version or
   // leave a node half-edited.
-  const generated = await generateImageBytes(env, { prompt, width, height, model })
+  const generated = await generateImageBytes(env, { prompt, width, height, model, style, lighting, format })
   if (!generated.ok) return generated
 
   const stored = await uploadImage(env, { bytes: generated.bytes, type: generated.type, actor })
@@ -288,6 +346,9 @@ export async function generateImageForNode(
     placement,
     imageUrl: stored.url,
     model: generated.model,
+    // What was actually sent, the way the chat UI shows "FINAL PROMPT SENT TO LUCID" — so a
+    // caller can see how a style choice changed the wording instead of guessing.
+    finalPrompt: generated.finalPrompt,
     replaced: placeholder,
     remainingPlaceholders: countOccurrences(newInfo, placeholder),
     currentVersion: patched.currentVersion,

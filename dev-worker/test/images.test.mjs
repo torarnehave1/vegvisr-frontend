@@ -378,3 +378,55 @@ describe('choosing an image model', () => {
     assert.equal(env.PHOTOS_WORKER.uploads.length, 0)
   })
 })
+
+describe('style, lighting and format — the dropdowns a chat does not have', () => {
+  test('the tokens match the chat UI verbatim, so both surfaces make the same picture', () => {
+    // Copied from IMAGE_STYLE_PRESETS / IMAGE_LIGHTING_PRESETS in VegvisrAgentChat.tsx. If the UI
+    // changes its wording, this fails — which is the point: a style that means one thing in one
+    // surface and another elsewhere is worse than no preset at all.
+    assert.equal(images.IMAGE_STYLES.cinematic, 'cinematic precision, dramatic composition, widescreen film still')
+    assert.equal(images.IMAGE_STYLES['concept-art'], 'concept art, artstation quality, atmospheric visual development')
+    assert.equal(images.IMAGE_LIGHTING['golden-hour'], 'golden hour, warm diffused natural light')
+    assert.deepEqual(images.IMAGE_FORMATS['landscape-16:9'], { width: 1120, height: 630 })
+  })
+
+  test('subject first, then style, then lighting — the chat UI order', () => {
+    assert.equal(
+      images.composeImagePrompt({ prompt: 'en fjord', style: 'cinematic', lighting: 'golden-hour' }),
+      'en fjord, cinematic precision, dramatic composition, widescreen film still, golden hour, warm diffused natural light',
+    )
+  })
+
+  test('an omitted preset adds nothing', () => {
+    assert.equal(images.composeImagePrompt({ prompt: 'en fjord' }), 'en fjord')
+    assert.equal(images.composeImagePrompt({ prompt: 'en fjord', style: 'nonsense' }), 'en fjord')
+  })
+
+  test('the composed prompt is what reaches the model, and is reported back', async () => {
+    const { env, graphId } = await withGraph(HEADER_EL)
+    const r = await images.generateImageForNode(env, {
+      graphId, nodeId: 'n1', prompt: 'en norsk fjord', style: 'editorial', lighting: 'overcast', actor: ALICE,
+    })
+    assert.ok(r.ok, JSON.stringify(r))
+    const sent = env.AI.calls[0].input.prompt
+    assert.match(sent, /^en norsk fjord, editorial photography/)
+    assert.match(sent, /matte editorial tone$/)
+    assert.equal(r.finalPrompt, sent, 'the caller sees exactly what was sent')
+  })
+
+  test('a named format sets exact dimensions and is NOT rounded to a multiple of 8', async () => {
+    const { env, graphId } = await withGraph(HEADER_EL)
+    await images.generateImageForNode(env, { graphId, nodeId: 'n1', prompt: 'x', format: 'landscape-16:9', actor: ALICE })
+    // 630 is not a multiple of 8. The chat UI sends it and it works, so rounding it to 632 here
+    // would quietly change an aspect ratio the caller asked for by name.
+    assert.deepEqual(env.AI.calls[0].input, { prompt: 'x', width: 1120, height: 630 })
+  })
+
+  test('a named format wins over loose width and height', async () => {
+    const { env, graphId } = await withGraph(HEADER_EL)
+    await images.generateImageForNode(env, {
+      graphId, nodeId: 'n1', prompt: 'x', format: 'square-1:1', width: 300, height: 300, actor: ALICE,
+    })
+    assert.equal(env.AI.calls[0].input.width, 1024)
+  })
+})
