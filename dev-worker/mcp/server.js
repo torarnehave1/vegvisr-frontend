@@ -23,6 +23,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
+import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
 import { registerTools, TOOL_NAMES } from './tools.js'
 
 // What the server reports in the MCP initialize handshake. A client shows this, and a bug
@@ -33,7 +34,7 @@ import { registerTools, TOOL_NAMES } from './tools.js'
 // Bump it with the surface from here; MCP_OAUTH_DEPLOYMENT.md carries the changelog.
 const SERVER_INFO = {
   name: 'vegvisr-knowledge-graph',
-  version: '1.12.4',
+  version: '1.13.0',
 }
 
 const INSTRUCTIONS = `VEGR.AI Knowledge Graph.
@@ -332,19 +333,38 @@ export const mcpHandler = {
       auditable = new Response(text, { status: response.status, headers: response.headers })
 
       // A JSONRPC_-32000 means the transport refused the request before dispatch, and its own
-      // message says which check did it. Two rounds were spent inferring that from the audit
-      // code alone — first the Accept header, then Content-Type, neither of which explained
-      // `server/discover`. The message was available the whole time and was being thrown away.
-      // Logged with the headers AS RECEIVED, so a refusal names its own cause from now on.
+      // message says which check did it. Two rounds were spent inferring that from the audit code
+      // alone — first the Accept header, then Content-Type — and neither explained
+      // `server/discover`. The message was available the whole time and was being discarded.
       if (resultCode.startsWith('JSONRPC_-32000') || resultCode.startsWith('JSONRPC_-32600')) {
-        const body = JSON.parse(text)
-        console.error(
-          `[MCP refused] ${described.method || '?'} → HTTP ${response.status} ${resultCode}: ` +
-            `${body?.error?.message || '(no message)'} | accept=${request.headers.get('accept') || '(none)'}` +
-            ` | content-type=${request.headers.get('content-type') || '(none)'}` +
-            ` | mcp-protocol-version=${request.headers.get('mcp-protocol-version') || '(none)'}` +
-            ` | mcp-session-id=${request.headers.get('mcp-session-id') ? 'present' : '(none)'}`,
-        )
+        const asked = request.headers.get('mcp-protocol-version')
+
+        // Claude probes `server/discover` with Mcp-Protocol-Version: 2026-07-28, a version no
+        // published SDK implements — 1.31.0, the newest, still tops out at 2025-11-25. Being
+        // refused is the CORRECT answer and the point of the probe: the client learns what this
+        // server speaks and then sends initialize at 2025-11-25, which succeeds a second later.
+        //
+        // So this is negotiation, not failure, and it gets its own audit code rather than sitting
+        // in the log looking like six broken requests per connector setup. It is deliberately NOT
+        // "fixed" by accepting the version: claiming to speak a protocol the SDK does not
+        // implement would trade a truthful refusal for an untruthful acceptance, and the client
+        // would then hold us to it.
+        if (asked && !SUPPORTED_PROTOCOL_VERSIONS.includes(asked)) {
+          resultCode = 'PROTOCOL_UNSUPPORTED'
+          console.log(
+            `[MCP] ${described.method || '?'} probed protocol ${asked}; this server speaks ` +
+              `${SUPPORTED_PROTOCOL_VERSIONS[0]}. Refused, as intended.`,
+          )
+        } else {
+          const body = JSON.parse(text)
+          console.error(
+            `[MCP refused] ${described.method || '?'} → HTTP ${response.status} ${resultCode}: ` +
+              `${body?.error?.message || '(no message)'} | accept=${request.headers.get('accept') || '(none)'}` +
+              ` | content-type=${request.headers.get('content-type') || '(none)'}` +
+              ` | mcp-protocol-version=${asked || '(none)'}` +
+              ` | mcp-session-id=${request.headers.get('mcp-session-id') ? 'present' : '(none)'}`,
+          )
+        }
       }
     } catch {
       /* a non-JSON or already-consumed body simply audits as OK */

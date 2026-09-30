@@ -15,6 +15,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
+import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
 import { freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike, FakeAgentWorker, FakeRegisterWorker, FakeRoleWorker } from './d1-adapter.mjs'
 import * as pd from '../published-domains.js'
 import { CONNECT_SCOPES, OPT_IN_SCOPES } from '../oauth/scopes.js'
@@ -2252,5 +2253,65 @@ describe('Accept normalisation — why JSONRPC_-32000 appeared at all', () => {
     const r = await throughTransport(server.ACCEPT_BOTH, { jsonrpc: '2.0', id: 1, method: 'ping' })
     assert.equal(r.status, 200)
     assert.deepEqual(r.body.result, {})
+  })
+})
+
+/**
+ * Protocol negotiation is not failure.
+ *
+ * Claude probes with `Mcp-Protocol-Version: 2026-07-28` before initialising — a version no
+ * published SDK implements; 1.31.0, the newest, still tops out at 2025-11-25. The transport
+ * refuses it with -32000, the client learns what this server speaks, and its initialize arrives
+ * a second later at a supported version and succeeds. The refusal IS the mechanism working.
+ *
+ * This pins the boundary, because the tempting "fix" is to accept the version and make the log
+ * quiet — which would trade a truthful refusal for an untruthful acceptance the client would
+ * then hold us to.
+ */
+describe('protocol version probing', () => {
+  test('the SDK still does not implement what Claude probes with', () => {
+    assert.ok(!SUPPORTED_PROTOCOL_VERSIONS.includes('2026-07-28'),
+      'if this fails, the SDK caught up: the probe now succeeds and PROTOCOL_UNSUPPORTED should stop appearing')
+    assert.equal(SUPPORTED_PROTOCOL_VERSIONS[0], '2025-11-25', 'the newest version this server can honestly claim')
+  })
+
+  test('a non-initialize request at an unsupported version is refused, not negotiated down', async () => {
+    const s = new McpServer({ name: 'probe', version: '0.0.0' })
+    const t = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
+    await s.connect(t)
+    const res = await t.handleRequest(
+      new Request('https://example.test/mcp', {
+        method: 'POST',
+        headers: { accept: server.ACCEPT_BOTH, 'content-type': 'application/json', 'mcp-protocol-version': '2026-07-28' },
+      }),
+      { parsedBody: { jsonrpc: '2.0', id: 1, method: 'server/discover' } },
+    )
+    assert.equal(res.status, 400)
+    const body = JSON.parse(await res.text())
+    assert.equal(body.error.code, -32000)
+    assert.match(body.error.message, /Unsupported protocol version: 2026-07-28/)
+  })
+
+  test('initialize skips the check entirely, which is why it succeeds right after', async () => {
+    // validateProtocolVersion runs only for non-initialize messages. That asymmetry is the whole
+    // reason one request failed and the next one, one second later, did not.
+    const s = new McpServer({ name: 'probe', version: '0.0.0' })
+    const t = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
+    await s.connect(t)
+    const res = await t.handleRequest(
+      new Request('https://example.test/mcp', {
+        method: 'POST',
+        headers: { accept: server.ACCEPT_BOTH, 'content-type': 'application/json', 'mcp-protocol-version': '2026-07-28' },
+      }),
+      {
+        parsedBody: {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: { protocolVersion: '2025-11-25', clientInfo: { name: 'probe', version: '1' }, capabilities: {} },
+        },
+      },
+    )
+    assert.equal(res.status, 200, 'the same header that refused server/discover does not refuse initialize')
   })
 })
