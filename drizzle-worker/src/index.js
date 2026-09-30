@@ -337,8 +337,31 @@ async function handleDeleteRecords(db, d1, body, request) {
   return json({ success: true, deleted: result.meta?.changes ?? 0 }, 200, request);
 }
 
+// D1's SQLite folds ASCII case only: LOWER('STORÅS') is 'storÅs', and 'Å' LIKE 'å' is false.
+// A name search for "STORÅS" would therefore miss the stored "Storås". Fold the Nordic and
+// common accented capitals with REPLACE before LOWER so a search is case-insensitive for the
+// letters these contacts are actually spelled with. (JS toLowerCase() already folds all of
+// them, so the search term only needs toLowerCase().)
+const NON_ASCII_CASE_PAIRS = [
+  ['Å', 'å'], ['Ä', 'ä'], ['Æ', 'æ'], ['Ø', 'ø'], ['Ö', 'ö'], ['Ü', 'ü'],
+  ['É', 'é'], ['È', 'è'], ['Ê', 'ê'], ['Á', 'á'], ['À', 'à'], ['Í', 'í'],
+  ['Ó', 'ó'], ['Ô', 'ô'], ['Ú', 'ú'], ['Ñ', 'ñ'], ['Ç', 'ç'],
+];
+
+function caseFoldSql(col) {
+  let expr = col;
+  for (const [upper, lower] of NON_ASCII_CASE_PAIRS) {
+    expr = `REPLACE(${expr}, '${upper}', '${lower}')`;
+  }
+  return `LOWER(${expr})`;
+}
+
+function caseFoldTerm(term) {
+  return String(term).toLowerCase();
+}
+
 async function handleQuery(db, d1, body, request) {
-  const { tableId, where, orderBy, order, limit, offset, userId } = body;
+  const { tableId, where, search, notEmpty, orderBy, order, limit, offset, userId } = body;
   if (!tableId) {
     return json({ error: 'tableId is required' }, 400, request);
   }
@@ -358,17 +381,40 @@ async function handleQuery(db, d1, body, request) {
   let querySql = `SELECT * FROM ${tableMeta.tableName}`;
   const params = [];
 
-  if (where && typeof where === 'object' && Object.keys(where).length > 0) {
-    const conditions = [];
+  const conditions = [];
+
+  if (where && typeof where === 'object') {
     for (const [key, val] of Object.entries(where)) {
       if (validCols.has(key)) {
         conditions.push(`${key} = ?`);
         params.push(val);
       }
     }
-    if (conditions.length > 0) {
-      querySql += ` WHERE ${conditions.join(' AND ')}`;
+  }
+
+  // Substring search across named columns, in SQL. Callers used to pull a page of rows
+  // and filter it in JS, which silently hides every match past the page: search_contacts
+  // read the first 1000 of 1811 contacts and reported a contact sitting at position 1229
+  // as non-existent (2026-09-30).
+  if (search && typeof search === 'object' && search.term) {
+    const searchCols = (Array.isArray(search.columns) ? search.columns : []).filter(c => validCols.has(c));
+    if (searchCols.length > 0) {
+      conditions.push(`(${searchCols.map(c => `${caseFoldSql(c)} LIKE ?`).join(' OR ')})`);
+      const term = `%${caseFoldTerm(search.term)}%`;
+      for (let i = 0; i < searchCols.length; i++) params.push(term);
     }
+  }
+
+  // Columns that must actually hold a value — e.g. only the contact logs that carry a
+  // recording, instead of scanning every log row to find them.
+  if (Array.isArray(notEmpty)) {
+    for (const col of notEmpty) {
+      if (validCols.has(col)) conditions.push(`(${col} IS NOT NULL AND ${col} != '')`);
+    }
+  }
+
+  if (conditions.length > 0) {
+    querySql += ` WHERE ${conditions.join(' AND ')}`;
   }
 
   // Count
@@ -1172,6 +1218,8 @@ const openApiSpec = {
                 properties: {
                   tableId: { type: 'string', description: 'The app_tables.id to query' },
                   where: { type: 'object', additionalProperties: true, description: 'Equality filters as key-value pairs' },
+                  search: { type: 'object', description: 'Server-side substring search: { term: "olve", columns: ["full_name","organization"] }. Case-insensitive, matches any of the columns.', properties: { term: { type: 'string' }, columns: { type: 'array', items: { type: 'string' } } } },
+                  notEmpty: { type: 'array', items: { type: 'string' }, description: 'Only rows where these columns are non-NULL and non-empty' },
                   orderBy: { type: 'string', description: 'Column name to order by (default: _created_at)' },
                   order: { type: 'string', enum: ['asc', 'desc'], description: 'Sort direction (default: desc)' },
                   limit: { type: 'integer', description: 'Max rows (1-10000, default: 50)' },
