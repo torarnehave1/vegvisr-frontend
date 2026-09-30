@@ -79,6 +79,34 @@ export const IMAGE_STYLES = {
   'concept-art': 'concept art, artstation quality, atmospheric visual development',
 }
 
+/**
+ * Camera and film traits, from IMAGE_RENDER_TRAITS and the branch that expands them in
+ * composeImagePrompt(). Several may apply at once, which is why this is a list and not a choice.
+ */
+export const IMAGE_RENDER_TRAITS = {
+  'long-exposure': 'long exposure photograph',
+  '35mm-lens': '35mm lens',
+  '85mm-portrait': '85mm portrait lens',
+  'shallow-depth-of-field': 'shallow depth of field',
+  'film-grain': 'film grain',
+  'anamorphic-lens-flare': 'anamorphic lens flare',
+}
+
+/**
+ * How lettering should look when the picture is meant to CONTAIN words.
+ *
+ * Diffusion models render text unreliably at the best of times, so this is worth reaching for
+ * only when the words are the point — a poster, a logo, a sign. The tool says so, because a
+ * caller who asks for text and gets garbled letters has paid ten seconds to learn it.
+ */
+export const IMAGE_TEXT_TREATMENTS = {
+  'poster-title': 'bold poster title, clean edges',
+  logo: 'logo design, crisp letterforms, balanced mark composition',
+  neon: 'neon glowing outline, illuminated signage',
+  'gold-serif': 'elegant serif lettering, gold foil embossed look',
+  'carved-stone': 'chiseled stone inscription, carved letterforms',
+}
+
 export const IMAGE_LIGHTING = {
   'golden-hour': 'golden hour, warm diffused natural light',
   'soft-studio': 'softbox lighting, clean studio illumination',
@@ -92,10 +120,35 @@ export const IMAGE_LIGHTING = {
  * Assemble the text actually sent to the model: subject first, then style, then lighting —
  * the same order and the same comma joining composeImagePrompt() uses in the chat UI.
  */
-export function composeImagePrompt({ prompt, style = null, lighting = null }) {
+export function composeImagePrompt({
+  prompt,
+  style = null,
+  lighting = null,
+  renderTraits = null,
+  imageText = null,
+  textTreatment = null,
+}) {
   const parts = [String(prompt || '').trim()]
   if (style && IMAGE_STYLES[style]) parts.push(IMAGE_STYLES[style])
   if (lighting && IMAGE_LIGHTING[lighting]) parts.push(IMAGE_LIGHTING[lighting])
+
+  // Traits are emitted in the table's own order, not the caller's, so the same set of choices
+  // always produces the same string — the chat UI checks them in a fixed order for the same
+  // reason. Unknown names are dropped rather than passed through as stray prompt words.
+  if (Array.isArray(renderTraits)) {
+    for (const [name, token] of Object.entries(IMAGE_RENDER_TRAITS)) {
+      if (renderTraits.includes(name)) parts.push(token)
+    }
+  }
+
+  // Text last, and only when there is text: the treatment describes lettering, so it means
+  // nothing without words to letter.
+  const text = String(imageText || '').trim()
+  if (text) {
+    parts.push(`the text "${text}"`)
+    if (textTreatment && IMAGE_TEXT_TREATMENTS[textTreatment]) parts.push(IMAGE_TEXT_TREATMENTS[textTreatment])
+  }
+
   return parts.filter(Boolean).join(', ').replace(/\s+,/g, ',').trim()
 }
 
@@ -156,11 +209,11 @@ async function uploadTokenFor(env, actor) {
 }
 
 /** Generate the bytes. Returns {ok, bytes, type} or a structured failure. */
-export async function generateImageBytes(env, { prompt, width = null, height = null, model = null, style = null, lighting = null, format = null }) {
+export async function generateImageBytes(env, { prompt, width = null, height = null, model = null, style = null, lighting = null, format = null, renderTraits = null, imageText = null, textTreatment = null }) {
   if (!env.AI) return fail(ERR.INTERNAL_ERROR, 'The AI binding is not configured on this worker.')
 
   const chosen = model && IMAGE_MODELS.includes(model) ? model : DEFAULT_IMAGE_MODEL
-  const finalPrompt = composeImagePrompt({ prompt, style, lighting })
+  const finalPrompt = composeImagePrompt({ prompt, style, lighting, renderTraits, imageText, textTreatment })
 
   // A named format carries exact dimensions and is NOT rounded: the chat UI sends 1120x630 and
   // it works, so forcing multiples of 8 here would quietly change the aspect ratio a caller
@@ -274,7 +327,7 @@ function countOccurrences(haystack, needle) {
  */
 export async function generateImageForNode(
   env,
-  { graphId, nodeId, prompt, placement = 'header', expectedVersion = null, actor, width = null, height = null, model = null, style = null, lighting = null, format = null },
+  { graphId, nodeId, prompt, placement = 'header', expectedVersion = null, actor, width = null, height = null, model = null, style = null, lighting = null, format = null, renderTraits = null, imageText = null, textTreatment = null },
 ) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   if (!graphId || !nodeId) return fail(ERR.INVALID_INPUT, 'graphId and nodeId are required.')
@@ -317,7 +370,7 @@ export async function generateImageForNode(
 
   // Generate and store BEFORE touching the graph. A failed upload must not bump a version or
   // leave a node half-edited.
-  const generated = await generateImageBytes(env, { prompt, width, height, model, style, lighting, format })
+  const generated = await generateImageBytes(env, { prompt, width, height, model, style, lighting, format, renderTraits, imageText, textTreatment })
   if (!generated.ok) return generated
 
   const stored = await uploadImage(env, { bytes: generated.bytes, type: generated.type, actor })

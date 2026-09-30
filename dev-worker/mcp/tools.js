@@ -846,6 +846,27 @@ export function registerTools(server, getContext) {
               'a thumbnail; portrait-4:5 or story-9:16 a vertical image. Prefer this over width ' +
               'and height — the numbers are the ones the Vegvisr chat UI uses.',
           ),
+        renderTraits: z
+          .array(z.enum(Object.keys(images.IMAGE_RENDER_TRAITS)))
+          .optional()
+          .describe(
+            'Camera and film characteristics, several at once. Use when the user asks for a ' +
+              'photographic look: shallow-depth-of-field for a blurred background, film-grain for ' +
+              'an analogue feel, long-exposure for smooth water or light trails.',
+          ),
+        imageText: z
+          .string()
+          .optional()
+          .describe(
+            'Words that should APPEAR IN the picture — a poster title, a sign, a logo. Leave it ' +
+              'out for an ordinary illustration: image models render lettering unreliably, so ask ' +
+              'for text only when the words are the point, and tell the user the spelling may come ' +
+              'out wrong.',
+          ),
+        textTreatment: z
+          .enum(Object.keys(images.IMAGE_TEXT_TREATMENTS))
+          .optional()
+          .describe('How the lettering should look. Only meaningful together with imageText.'),
         model: z
           .enum(images.IMAGE_MODELS)
           .optional()
@@ -883,7 +904,7 @@ export function registerTools(server, getContext) {
       // though the second call finds no placeholder left and refuses, which is the intent.
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    async ({ graphId, nodeId, prompt, placement, width, height, expectedVersion, model, style, lighting, format }) => {
+    async ({ graphId, nodeId, prompt, placement, width, height, expectedVersion, model, style, lighting, format, renderTraits, imageText, textTreatment }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:write')
       if (scopeErr) return scopeErr
@@ -902,6 +923,9 @@ export function registerTools(server, getContext) {
         style: style ?? null,
         lighting: lighting ?? null,
         format: format ?? null,
+        renderTraits: renderTraits ?? null,
+        imageText: imageText ?? null,
+        textTreatment: textTreatment ?? null,
         expectedVersion: Number.isInteger(expectedVersion) ? expectedVersion : null,
         actor,
       })

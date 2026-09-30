@@ -430,3 +430,55 @@ describe('style, lighting and format — the dropdowns a chat does not have', ()
     assert.equal(env.AI.calls[0].input.width, 1024)
   })
 })
+
+describe('render traits and text in the image', () => {
+  test('the tokens match the chat UI verbatim', () => {
+    assert.equal(images.IMAGE_RENDER_TRAITS['long-exposure'], 'long exposure photograph')
+    assert.equal(images.IMAGE_RENDER_TRAITS['anamorphic-lens-flare'], 'anamorphic lens flare')
+    assert.equal(images.IMAGE_TEXT_TREATMENTS['gold-serif'], 'elegant serif lettering, gold foil embossed look')
+    assert.equal(images.IMAGE_TEXT_TREATMENTS.logo, 'logo design, crisp letterforms, balanced mark composition')
+    assert.equal(Object.keys(images.IMAGE_RENDER_TRAITS).length, 6, 'IMAGE_RENDER_TRAITS in the UI has six')
+  })
+
+  test('traits are emitted in table order, not the order the caller listed them', () => {
+    // Determinism: the same set of choices must always produce the same string, whichever way
+    // round a model happens to name them. The chat UI checks them in a fixed order too.
+    const a = images.composeImagePrompt({ prompt: 'x', renderTraits: ['film-grain', 'long-exposure'] })
+    const b = images.composeImagePrompt({ prompt: 'x', renderTraits: ['long-exposure', 'film-grain'] })
+    assert.equal(a, b)
+    assert.equal(a, 'x, long exposure photograph, film grain')
+  })
+
+  test('an unknown trait is dropped, not passed through as a stray prompt word', () => {
+    assert.equal(images.composeImagePrompt({ prompt: 'x', renderTraits: ['tilt-shift', 'film-grain'] }), 'x, film grain')
+  })
+
+  test('text comes last and is quoted, with its treatment after it', () => {
+    assert.equal(
+      images.composeImagePrompt({ prompt: 'a poster', imageText: 'VEGR.AI', textTreatment: 'neon' }),
+      'a poster, the text "VEGR.AI", neon glowing outline, illuminated signage',
+    )
+  })
+
+  test('a treatment without text adds nothing — it describes lettering that is not there', () => {
+    assert.equal(images.composeImagePrompt({ prompt: 'a poster', textTreatment: 'neon' }), 'a poster')
+    assert.equal(images.composeImagePrompt({ prompt: 'a poster', imageText: '   ' }), 'a poster')
+  })
+
+  test('everything together lands in the order the UI uses', async () => {
+    const { env, graphId } = await withGraph(HEADER_EL)
+    const r = await images.generateImageForNode(env, {
+      graphId, nodeId: 'n1', prompt: 'en fjord', actor: ALICE,
+      style: 'cinematic', lighting: 'low-key',
+      renderTraits: ['film-grain', 'long-exposure'],
+      imageText: 'VEGR.AI', textTreatment: 'gold-serif',
+    })
+    assert.ok(r.ok, JSON.stringify(r))
+    assert.equal(
+      r.finalPrompt,
+      'en fjord, cinematic precision, dramatic composition, widescreen film still, ' +
+        'low key lighting, moody high contrast shadows, long exposure photograph, film grain, ' +
+        'the text "VEGR.AI", elegant serif lettering, gold foil embossed look',
+    )
+  })
+})
