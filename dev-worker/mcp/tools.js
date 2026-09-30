@@ -1046,7 +1046,7 @@ export function registerTools(server, getContext) {
           .describe(
             'Diffusion steps as an exact number, for a caller who knows the model. Overrides ' +
               'quality. Ceilings differ per model — 40 for lucid-origin, 50 for phoenix-1.0, ' +
-              '20 for the SDXLs, 8 for flux-1-schnell — and a number above the ceiling is ' +
+              '20 for the two SDXL models — and a number above the ceiling is ' +
               'lowered to it and reported in notes rather than refused. See get_image_guide.',
           ),
         guidance: z
@@ -1055,7 +1055,7 @@ export function registerTools(server, getContext) {
           .describe(
             'How literally the model follows the prompt. Higher sticks closer to the words and ' +
               'lower leaves the model more freedom. 0–10 for lucid-origin, 2–10 for ' +
-              'phoenix-1.0; flux-1-schnell has no such parameter. Omit unless the user complains ' +
+              'phoenix-1.0; the SDXL models document no range. Omit unless the user complains ' +
               'the picture ignored part of their description.',
           ),
         seed: z
@@ -1065,8 +1065,8 @@ export function registerTools(server, getContext) {
           .describe(
             'Fixes the randomness so the SAME prompt and seed give the same picture again. Use ' +
               'it when the user wants a variation on an image they liked: keep the seed from the ' +
-              'previous reply and change one thing in the prompt. flux-1-schnell has no seed, so ' +
-              'nothing generated with it can be reproduced.',
+              'previous reply and change one thing in the prompt. Every model offered here has a ' +
+              'seed, so any image can be reproduced.',
           ),
         negativePrompt: z
           .string()
@@ -1082,8 +1082,7 @@ export function registerTools(server, getContext) {
           .optional()
           .describe(
             'Pixel width, rounded to a multiple of 8 and clamped to what the model takes (up to ' +
-              '2500 for lucid-origin, 2048 for the rest; flux-1-schnell has no size parameter ' +
-              'at all). Prefer format.',
+              '2500 for lucid-origin, 2048 for the rest). Prefer format.',
           ),
         height: z
           .number()

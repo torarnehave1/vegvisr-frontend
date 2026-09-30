@@ -40,12 +40,26 @@ function fail(code, message, extra = {}) {
 export const IMAGE_MODELS = [
   '@cf/leonardo/lucid-origin',
   '@cf/leonardo/phoenix-1.0',
-  '@cf/black-forest-labs/flux-1-schnell',
   '@cf/stabilityai/stable-diffusion-xl-base-1.0',
   '@cf/bytedance/stable-diffusion-xl-lightning',
 ]
 
 export const DEFAULT_IMAGE_MODEL = '@cf/leonardo/lucid-origin'
+
+/**
+ * Models that were offered and are not any more, with the reason, so a caller naming one is told
+ * something better than "unknown" and nobody re-adds it by working from the Workers AI catalog.
+ *
+ * flux-1-schnell is a capable model and the wrong one for THIS tool. It accepts no width and no
+ * height at all, and every image this tool makes fills a placeholder whose element already
+ * declared a size — `![Header|width:800px]`. A model that cannot honour the one thing the
+ * surrounding markup already decided does not belong in the list, however good its pictures are.
+ * It also has no seed, so nothing made with it can be reproduced.
+ */
+export const RETIRED_MODELS = {
+  '@cf/black-forest-labs/flux-1-schnell':
+    'it accepts no width or height, and this tool fills a placeholder whose element already set a size',
+}
 
 /**
  * What each model will actually ACCEPT, read from its published input schema — not guessed.
@@ -54,13 +68,12 @@ export const DEFAULT_IMAGE_MODEL = '@cf/leonardo/lucid-origin'
  * developers.cloudflare.com/workers-ai/models/<name>/, read 2026-09-30. Worth reading before
  * changing a number here, because the five disagree in ways a single passthrough cannot survive:
  *
- *   - flux-1-schnell takes NO width, NO height, NO seed and NO guidance. It names its step count
- *     `steps`, not `num_steps`, and caps it at 8. Sending it the lucid-origin payload is a
- *     validation error after the caller was already told the call was running.
  *   - phoenix-1.0's guidance MINIMUM is 2, not 0. guidance: 1 is valid for lucid-origin and
  *     rejected here.
- *   - lucid-origin accepts up to 2500px — larger than the 2048 the other three stop at — and is
- *     the only one that takes both `num_steps` and `steps`.
+ *   - the two SDXLs cap num_steps at 20; lucid-origin allows 40 and phoenix 50. The same number
+ *     is a modest render on one and above the ceiling on another.
+ *   - lucid-origin accepts up to 2500px — larger than the 2048 the others stop at — and is the
+ *     only one that takes both `num_steps` and `steps`.
  *   - negative_prompt exists on phoenix and the two SDXLs; lucid-origin has no such parameter.
  *
  * `guidanceRange: null` means the schema documents the parameter with no bounds. The numbers used
@@ -68,7 +81,7 @@ export const DEFAULT_IMAGE_MODEL = '@cf/leonardo/lucid-origin'
  *
  * ONE number here is not from the schema: the 256 px floor on the two Leonardo models. Their
  * pages give the minimum as 0, which is not a request anyone means, so the SDXL floor is applied
- * across all four models that take a size. Every other figure is transcribed.
+ * across every model. Every other figure is transcribed.
  */
 export const MODEL_CAPABILITIES = {
   '@cf/leonardo/lucid-origin': {
@@ -90,15 +103,6 @@ export const MODEL_CAPABILITIES = {
     negativePrompt: true,
     sizeRange: [256, 2048],
     qualitySteps: { draft: 10, high: 35, max: 50 },
-  },
-  '@cf/black-forest-labs/flux-1-schnell': {
-    stepsParam: 'steps',
-    stepsRange: [1, 8],
-    guidanceRange: false,
-    seed: false,
-    negativePrompt: false,
-    sizeRange: false,
-    qualitySteps: { draft: 2, high: 6, max: 8 },
   },
   '@cf/stabilityai/stable-diffusion-xl-base-1.0': {
     stepsParam: 'num_steps',
@@ -298,9 +302,9 @@ async function uploadTokenFor(env, actor) {
  * Turn what the caller asked for into a payload the CHOSEN model will accept, and say out loud
  * whatever had to change on the way.
  *
- * CLAMP AND REPORT, rather than refuse. A caller who asks flux-1-schnell for 40 steps has made
+ * CLAMP AND REPORT, rather than refuse. A caller who asks SDXL Lightning for 40 steps has made
  * a reasonable request of the wrong model; failing the call costs a round trip and produces no
- * picture, so the run happens at 8 and the reply says the number moved. Silence is the one
+ * picture, so the run happens at 20 and the reply says the number moved. Silence is the one
  * option ruled out — Agent-Builder's generate_image advertised width, height and seed in its
  * schema and dropped all three in the executor, and the only way that was ever discovered was
  * the user measuring a file (2026-09-04). A parameter that is ignored must be reported ignored.
@@ -435,7 +439,16 @@ export async function generateImageBytes(
 ) {
   if (!env.AI) return fail(ERR.INTERNAL_ERROR, 'The AI binding is not configured on this worker.')
 
-  const chosen = model && IMAGE_MODELS.includes(model) ? model : DEFAULT_IMAGE_MODEL
+  // A model this server does not offer falls back to the default — but says so. A client that
+  // connected before the list changed still holds the old enum, so this is a real path, and a
+  // silent substitution is the same failure class as a silently dropped parameter: the caller
+  // reads `model` in the reply and assumes it was their choice.
+  const asked = model || null
+  const chosen = asked && IMAGE_MODELS.includes(asked) ? asked : DEFAULT_IMAGE_MODEL
+  const substitution =
+    asked && asked !== chosen
+      ? `${asked.split('/').pop()} is not offered here${RETIRED_MODELS[asked] ? ` — ${RETIRED_MODELS[asked]}` : ''}. Used ${chosen.split('/').pop()} instead.`
+      : null
   const finalPrompt = composeImagePrompt({ prompt, style, lighting, renderTraits, imageText, textTreatment })
 
   // Size, steps, guidance, seed and negative_prompt are all resolved against THIS model's own
@@ -481,7 +494,17 @@ export async function generateImageBytes(
     return fail(ERR.INTERNAL_ERROR, `${chosen} returned non-image data: ${preview.slice(0, 100)}`)
   }
 
-  return { ok: true, bytes, type, model: chosen, width: applied.width || null, height: applied.height || null, finalPrompt, applied, notes }
+  return {
+    ok: true,
+    bytes,
+    type,
+    model: chosen,
+    width: applied.width || null,
+    height: applied.height || null,
+    finalPrompt,
+    applied,
+    notes: substitution ? [substitution, ...notes] : notes,
+  }
 }
 
 /**

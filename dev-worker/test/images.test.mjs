@@ -492,9 +492,9 @@ describe('render traits and text in the image', () => {
  *
  * These numbers are pinned against the input schemas published at
  * developers.cloudflare.com/workers-ai/models/<name>/, read 2026-09-30. A test that only checked
- * "a payload came out" would not catch the thing that makes this table necessary: the five models
- * disagree about which parameters EXIST, so a single passthrough sends flux-1-schnell four
- * arguments it has never heard of.
+ * "a payload came out" would not catch the thing that makes this table necessary: the models
+ * disagree about which parameters EXIST and about their ranges, so a single passthrough sends
+ * lucid-origin a negative_prompt it has no field for and phoenix a guidance below its floor.
  */
 describe('model capabilities — what each model will actually accept', () => {
   test('every listed model has a capability row', () => {
@@ -513,13 +513,6 @@ describe('model capabilities — what each model will actually accept', () => {
 
     assert.deepEqual(c['@cf/leonardo/phoenix-1.0'].stepsRange, [1, 50])
     assert.deepEqual(c['@cf/leonardo/phoenix-1.0'].guidanceRange, [2, 10], 'phoenix floors guidance at 2, not 0')
-
-    const flux = c['@cf/black-forest-labs/flux-1-schnell']
-    assert.equal(flux.stepsParam, 'steps', 'flux names it steps, not num_steps')
-    assert.deepEqual(flux.stepsRange, [1, 8])
-    assert.equal(flux.guidanceRange, false)
-    assert.equal(flux.seed, false)
-    assert.equal(flux.sizeRange, false)
 
     for (const m of ['@cf/stabilityai/stable-diffusion-xl-base-1.0', '@cf/bytedance/stable-diffusion-xl-lightning']) {
       assert.deepEqual(c[m].stepsRange, [1, 20])
@@ -555,18 +548,58 @@ describe('model capabilities — what each model will actually accept', () => {
     assert.match(notes.join(' '), /must be 0 or greater/)
   })
 
-  test('flux-1-schnell is sent steps only, and told about each dropped parameter', () => {
-    const { payload, notes } = images.resolveModelParams('@cf/black-forest-labs/flux-1-schnell', {
+  test('lucid-origin drops a negative prompt it has no field for, and says so', () => {
+    // Measured on the live API the same day: Lucid Origin answers 200 and IGNORES a
+    // negative_prompt rather than rejecting it. Nothing fails loudly if this gate breaks — the
+    // request simply stops doing what the caller asked, which is why it is pinned.
+    const { payload, notes } = images.resolveModelParams('@cf/leonardo/lucid-origin', {
       format: 'landscape-16:9',
       quality: 'max',
-      guidance: 7,
-      seed: 12,
-      negativePrompt: 'blurry',
+      negativePrompt: 'blurry, watermark',
     })
-    assert.deepEqual(payload, { steps: 8 }, 'no width, height, seed, guidance or negative_prompt')
-    assert.equal(notes.length, 4, 'size, guidance, seed and negative_prompt each reported')
-    assert.match(notes.join(' '), /no width or height parameter/)
-    assert.match(notes.join(' '), /no seed parameter/)
+    assert.equal(payload.negative_prompt, undefined)
+    assert.deepEqual([payload.width, payload.height, payload.num_steps], [1120, 630, 40])
+    assert.equal(notes.length, 1)
+    assert.match(notes[0], /no negative_prompt parameter/)
+  })
+
+  test('every offered model accepts a size and a seed — the tool fills a sized placeholder', () => {
+    // The reason flux-1-schnell was retired. generate_node_image only ever writes into an element
+    // that already declared its own width, so a model that takes no width cannot serve this tool
+    // however good its pictures are. If a future model without a size parameter is added to
+    // IMAGE_MODELS, this fails rather than shipping a silently ignored format argument.
+    for (const m of images.IMAGE_MODELS) {
+      const caps = images.MODEL_CAPABILITIES[m]
+      assert.notEqual(caps.sizeRange, false, `${m} cannot honour a format`)
+      assert.equal(caps.seed, true, `${m} cannot reproduce an image`)
+    }
+  })
+
+  test('a retired model is substituted AND reported, never swapped in silence', async () => {
+    // A client that connected before the list changed still holds the old enum, so this is a
+    // live path. `model` in the reply would otherwise read back as the caller's own choice.
+    const { env, graphId } = await withGraph(HEADER_EL)
+    const r = await images.generateImageForNode(env, {
+      graphId,
+      nodeId: 'n1',
+      prompt: 'en fjord',
+      actor: ALICE,
+      model: '@cf/black-forest-labs/flux-1-schnell',
+    })
+    assert.ok(r.ok, JSON.stringify(r))
+    assert.equal(r.model, images.DEFAULT_IMAGE_MODEL)
+    assert.match(r.notes[0], /flux-1-schnell is not offered here/)
+    assert.match(r.notes[0], /no width or height/, 'the reason travels with the substitution')
+  })
+
+  test('an unknown model name is substituted and reported too, without a stored reason', async () => {
+    const { env, graphId } = await withGraph(HEADER_EL)
+    const r = await images.generateImageForNode(env, {
+      graphId, nodeId: 'n1', prompt: 'x', actor: ALICE, model: '@cf/nobody/invented-2.0',
+    })
+    assert.ok(r.ok, JSON.stringify(r))
+    assert.equal(r.model, images.DEFAULT_IMAGE_MODEL)
+    assert.match(r.notes[0], /invented-2\.0 is not offered here\. Used lucid-origin instead\./)
   })
 
   test("phoenix raises guidance to its own floor rather than failing the call", () => {
@@ -626,12 +659,14 @@ describe('model capabilities — what each model will actually accept', () => {
       nodeId: 'n1',
       prompt: 'en fjord',
       actor: ALICE,
-      model: '@cf/black-forest-labs/flux-1-schnell',
+      model: '@cf/bytedance/stable-diffusion-xl-lightning',
       quality: 'high',
+      steps: 99,
       seed: 7,
     })
     assert.ok(r.ok, JSON.stringify(r))
-    assert.equal(r.appliedParams.steps, 6)
-    assert.match(r.notes.join(' '), /no seed parameter/)
+    assert.equal(r.appliedParams.num_steps, 20, 'clamped to this model\'s ceiling')
+    assert.equal(r.appliedParams.seed, 7)
+    assert.match(r.notes.join(' '), /steps 99 became 20/)
   })
 })

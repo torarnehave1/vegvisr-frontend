@@ -2066,18 +2066,26 @@ describe('get_image_guide', () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RO)
     const g = await callOk(client, 'get_image_guide', {})
-    assert.equal(g.models.length, 5)
+    assert.equal(g.models.length, 4)
     assert.equal(g.defaultModel, '@cf/leonardo/lucid-origin')
+    assert.ok(
+      !g.models.some((m) => m.model.includes('flux')),
+      'flux-1-schnell was retired: it takes no width or height, and this tool fills a sized placeholder',
+    )
 
-    const flux = g.models.find((m) => m.model.endsWith('flux-1-schnell'))
-    assert.equal(flux.seed, false, 'a caller must be able to learn flux cannot reproduce an image')
-    assert.equal(flux.size, 'fixed, not settable')
-    assert.equal(flux.guidance, 'not supported')
-    assert.equal(flux.maxSteps, 8)
-
+    // The differences a caller has to be able to SEE before choosing.
     const lucid = g.models.find((m) => m.model.endsWith('lucid-origin'))
-    assert.equal(lucid.negativePrompt, false)
-    assert.equal(lucid.size, '256-2500 px')
+    assert.equal(lucid.negativePrompt, false, 'the default model has no negative_prompt')
+    assert.equal(lucid.size, '256-2500 px', 'and is the only one that goes past 2048')
+    assert.equal(lucid.maxSteps, 40)
+
+    const phoenix = g.models.find((m) => m.model.endsWith('phoenix-1.0'))
+    assert.equal(phoenix.guidance, '2-10', 'its guidance floor is 2, not 0')
+    assert.equal(phoenix.negativePrompt, true)
+
+    const lightning = g.models.find((m) => m.model.endsWith('xl-lightning'))
+    assert.equal(lightning.maxSteps, 20)
+    assert.equal(lightning.guidance, 'no documented range')
   })
 
   test('it hands back the same vocabulary the tool enums enforce — one source, not two', async () => {
