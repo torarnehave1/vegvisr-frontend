@@ -17,6 +17,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike, FakeAgentWorker, FakeRegisterWorker, FakeRoleWorker } from './d1-adapter.mjs'
 import * as pd from '../published-domains.js'
 import { CONNECT_SCOPES, OPT_IN_SCOPES } from '../oauth/scopes.js'
+import * as server from '../mcp/server.js'
 import { NODE_TYPES, suggestNodeType } from '../node-types.js'
 import { registerTools, TOOL_NAMES } from '../mcp/tools.js'
 import * as gs from '../graph-service.js'
@@ -2113,5 +2114,54 @@ describe('get_image_guide', () => {
     const g = await callOk(client, 'get_image_guide', { model: '@cf/leonardo/phoenix-1.0' })
     assert.equal(g.models.length, 1)
     assert.equal(g.models[0].guidance, '2-10')
+  })
+})
+
+/**
+ * What the audit log records about a call.
+ *
+ * `client_info` read NULL on every `initialize` row from the day it was added: describeClient
+ * computed the string correctly, and both audit() call sites listed their fields by hand and
+ * simply did not include it. Nothing failed, no test covered it, and the column sat there
+ * looking like an answer. These pin the derivation; the `...described` spread at the call sites
+ * is what stops the next added field going the same way.
+ */
+describe('audit facts derived from a request', () => {
+  test('initialize records the client name, protocol and declared capabilities', () => {
+    const d = server.describeCall({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2025-06-18',
+        clientInfo: { name: 'claude-ai', version: '0.1.0' },
+        capabilities: { roots: {}, sampling: {}, elicitation: {} },
+      },
+    })
+    assert.equal(d.method, 'initialize')
+    // Capabilities are sorted so two clients declaring the same set produce the same string,
+    // which is what makes the column groupable.
+    assert.equal(d.clientInfo, 'claude-ai/0.1.0 proto:2025-06-18 caps:elicitation,roots,sampling')
+  })
+
+  test('a client that declares nothing still records its name', () => {
+    const d = server.describeCall({ method: 'initialize', params: { clientInfo: { name: 'grok' } } })
+    assert.equal(d.clientInfo, 'grok proto:? caps:none')
+  })
+
+  test('only initialize carries client info — every other method leaves it null', () => {
+    for (const method of ['tools/list', 'tools/call', 'notifications/initialized']) {
+      const d = server.describeCall({ method, params: { name: 'get_graph', arguments: { graphId: 'g1' } } })
+      assert.equal(d.clientInfo, null, method)
+    }
+  })
+
+  test('a tools/call records the tool and graph, and never the arguments', () => {
+    const d = server.describeCall({
+      method: 'tools/call',
+      params: { name: 'update_node', arguments: { graphId: 'g1', nodeId: 'n1', info: 'secret prose' } },
+    })
+    assert.deepEqual(d, { method: 'tools/call', tool: 'update_node', graphId: 'g1', clientInfo: null })
+    assert.ok(!JSON.stringify(d).includes('secret prose'), 'node content must never reach the audit row')
   })
 })

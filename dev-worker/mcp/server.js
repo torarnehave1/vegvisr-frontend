@@ -255,9 +255,7 @@ export const mcpHandler = {
         audit(env, {
           userId: props.userId,
           clientId: auth.clientId,
-          method: described.method,
-          tool: described.tool,
-          graphId: described.graphId,
+          ...described,
           resultCode: 'INTERNAL_ERROR',
           durationMs: Date.now() - started,
         }),
@@ -287,9 +285,12 @@ export const mcpHandler = {
       audit(env, {
         userId: props.userId,
         clientId: auth.clientId,
-        method: described.method,
-        tool: described.tool,
-        graphId: described.graphId,
+        // Spread, not copied field by field. Listing them by hand is exactly how clientInfo was
+        // computed by describeCall and then dropped on the floor here — the column read NULL on
+        // every initialize since it was added, while the code that filled it looked correct in
+        // isolation. A value that is derived and then not carried is worse than one never
+        // derived: the schema says the answer is there.
+        ...described,
         resultCode,
         durationMs: Date.now() - started,
       }),
@@ -307,3 +308,6 @@ function json(body, status) {
 }
 
 export { TOOL_NAMES, SERVER_INFO, INSTRUCTIONS }
+// Exported for the tests: what lands in an audit row is a contract, and the one field that was
+// derived here and then silently not written is the reason it now has one.
+export { describeCall }
