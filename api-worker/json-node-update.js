@@ -215,7 +215,10 @@ export async function handleJsonNodeUpdate(request, env) {
 
   targetNode.info = normalizedContent
 
-  const updateResponse = await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
+  // Over the KNOWLEDGE service binding, addressed by the binding's hostname — see the same call
+  // in index.js handleGenerateMetaAreas(). /updateknowgraph requires graph:write, and a
+  // public-hostname fetch from inside a Worker arrives unauthenticated.
+  const updateResponse = await env.KNOWLEDGE.fetch('https://knowledge-graph-worker/updateknowgraph', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

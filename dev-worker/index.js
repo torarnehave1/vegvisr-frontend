@@ -3135,8 +3135,9 @@ const restHandler = {
             '/updateknowgraph': {
               post: {
                 summary: 'Update knowledge graph (legacy)',
-                description: 'Legacy graph update endpoint. Prefer /patchNode and /patchGraphMetadata for incremental updates.',
+                description: 'Legacy graph update endpoint. Replaces the graph data wholesale and writes no version history — prefer /saveGraphWithHistory, or /patchNode and /patchGraphMetadata for incremental updates. Requires graph:write scope.',
                 operationId: 'updateKnowGraphLegacy',
+                security: [{ ApiTokenAuth: [] }],
                 requestBody: {
                   required: true,
                   content: {
@@ -3152,7 +3153,9 @@ const restHandler = {
                   }
                 },
                 responses: {
-                  '200': { description: 'Graph updated' }
+                  '200': { description: 'Graph updated' },
+                  '401': { description: 'Authentication required' },
+                  '403': { description: 'Token lacks graph:write scope' }
                 }
               }
             },
@@ -5833,6 +5836,31 @@ const restHandler = {
       }
 
       if (pathname === '/updateknowgraph' && request.method === 'POST') {
+        // This handler ran NO auth check at all until 2026-09-30. A POST carrying no token, no
+        // role header and no Origin returned 200 and replaced the named graph's entire data —
+        // verified against production with a nonexistent id, which wrote nothing. It is the same
+        // class as the holes closed on 2026-09-26 (bare x-user-role trusted) and 2026-09-27
+        // (trusted Origin granting scopes:['all']); this endpoint was simply missed both times,
+        // because unlike its neighbours it never called validateAuth in the first place.
+        //
+        // Gated like /saveGraphWithHistory, which does the same job with version history. The
+        // trusted-origin branch is capped at graph:read, so an anonymous visitor on a trusted
+        // page no longer passes — which is the point.
+        const tokenValidation = await validateAuth(request, env)
+        if (!tokenValidation.valid) {
+          return new Response(
+            JSON.stringify({ error: tokenValidation.error }),
+            { status: tokenValidation.status, headers: corsHeaders }
+          )
+        }
+
+        if (!hasScope(tokenValidation.scopes, 'graph:write')) {
+          return new Response(
+            JSON.stringify({ error: 'Insufficient permissions. Required scope: graph:write' }),
+            { status: 403, headers: corsHeaders }
+          )
+        }
+
         try {
           const requestBody = await request.json()
           const { id, graphData } = requestBody

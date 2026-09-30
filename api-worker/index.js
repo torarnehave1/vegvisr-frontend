@@ -1543,8 +1543,15 @@ const handleGenerateMetaAreas = async (request, env) => {
       continue // Skip on error
     }
 
-    // 3. Update the graph with the new meta area
-    await fetch('https://knowledge.vegvisr.org/updateknowgraph', {
+    // 3. Update the graph with the new meta area.
+    //
+    // Over the KNOWLEDGE service binding, addressed by the BINDING's hostname rather than
+    // knowledge.vegvisr.org: knowledge-graph-worker's validateAuth() grants scopes:['all'] to a
+    // request whose URL hostname is 'knowledge-graph-worker', which only a service binding can
+    // produce (Cloudflare delivers public traffic on mapped routes, which always carry the public
+    // hostname). A public-hostname fetch would arrive unauthenticated and now gets 403, since
+    // /updateknowgraph requires graph:write.
+    await env.KNOWLEDGE.fetch('https://knowledge-graph-worker/updateknowgraph', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
