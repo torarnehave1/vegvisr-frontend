@@ -194,9 +194,54 @@ const OTP_MESSAGES = {
 
 export async function handleAuthorize(request, env, ctx) {
   const url = new URL(request.url)
-  if (request.method === 'GET') return handleGet(request, env, url)
-  if (request.method === 'POST') return handlePost(request, env, url)
-  return page('Feil', '<h1>Metoden støttes ikke</h1>', { status: 405 })
+  // Filled in by handlePost once the form is parsed. A POST carries its action and tx in the
+  // BODY, which cannot be read again from inside the catch — the stream is already consumed — so
+  // the step that failed has to be recorded on the way past or it is lost.
+  const trace = { action: request.method, txId: '-' }
+  try {
+    if (request.method === 'GET') return await handleGet(request, env, url)
+    if (request.method === 'POST') return await handlePost(request, env, url, trace)
+    return page('Feil', '<h1>Metoden støttes ikke</h1>', { status: 405 })
+  } catch (error) {
+    return authorizeFailure(trace, error)
+  }
+}
+
+/**
+ * The error boundary this page did not have.
+ *
+ * Nothing on the POST path was wrapped: sendChallenge talks to the SMS gateway, verifyChallenge
+ * and putTx talk to KV, and completeAuthorization talks to the OAuth provider's own storage. A
+ * throw from any of them left the runtime to answer, so the user got Cloudflare's raw
+ * "Error 1101 — Worker threw exception" page (seen 2026-09-30 15:25 UTC, mid-reconnect). That
+ * page is the worst of both worlds: it tells the user nothing they can act on, it loses the
+ * form they were filling in, and it leaves no line in the logs naming which step failed — so
+ * the same failure is undiagnosable the next time too.
+ *
+ * What is deliberately NOT done here: retrying, or redirecting to the client's redirect_uri with
+ * an error. A redirect needs a redirect_uri that has been VALIDATED against the registered
+ * client, and at this point we may be holding an exception from before that validation happened.
+ * Bouncing a user to an unvalidated address on the strength of a query parameter is how an open
+ * redirect is built. So the failure is rendered here, on our own origin, and the user restarts
+ * from the client.
+ *
+ * The log line carries the action, the transaction id and the error — never the phone number,
+ * never the code, never a token. The tx id is random and short-lived, and it is the only thing
+ * that makes one report findable among the rest.
+ */
+function authorizeFailure(trace, error) {
+  console.error(
+    `[OAuth authorize] uncaught ${error?.name || 'Error'} on ${trace.action} tx=${trace.txId}: ${error?.message || String(error)}`,
+    error?.stack || '',
+  )
+  return page(
+    'Noe gikk galt',
+    `<h1>Noe gikk galt</h1>
+     <p class="sub">Tilkoblingen ble ikke fullført. Ingenting er gitt tilgang, og du kan trygt prøve igjen.</p>
+     <p class="sub">Lukk dette vinduet og start tilkoblingen på nytt fra appen. Skjer det igjen, oppgi tidspunktet
+     ${esc(new Date().toISOString())} — feilen er logget.</p>`,
+    { status: 500 },
+  )
 }
 
 /**
@@ -297,7 +342,7 @@ function grantableScopes(tx) {
   return pickScopes(tx.authRequest?.scope)
 }
 
-async function handlePost(request, env, url) {
+async function handlePost(request, env, url, trace = {}) {
   let form
   try {
     form = await request.formData()
@@ -306,6 +351,10 @@ async function handlePost(request, env, url) {
   }
   const action = String(form.get('action') || '')
   const txId = String(form.get('tx') || '')
+  // Recorded before anything can throw, so the error boundary can name the step. The tx id is
+  // random and expires in 15 minutes; the phone number and the code never go anywhere near a log.
+  trace.action = action || 'POST'
+  trace.txId = txId || '-'
 
   // The transaction id doubles as the CSRF token: it is 128 bits of randomness that only this
   // server and this browser have seen, so a cross-site form post cannot produce it.
