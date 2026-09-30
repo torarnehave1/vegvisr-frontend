@@ -2077,7 +2077,7 @@ describe('get_image_guide', () => {
     // The differences a caller has to be able to SEE before choosing.
     const lucid = g.models.find((m) => m.model.endsWith('lucid-origin'))
     assert.equal(lucid.negativePrompt, false, 'the default model has no negative_prompt')
-    assert.equal(lucid.size, '256-2500 px', 'and is the only one that goes past 2048')
+    assert.equal(lucid.size, '256-2496 px', 'and is the only one that goes past 2048')
     assert.equal(lucid.maxSteps, 40)
 
     const phoenix = g.models.find((m) => m.model.endsWith('phoenix-1.0'))

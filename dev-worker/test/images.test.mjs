@@ -391,7 +391,7 @@ describe('style, lighting and format — the dropdowns a chat does not have', ()
     assert.equal(images.IMAGE_STYLES.cinematic, 'cinematic precision, dramatic composition, widescreen film still')
     assert.equal(images.IMAGE_STYLES['concept-art'], 'concept art, artstation quality, atmospheric visual development')
     assert.equal(images.IMAGE_LIGHTING['golden-hour'], 'golden hour, warm diffused natural light')
-    assert.deepEqual(images.IMAGE_FORMATS['landscape-16:9'], { width: 1120, height: 630 })
+    assert.deepEqual(images.IMAGE_FORMATS['landscape-16:9'], { width: 1152, height: 648 })
   })
 
   test('subject first, then style, then lighting — the chat UI order', () => {
@@ -421,9 +421,12 @@ describe('style, lighting and format — the dropdowns a chat does not have', ()
   test('a named format sets exact dimensions and is NOT rounded to a multiple of 8', async () => {
     const { env, graphId } = await withGraph(HEADER_EL)
     await images.generateImageForNode(env, { graphId, nodeId: 'n1', prompt: 'x', format: 'landscape-16:9', actor: ALICE })
-    // 630 is not a multiple of 8. The chat UI sends it and it works, so rounding it to 632 here
-    // would quietly change an aspect ratio the caller asked for by name.
-    assert.deepEqual(env.AI.calls[0].input, { prompt: 'x', width: 1120, height: 630 })
+    // This assertion used to read 1120x630, and its comment argued that 630 SHOULD pass through
+    // unrounded because "the chat UI sends it and it works". It works against Lucid Origin. SDXL
+    // rejects it in the diffusers pipeline, and the test's own reasoning is what kept the invalid
+    // preset alive until a real call found it. Both sides are multiples of 8 now, and the ratio
+    // is still exactly 16:9.
+    assert.deepEqual(env.AI.calls[0].input, { prompt: 'x', width: 1152, height: 648 })
   })
 
   test('a named format wins over loose width and height', async () => {
@@ -508,7 +511,7 @@ describe('model capabilities — what each model will actually accept', () => {
     const c = images.MODEL_CAPABILITIES
     assert.deepEqual(c['@cf/leonardo/lucid-origin'].stepsRange, [1, 40])
     assert.deepEqual(c['@cf/leonardo/lucid-origin'].guidanceRange, [0, 10])
-    assert.deepEqual(c['@cf/leonardo/lucid-origin'].sizeRange, [256, 2500])
+    assert.deepEqual(c['@cf/leonardo/lucid-origin'].sizeRange, [256, 2496], 'the schema says 2500; a side must be divisible by 8')
     assert.equal(c['@cf/leonardo/lucid-origin'].negativePrompt, false, 'lucid-origin has no negative_prompt')
 
     assert.deepEqual(c['@cf/leonardo/phoenix-1.0'].stepsRange, [1, 50])
@@ -558,7 +561,7 @@ describe('model capabilities — what each model will actually accept', () => {
       negativePrompt: 'blurry, watermark',
     })
     assert.equal(payload.negative_prompt, undefined)
-    assert.deepEqual([payload.width, payload.height, payload.num_steps], [1120, 630, 40])
+    assert.deepEqual([payload.width, payload.height, payload.num_steps], [1152, 648, 40])
     assert.equal(notes.length, 1)
     assert.match(notes[0], /no negative_prompt parameter/)
   })
@@ -635,21 +638,58 @@ describe('model capabilities — what each model will actually accept', () => {
     assert.equal(payload.num_steps, 33)
   })
 
-  test('lucid-origin allows the 2500 px the others stop at 2048 for', () => {
+  test('lucid-origin goes higher than the others, and every ceiling is itself a multiple of 8', () => {
     const lucid = images.resolveModelParams('@cf/leonardo/lucid-origin', { width: 2400 })
     assert.equal(lucid.payload.width, 2400)
+
+    // Clamping to a ceiling must not hand back a side the model will refuse.
+    for (const m of images.IMAGE_MODELS) {
+      const { payload } = images.resolveModelParams(m, { width: 99999, height: 99999 })
+      assert.equal(payload.width % 8, 0, `${m} ceiling ${payload.width}`)
+      assert.equal(payload.height % 8, 0, `${m} ceiling ${payload.height}`)
+    }
     const sdxl = images.resolveModelParams('@cf/stabilityai/stable-diffusion-xl-base-1.0', { width: 2400 })
     assert.equal(sdxl.payload.width, 2048)
     assert.match(sdxl.notes.join(' '), /width 2400 became 2048/)
   })
 
-  test('a named format is not rounded to a multiple of 8, but a loose number is', () => {
+  test('EVERY named format is divisible by 8 — SDXL refuses anything else', () => {
+    // The invariant that actually broke. 16:9 and 9:16 carried 630, copied from the chat UI where
+    // they had only met Lucid Origin, which tolerates it. The first live call to SDXL Lightning
+    // with a named format came back:
+    //   ValueError: `height` and `width` have to be divisible by 8 but are 630 and 1120.
+    // A ratio is worth nothing if the model will not render it.
+    for (const [name, size] of Object.entries(images.IMAGE_FORMATS)) {
+      assert.equal(size.width % 8, 0, `${name} width ${size.width}`)
+      assert.equal(size.height % 8, 0, `${name} height ${size.height}`)
+    }
+  })
+
+  test('the named ratios are still exact after the correction', () => {
+    const ratio = (n) => images.IMAGE_FORMATS[n].width / images.IMAGE_FORMATS[n].height
+    assert.equal(ratio('landscape-16:9').toFixed(4), (16 / 9).toFixed(4))
+    assert.equal(ratio('story-9:16').toFixed(4), (9 / 16).toFixed(4))
+    assert.equal(ratio('square-1:1'), 1)
+    assert.equal(ratio('portrait-4:5'), 4 / 5)
+    assert.equal(ratio('cinematic-4:2'), 2)
+  })
+
+  test('a named format survives the rounding untouched, and a loose number does not', () => {
     const named = images.resolveModelParams('@cf/leonardo/lucid-origin', { format: 'landscape-16:9' })
-    assert.deepEqual([named.payload.width, named.payload.height], [1120, 630])
+    assert.deepEqual([named.payload.width, named.payload.height], [1152, 648])
     assert.deepEqual(named.notes, [], 'naming a format is not an adjustment')
 
     const loose = images.resolveModelParams('@cf/leonardo/lucid-origin', { width: 1021 })
     assert.equal(loose.payload.width, 1024)
+  })
+
+  test('a named format reaches SDXL in a shape it accepts', () => {
+    // The exact call that failed live, as a regression: SDXL Lightning plus a named format.
+    for (const name of Object.keys(images.IMAGE_FORMATS)) {
+      const { payload } = images.resolveModelParams('@cf/bytedance/stable-diffusion-xl-lightning', { format: name })
+      assert.equal(payload.width % 8, 0, name)
+      assert.equal(payload.height % 8, 0, name)
+    }
   })
 
   test('the node path carries appliedParams and notes back to the caller', async () => {

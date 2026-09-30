@@ -79,9 +79,13 @@ export const RETIRED_MODELS = {
  * `guidanceRange: null` means the schema documents the parameter with no bounds. The numbers used
  * in that case are OUR guard against an absurd value, not the model's limit, and are marked so.
  *
- * ONE number here is not from the schema: the 256 px floor on the two Leonardo models. Their
- * pages give the minimum as 0, which is not a request anyone means, so the SDXL floor is applied
- * across every model. Every other figure is transcribed.
+ * TWO numbers here are not from the schema, both because a side must be divisible by 8:
+ *   - the 256 px floor on the two Leonardo models. Their pages give the minimum as 0, which is
+ *     not a request anyone means, so the SDXL floor is applied across every model.
+ *   - lucid-origin's ceiling reads 2500 in the schema and 2496 here — the largest multiple of 8
+ *     below it. A bound that is not itself a multiple of 8 hands back an invalid number to
+ *     anyone who clamps to it, which is the same failure as the preset that started this.
+ * Every other figure is transcribed.
  */
 export const MODEL_CAPABILITIES = {
   '@cf/leonardo/lucid-origin': {
@@ -90,7 +94,7 @@ export const MODEL_CAPABILITIES = {
     guidanceRange: [0, 10],
     seed: true,
     negativePrompt: false,
-    sizeRange: [256, 2500],
+    sizeRange: [256, 2496],
     // Omitted for "standard" so Cloudflare's own default applies; the rest are chosen points in
     // the documented range, not a formula.
     qualitySteps: { draft: 10, high: 30, max: 40 },
@@ -158,12 +162,23 @@ export const IMAGE_QUALITY_LEVELS = ['draft', 'standard', 'high', 'max']
  * the server does. These enums put the vocabulary in the tool schema where a model can SEE it,
  * which is the same reason node types are an enum and not prose.
  */
+/**
+ * EVERY side here must be divisible by 8. Diffusion latents are 1/8 scale, and SDXL enforces it
+ * in the pipeline rather than rounding for you:
+ *
+ *   ValueError: `height` and `width` have to be divisible by 8 but are 630 and 1120.
+ *
+ * The 16:9 and 9:16 presets carried 630 — copied from the chat UI, where they had only ever been
+ * used against Lucid Origin, which tolerates it. The first real call to SDXL Lightning with a
+ * named format failed (2026-09-30 16:34, live). 1152x648 is exactly 16:9 AND divisible by 8, so
+ * the fix costs no accuracy in the ratio.
+ */
 export const IMAGE_FORMATS = {
-  'landscape-16:9': { width: 1120, height: 630 },
+  'landscape-16:9': { width: 1152, height: 648 },
   'cinematic-4:2': { width: 1200, height: 600 },
   'square-1:1': { width: 1024, height: 1024 },
   'portrait-4:5': { width: 896, height: 1120 },
-  'story-9:16': { width: 630, height: 1120 },
+  'story-9:16': { width: 648, height: 1152 },
 }
 
 export const IMAGE_STYLES = {
@@ -335,11 +350,13 @@ export function resolveModelParams(model, requested = {}) {
       const r = round ? Math.round(n / 8) * 8 : n
       return Math.min(maxSide, Math.max(minSide, r))
     }
-    // A named format carries exact dimensions and is NOT rounded to a multiple of 8: the chat UI
-    // sends 1120x630 and it works, so rounding would quietly change an aspect ratio the caller
-    // asked for BY NAME. Loose numbers are free input and do get rounded.
-    const w = preset ? clampSide(preset.width, false) : clampSide(width, true)
-    const h = preset ? clampSide(preset.height, false) : clampSide(height, true)
+    // Everything is rounded to a multiple of 8, named formats included. The carve-out that used
+    // to exempt them — on the reasoning that a preset's ratio should be honoured exactly — is
+    // what let 1120x630 reach SDXL and fail there. Honouring a ratio the model refuses to render
+    // is not honouring anything. With the presets corrected this rounding is a no-op for every
+    // one of them, so it costs nothing and closes the hole for the next one added.
+    const w = preset ? clampSide(preset.width, true) : clampSide(width, true)
+    const h = preset ? clampSide(preset.height, true) : clampSide(height, true)
     if (w) { payload.width = w; applied.width = w }
     if (h) { payload.height = h; applied.height = h }
     if (!preset && width && w !== null && Number.parseInt(width, 10) !== w) {

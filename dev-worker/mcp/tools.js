@@ -1082,7 +1082,8 @@ export function registerTools(server, getContext) {
           .optional()
           .describe(
             'Pixel width, rounded to a multiple of 8 and clamped to what the model takes (up to ' +
-              '2500 for lucid-origin, 2048 for the rest). Prefer format.',
+              '2496 for lucid-origin, 2048 for the rest; every side is rounded to a multiple of 8, ' +
+              'which the models require). Prefer format.',
           ),
         height: z
           .number()
