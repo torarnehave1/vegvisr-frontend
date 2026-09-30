@@ -99,10 +99,14 @@ describe('generate_node_image — the happy path', () => {
     assert.deepEqual(env.AI.calls[0].input, { prompt: 'a fjord at dawn', width: 1024, height: 512 })
   })
 
-  test('an out-of-range size is dropped rather than guessed at', async () => {
+  test('an out-of-range size is clamped to the model minimum and the change is reported', async () => {
     const { env, graphId } = await withGraph(HEADER_EL)
-    await images.generateImageForNode(env, { graphId, nodeId: 'n1', prompt: 'x', width: 40, actor: ALICE })
-    assert.deepEqual(env.AI.calls[0].input, { prompt: 'x' })
+    // This used to drop the number entirely, which let the model fall back to its own default
+    // while the caller was told nothing. Clamping guesses too — 40 px was never going to be
+    // honoured — but the difference that matters is that the caller now learns the number moved.
+    const r = await images.generateImageForNode(env, { graphId, nodeId: 'n1', prompt: 'x', width: 40, actor: ALICE })
+    assert.deepEqual(env.AI.calls[0].input, { prompt: 'x', width: 256 })
+    assert.match(r.notes.join(' '), /width 40 became 256/)
   })
 
   test('the side placeholder is filled without disturbing the wrap count', async () => {
@@ -480,5 +484,154 @@ describe('render traits and text in the image', () => {
         'low key lighting, moody high contrast shadows, long exposure photograph, film grain, ' +
         'the text "VEGR.AI", elegant serif lettering, gold foil embossed look',
     )
+  })
+})
+
+/**
+ * The per-model capability table.
+ *
+ * These numbers are pinned against the input schemas published at
+ * developers.cloudflare.com/workers-ai/models/<name>/, read 2026-09-30. A test that only checked
+ * "a payload came out" would not catch the thing that makes this table necessary: the five models
+ * disagree about which parameters EXIST, so a single passthrough sends flux-1-schnell four
+ * arguments it has never heard of.
+ */
+describe('model capabilities — what each model will actually accept', () => {
+  test('every listed model has a capability row', () => {
+    for (const m of images.IMAGE_MODELS) {
+      assert.ok(images.MODEL_CAPABILITIES[m], `${m} is offered but has no capability row`)
+    }
+    assert.equal(Object.keys(images.MODEL_CAPABILITIES).length, images.IMAGE_MODELS.length)
+  })
+
+  test('the pinned limits match the published schemas', () => {
+    const c = images.MODEL_CAPABILITIES
+    assert.deepEqual(c['@cf/leonardo/lucid-origin'].stepsRange, [1, 40])
+    assert.deepEqual(c['@cf/leonardo/lucid-origin'].guidanceRange, [0, 10])
+    assert.deepEqual(c['@cf/leonardo/lucid-origin'].sizeRange, [256, 2500])
+    assert.equal(c['@cf/leonardo/lucid-origin'].negativePrompt, false, 'lucid-origin has no negative_prompt')
+
+    assert.deepEqual(c['@cf/leonardo/phoenix-1.0'].stepsRange, [1, 50])
+    assert.deepEqual(c['@cf/leonardo/phoenix-1.0'].guidanceRange, [2, 10], 'phoenix floors guidance at 2, not 0')
+
+    const flux = c['@cf/black-forest-labs/flux-1-schnell']
+    assert.equal(flux.stepsParam, 'steps', 'flux names it steps, not num_steps')
+    assert.deepEqual(flux.stepsRange, [1, 8])
+    assert.equal(flux.guidanceRange, false)
+    assert.equal(flux.seed, false)
+    assert.equal(flux.sizeRange, false)
+
+    for (const m of ['@cf/stabilityai/stable-diffusion-xl-base-1.0', '@cf/bytedance/stable-diffusion-xl-lightning']) {
+      assert.deepEqual(c[m].stepsRange, [1, 20])
+      assert.equal(c[m].guidanceRange, null, 'the SDXL schemas document no guidance range')
+      assert.equal(c[m].negativePrompt, true)
+    }
+  })
+
+  test('an unrequested parameter sends nothing — Number(null) is 0, not NaN', () => {
+    // The regression this pins: a bare Number.isFinite(Number(v)) test read an unset steps as a
+    // deliberate 0, clamped it to the model minimum, and silently made every image a one-step
+    // render. Nothing in a returned picture would have shown it.
+    const { payload, notes } = images.resolveModelParams('@cf/leonardo/lucid-origin', {
+      steps: null,
+      guidance: null,
+      seed: null,
+      negativePrompt: null,
+      width: null,
+      height: null,
+    })
+    assert.deepEqual(payload, {})
+    assert.deepEqual(notes, [])
+  })
+
+  test('seed 0 survives — it is a legal seed and a falsy number', () => {
+    const { payload } = images.resolveModelParams('@cf/leonardo/lucid-origin', { seed: 0 })
+    assert.equal(payload.seed, 0)
+  })
+
+  test('a negative seed is refused and said so, not sent', () => {
+    const { payload, notes } = images.resolveModelParams('@cf/leonardo/lucid-origin', { seed: -5 })
+    assert.equal(payload.seed, undefined)
+    assert.match(notes.join(' '), /must be 0 or greater/)
+  })
+
+  test('flux-1-schnell is sent steps only, and told about each dropped parameter', () => {
+    const { payload, notes } = images.resolveModelParams('@cf/black-forest-labs/flux-1-schnell', {
+      format: 'landscape-16:9',
+      quality: 'max',
+      guidance: 7,
+      seed: 12,
+      negativePrompt: 'blurry',
+    })
+    assert.deepEqual(payload, { steps: 8 }, 'no width, height, seed, guidance or negative_prompt')
+    assert.equal(notes.length, 4, 'size, guidance, seed and negative_prompt each reported')
+    assert.match(notes.join(' '), /no width or height parameter/)
+    assert.match(notes.join(' '), /no seed parameter/)
+  })
+
+  test("phoenix raises guidance to its own floor rather than failing the call", () => {
+    const { payload, notes } = images.resolveModelParams('@cf/leonardo/phoenix-1.0', { guidance: 1 })
+    assert.equal(payload.guidance, 2)
+    assert.match(notes.join(' '), /guidance 1 became 2/)
+  })
+
+  test('steps above the ceiling are lowered and reported, per model', () => {
+    const hi = images.resolveModelParams('@cf/leonardo/lucid-origin', { steps: 99 })
+    assert.equal(hi.payload.num_steps, 40)
+    assert.match(hi.notes.join(' '), /steps 99 became 40/)
+
+    const lo = images.resolveModelParams('@cf/bytedance/stable-diffusion-xl-lightning', { steps: 99 })
+    assert.equal(lo.payload.num_steps, 20)
+  })
+
+  test('quality is named because the ceiling differs — max means each model\'s own ceiling', () => {
+    for (const m of images.IMAGE_MODELS) {
+      const caps = images.MODEL_CAPABILITIES[m]
+      const { payload } = images.resolveModelParams(m, { quality: 'max' })
+      assert.equal(payload[caps.stepsParam], caps.stepsRange[1], m)
+    }
+  })
+
+  test('quality standard sends no step count, leaving the model default in place', () => {
+    const { payload } = images.resolveModelParams('@cf/leonardo/lucid-origin', { quality: 'standard' })
+    assert.equal(payload.num_steps, undefined)
+  })
+
+  test('an explicit steps number overrides a named quality level', () => {
+    const { payload } = images.resolveModelParams('@cf/leonardo/lucid-origin', { quality: 'draft', steps: 33 })
+    assert.equal(payload.num_steps, 33)
+  })
+
+  test('lucid-origin allows the 2500 px the others stop at 2048 for', () => {
+    const lucid = images.resolveModelParams('@cf/leonardo/lucid-origin', { width: 2400 })
+    assert.equal(lucid.payload.width, 2400)
+    const sdxl = images.resolveModelParams('@cf/stabilityai/stable-diffusion-xl-base-1.0', { width: 2400 })
+    assert.equal(sdxl.payload.width, 2048)
+    assert.match(sdxl.notes.join(' '), /width 2400 became 2048/)
+  })
+
+  test('a named format is not rounded to a multiple of 8, but a loose number is', () => {
+    const named = images.resolveModelParams('@cf/leonardo/lucid-origin', { format: 'landscape-16:9' })
+    assert.deepEqual([named.payload.width, named.payload.height], [1120, 630])
+    assert.deepEqual(named.notes, [], 'naming a format is not an adjustment')
+
+    const loose = images.resolveModelParams('@cf/leonardo/lucid-origin', { width: 1021 })
+    assert.equal(loose.payload.width, 1024)
+  })
+
+  test('the node path carries appliedParams and notes back to the caller', async () => {
+    const { env, graphId } = await withGraph(HEADER_EL)
+    const r = await images.generateImageForNode(env, {
+      graphId,
+      nodeId: 'n1',
+      prompt: 'en fjord',
+      actor: ALICE,
+      model: '@cf/black-forest-labs/flux-1-schnell',
+      quality: 'high',
+      seed: 7,
+    })
+    assert.ok(r.ok, JSON.stringify(r))
+    assert.equal(r.appliedParams.steps, 6)
+    assert.match(r.notes.join(' '), /no seed parameter/)
   })
 })

@@ -33,7 +33,7 @@ import { registerTools, TOOL_NAMES } from './tools.js'
 // Bump it with the surface from here; MCP_OAUTH_DEPLOYMENT.md carries the changelog.
 const SERVER_INFO = {
   name: 'vegvisr-knowledge-graph',
-  version: '1.10.0',
+  version: '1.11.0',
 }
 
 const INSTRUCTIONS = `VEGR.AI Knowledge Graph.
@@ -43,8 +43,9 @@ markdown in their "info" field) and edges connect them. Graphs carry metadata: t
 description, and metaArea tags used for filtering.
 
 Rules this server enforces, so you do not have to ask:
-- Every graph you create is PRIVATE. Nothing becomes visible to others without an explicit
-  publish action, which this version does not expose.
+- Every graph you create is PRIVATE. Nothing becomes visible to others until the user asks for
+  it: publish_html_node is the one tool that puts anything on the public web, and it publishes a
+  single named node to a domain the user already owns.
 - You are always the authenticated user. There is no way to act as someone else, and no tool
   takes an email or user id.
 - You can only read or change graphs you own. Someone else's private graph returns
@@ -52,6 +53,13 @@ Rules this server enforces, so you do not have to ask:
 - Graph and node ids are UUID v4, generated for you when you omit them.
 - Writes keep full version history. If a write returns VERSION_CONFLICT, the graph changed
   since you read it: call get_graph again and retry against the version it reports.
+
+Two things on this system cannot be inferred from general knowledge, so ask rather than guess:
+- Fulltext syntax: call get_fulltext_elements before writing a node's "info" and copy the format
+  verbatim. A wrong parameter renders as literal text instead of failing, so mistakes are silent.
+- Images: call get_image_guide before generating one. Five image models are available and they
+  accept genuinely different parameters — one has no seed, another no negative prompt, a third no
+  size at all — so a setting you assume exists is dropped rather than refused.
 
 Always show the user the viewerUrl or editorUrl that a write returns — that is how they see
 what you made.`
@@ -75,8 +83,8 @@ async function audit(env, row) {
   try {
     await env.vegvisr_org
       .prepare(
-        `INSERT INTO mcp_audit_log (id, ts, user_id, client_id, method, tool, graph_id, result_code, duration_ms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO mcp_audit_log (id, ts, user_id, client_id, method, tool, graph_id, result_code, duration_ms, client_info)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         crypto.randomUUID(),
@@ -90,11 +98,34 @@ async function audit(env, row) {
         row.graphId || null,
         row.resultCode || null,
         Number.isFinite(row.durationMs) ? Math.round(row.durationMs) : null,
+        row.clientInfo || null,
       )
       .run()
   } catch (e) {
     console.error('[MCP audit] could not write row:', e.message)
   }
+}
+
+/**
+ * What a client says about ITSELF at initialize: its name, its version, and which MCP
+ * capabilities it declares.
+ *
+ * Recorded because the server's options for talking to a user depend on it and nothing else
+ * measures it. `elicitation` is the capability that lets a server ASK THE USER a question in the
+ * middle of a tool call — the natural way to fill in a missing argument instead of guessing —
+ * and `sampling` lets it ask the client's model. A server that blocks on a question no client
+ * will answer hangs the call, so neither can be used on a guess. One line per handshake turns
+ * "do Claude, ChatGPT and Grok support this?" from an assumption into a query.
+ *
+ * This is software metadata, not user data: a product name, a version string and capability
+ * keys. No parameters, no content, nothing identifying.
+ */
+function describeClient(msg) {
+  if (msg?.method !== 'initialize') return null
+  const info = msg?.params?.clientInfo || {}
+  const caps = Object.keys(msg?.params?.capabilities || {}).sort()
+  const name = [info.name, info.version].filter(Boolean).join('/') || 'unknown'
+  return `${name} proto:${msg?.params?.protocolVersion || '?'} caps:${caps.join(',') || 'none'}`.slice(0, 300)
 }
 
 /**
@@ -106,6 +137,7 @@ function describeCall(parsed) {
     method: msg?.method || null,
     tool: msg?.method === 'tools/call' ? msg?.params?.name || null : null,
     graphId: msg?.method === 'tools/call' ? msg?.params?.arguments?.graphId || null : null,
+    clientInfo: describeClient(msg),
   })
   if (Array.isArray(parsed)) {
     const calls = parsed.map(one)
@@ -113,6 +145,7 @@ function describeCall(parsed) {
       method: 'batch',
       tool: calls.map((c) => c.tool).filter(Boolean).join(',') || null,
       graphId: calls.map((c) => c.graphId).filter(Boolean)[0] || null,
+      clientInfo: calls.map((c) => c.clientInfo).filter(Boolean)[0] || null,
     }
   }
   return one(parsed)

@@ -781,6 +781,157 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── get_image_guide ───────────────────────────────────────────────────────
+  //
+  // WHY A TOOL AND NOT A PROMPT OR A RESOURCE.
+  //
+  // MCP has three other ways a server can hand a client guidance, and each was considered:
+  //
+  //   - prompts/list + prompts/get — user-invoked templates. The user has to know they exist and
+  //     pick one from a menu; support across the three clients this server actually serves
+  //     (Claude, ChatGPT, Grok) is uneven, and a guide nobody opens is not a guide.
+  //   - resources/list + resources/read — the client decides whether to attach it. Same problem.
+  //   - elicitation/create — the server asks the USER a question mid-call. This is the closest
+  //     thing MCP has to "ask me what I want", but it only works if the client declares the
+  //     `elicitation` capability at initialize, and a server that blocks on a question no client
+  //     will answer hangs the call. Nothing in this server's audit log records what the three
+  //     clients declare, so the honest state is: unmeasured, therefore not relied on.
+  //
+  // A tool is the one channel every client already uses on its own initiative. get_fulltext_
+  // elements proved the pattern with all three: a model that is told in another tool's
+  // description to call this first, does. The vocabulary also lives in generate_node_image's own
+  // enums, so a client that never calls this still cannot invent a value — this is the long form
+  // for when the user asks what their options are, and the enums are the enforcement.
+  server.registerTool(
+    'get_image_guide',
+    {
+      title: 'How to ask for an image on this system',
+      description:
+        'Return everything generate_node_image can be told: the five image models and which ' +
+        'parameters each one actually accepts, plus the style, lighting, format, render-trait, ' +
+        'text-treatment and quality vocabularies with the exact wording each choice adds to the ' +
+        'prompt. CALL THIS when the user asks what their image options are, wants to control ' +
+        'quality, size or style, is unhappy with a generated image and wants to know what to ' +
+        'change, or asks for something a diffusion model handles badly — text in the picture, a ' +
+        'reproducible variation, a specific aspect ratio. The models disagree about which ' +
+        'parameters exist at all, so guessing produces a setting that is silently dropped. ' +
+        'Requires the graph:read scope.',
+      inputSchema: {
+        model: z
+          .enum(images.IMAGE_MODELS)
+          .optional()
+          .describe('Limit the model table to one model. Omit to compare all five.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        defaultModel: z.string(),
+        models: z.array(
+          z.object({
+            model: z.string(),
+            maxSteps: z.number(),
+            guidance: z.string(),
+            seed: z.boolean(),
+            negativePrompt: z.boolean(),
+            size: z.string(),
+          }),
+        ),
+        quality: z.record(z.string()),
+        formats: z.record(z.string()),
+        styles: z.record(z.string()),
+        lighting: z.record(z.string()),
+        renderTraits: z.record(z.string()),
+        textTreatments: z.record(z.string()),
+        placements: z.record(z.string()),
+        howToAsk: z.array(z.string()),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ model }) => {
+      const { auth, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      if (!actorFromAuth(auth, props)) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const wanted = model ? [model] : images.IMAGE_MODELS
+      const rows = wanted.map((name) => {
+        const c = images.MODEL_CAPABILITIES[name]
+        return {
+          model: name,
+          maxSteps: c.stepsRange[1],
+          guidance:
+            c.guidanceRange === false
+              ? 'not supported'
+              : c.guidanceRange === null
+                ? 'no documented range'
+                : `${c.guidanceRange[0]}-${c.guidanceRange[1]}`,
+          seed: c.seed,
+          negativePrompt: c.negativePrompt,
+          size: c.sizeRange === false ? 'fixed, not settable' : `${c.sizeRange[0]}-${c.sizeRange[1]} px`,
+        }
+      })
+
+      const payload = {
+        success: true,
+        defaultModel: images.DEFAULT_IMAGE_MODEL,
+        models: rows,
+        quality: {
+          draft: 'fewest steps, fastest, visibly rough',
+          standard: "the model's own default",
+          high: 'more steps for more detail, proportionally slower',
+          max: "the model's documented ceiling",
+        },
+        formats: Object.fromEntries(
+          Object.entries(images.IMAGE_FORMATS).map(([k, v]) => [k, `${v.width}x${v.height}`]),
+        ),
+        styles: images.IMAGE_STYLES,
+        lighting: images.IMAGE_LIGHTING,
+        renderTraits: images.IMAGE_RENDER_TRAITS,
+        textTreatments: images.IMAGE_TEXT_TREATMENTS,
+        placements: {
+          header: 'the ![Header|…] image at the top of a node',
+          side: 'a ![Leftside-N|…] or ![Rightside-N|…] image with N paragraphs wrapped beside it',
+          fancy: 'the background of a [FANCY] block',
+        },
+        howToAsk: [
+          'Put the SUBJECT in prompt and everything else in a named argument — the named values map to wording these models respond to, which prompt adjectives do not reliably do.',
+          'For "make it sharper" or "higher quality", pass quality: high or max rather than a steps number; the ceiling differs per model.',
+          'For a variation on an image the user liked, keep its seed from the previous reply and change one thing in the prompt. Only lucid-origin, phoenix-1.0 and the two SDXLs have a seed.',
+          'For text inside the picture, use imageText and textTreatment, and warn the user the spelling may come out wrong — diffusion models letter unreliably.',
+          'negativePrompt does not exist on lucid-origin, the default. Say what you DO want instead.',
+          'The reply carries finalPrompt, appliedParams and notes: read notes to the user rather than reporting a setting as applied when the chosen model has no such parameter.',
+        ],
+      }
+
+      const table = rows
+        .map(
+          (r) =>
+            `• ${r.model.split('/').pop()} — steps ≤${r.maxSteps}, guidance ${r.guidance}, ` +
+            `seed ${r.seed ? 'yes' : 'no'}, negative_prompt ${r.negativePrompt ? 'yes' : 'no'}, size ${r.size}`,
+        )
+        .join('\n')
+
+      const named = (label, obj) => `${label}: ${Object.keys(obj).join(', ')}`
+
+      return ok(
+        payload,
+        [
+          `Default model: ${images.DEFAULT_IMAGE_MODEL}`,
+          table,
+          '',
+          named('quality', payload.quality),
+          named('format', payload.formats),
+          named('style', images.IMAGE_STYLES),
+          named('lighting', images.IMAGE_LIGHTING),
+          named('renderTraits', images.IMAGE_RENDER_TRAITS),
+          named('textTreatment', images.IMAGE_TEXT_TREATMENTS),
+          named('placement', payload.placements),
+          '',
+          ...payload.howToAsk.map((h) => `- ${h}`),
+        ].join('\n'),
+      )
+    },
+  )
+
   // ── generate_node_image ───────────────────────────────────────────────────
   //
   // The counterpart to get_fulltext_elements. Those element formats ship with placeholder
@@ -806,7 +957,9 @@ export function registerTools(server, getContext) {
         'a node with two pending images takes two calls. Put the SUBJECT in the prompt — what is ' +
         'in the picture — and use the style, lighting and format arguments for how it should ' +
         'look, rather than writing those words into the prompt yourself: they map to wording this ' +
-        'image model responds to, and the reply shows the exact text that was sent. Requires the ' +
+        'image model responds to, and the reply shows the exact text that was sent. Call ' +
+        'get_image_guide when the user asks about quality, size, style or reproducibility — the ' +
+        'five models accept different parameters and an unsupported one is dropped. Requires the ' +
         'graph:write scope.',
       inputSchema: {
         graphId: z.string().min(1).describe('The graph containing the node.'),
@@ -876,8 +1029,67 @@ export function registerTools(server, getContext) {
               '"@cf/bytedance/stable-diffusion-xl-lightning" only when speed matters more than ' +
               'the result — it is a distilled model that runs in a few steps and looks it.',
           ),
-        width: z.number().int().optional().describe('Pixel width, 256–2048, rounded to a multiple of 8. Omit for the model default.'),
-        height: z.number().int().optional().describe('Pixel height, 256–2048, rounded to a multiple of 8. Omit for the model default.'),
+        quality: z
+          .enum(images.IMAGE_QUALITY_LEVELS)
+          .optional()
+          .describe(
+            'How many diffusion steps to spend, named rather than numbered because each model ' +
+              'has a different ceiling. Use this when the user says something like "make it ' +
+              'sharper", "high quality" or "just a quick draft": "draft" is fastest and looks ' +
+              'it, "standard" is the model default, "high" and "max" spend more steps for more ' +
+              'detail and take proportionally longer. Prefer this over steps.',
+          ),
+        steps: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            'Diffusion steps as an exact number, for a caller who knows the model. Overrides ' +
+              'quality. Ceilings differ per model — 40 for lucid-origin, 50 for phoenix-1.0, ' +
+              '20 for the SDXLs, 8 for flux-1-schnell — and a number above the ceiling is ' +
+              'lowered to it and reported in notes rather than refused. See get_image_guide.',
+          ),
+        guidance: z
+          .number()
+          .optional()
+          .describe(
+            'How literally the model follows the prompt. Higher sticks closer to the words and ' +
+              'lower leaves the model more freedom. 0–10 for lucid-origin, 2–10 for ' +
+              'phoenix-1.0; flux-1-schnell has no such parameter. Omit unless the user complains ' +
+              'the picture ignored part of their description.',
+          ),
+        seed: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            'Fixes the randomness so the SAME prompt and seed give the same picture again. Use ' +
+              'it when the user wants a variation on an image they liked: keep the seed from the ' +
+              'previous reply and change one thing in the prompt. flux-1-schnell has no seed, so ' +
+              'nothing generated with it can be reproduced.',
+          ),
+        negativePrompt: z
+          .string()
+          .optional()
+          .describe(
+            'What to keep OUT of the picture, e.g. "text, watermark, extra fingers". Supported ' +
+              'by phoenix-1.0 and the two SDXL models only — lucid-origin, the default, has ' +
+              'no such parameter and will say so in notes.',
+          ),
+        width: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            'Pixel width, rounded to a multiple of 8 and clamped to what the model takes (up to ' +
+              '2500 for lucid-origin, 2048 for the rest; flux-1-schnell has no size parameter ' +
+              'at all). Prefer format.',
+          ),
+        height: z
+          .number()
+          .int()
+          .optional()
+          .describe('Pixel height, same rules as width. Prefer format.'),
         expectedVersion: z
           .number()
           .int()
@@ -892,6 +1104,8 @@ export function registerTools(server, getContext) {
         imageUrl: z.string(),
         model: z.string(),
         finalPrompt: z.string(),
+        appliedParams: z.record(z.any()).optional(),
+        notes: z.array(z.string()).optional(),
         replaced: z.string(),
         remainingPlaceholders: z.number(),
         currentVersion: z.number(),
@@ -904,7 +1118,27 @@ export function registerTools(server, getContext) {
       // though the second call finds no placeholder left and refuses, which is the intent.
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    async ({ graphId, nodeId, prompt, placement, width, height, expectedVersion, model, style, lighting, format, renderTraits, imageText, textTreatment }) => {
+    async ({
+      graphId,
+      nodeId,
+      prompt,
+      placement,
+      width,
+      height,
+      expectedVersion,
+      model,
+      style,
+      lighting,
+      format,
+      renderTraits,
+      imageText,
+      textTreatment,
+      quality,
+      steps,
+      guidance,
+      seed,
+      negativePrompt,
+    }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:write')
       if (scopeErr) return scopeErr
@@ -926,6 +1160,12 @@ export function registerTools(server, getContext) {
         renderTraits: renderTraits ?? null,
         imageText: imageText ?? null,
         textTreatment: textTreatment ?? null,
+        quality: quality ?? null,
+        steps: Number.isFinite(steps) ? steps : null,
+        guidance: Number.isFinite(guidance) ? guidance : null,
+        // `?? null` and not a truthiness test: seed 0 is a legal, reproducible seed.
+        seed: seed ?? null,
+        negativePrompt: negativePrompt ?? null,
         expectedVersion: Number.isInteger(expectedVersion) ? expectedVersion : null,
         actor,
       })
@@ -937,6 +1177,7 @@ export function registerTools(server, getContext) {
         { success: true, ...payload },
         `Image generated with ${result.model} and placed in node ${nodeId}.\n${result.imageUrl}\n` +
           `Prompt sent: ${result.finalPrompt}\n` +
+          (result.notes?.length ? `Adjusted for this model:\n- ${result.notes.join('\n- ')}\n` : '') +
           (left > 0
             ? `${left} more ${result.placement} placeholder${left === 1 ? '' : 's'} left in this node.\n`
             : '') +
@@ -1717,6 +1958,7 @@ export const TOOL_NAMES = [
   'list_chat_groups',
   'read_chat_messages',
   'get_fulltext_elements',
+  'get_image_guide',
   'generate_node_image',
   'update_graph_metadata',
   'publish_html_node',

@@ -48,6 +48,99 @@ export const IMAGE_MODELS = [
 export const DEFAULT_IMAGE_MODEL = '@cf/leonardo/lucid-origin'
 
 /**
+ * What each model will actually ACCEPT, read from its published input schema — not guessed.
+ *
+ * Source: the JSON schema rendered on each model's page under
+ * developers.cloudflare.com/workers-ai/models/<name>/, read 2026-09-30. Worth reading before
+ * changing a number here, because the five disagree in ways a single passthrough cannot survive:
+ *
+ *   - flux-1-schnell takes NO width, NO height, NO seed and NO guidance. It names its step count
+ *     `steps`, not `num_steps`, and caps it at 8. Sending it the lucid-origin payload is a
+ *     validation error after the caller was already told the call was running.
+ *   - phoenix-1.0's guidance MINIMUM is 2, not 0. guidance: 1 is valid for lucid-origin and
+ *     rejected here.
+ *   - lucid-origin accepts up to 2500px — larger than the 2048 the other three stop at — and is
+ *     the only one that takes both `num_steps` and `steps`.
+ *   - negative_prompt exists on phoenix and the two SDXLs; lucid-origin has no such parameter.
+ *
+ * `guidanceRange: null` means the schema documents the parameter with no bounds. The numbers used
+ * in that case are OUR guard against an absurd value, not the model's limit, and are marked so.
+ *
+ * ONE number here is not from the schema: the 256 px floor on the two Leonardo models. Their
+ * pages give the minimum as 0, which is not a request anyone means, so the SDXL floor is applied
+ * across all four models that take a size. Every other figure is transcribed.
+ */
+export const MODEL_CAPABILITIES = {
+  '@cf/leonardo/lucid-origin': {
+    stepsParam: 'num_steps',
+    stepsRange: [1, 40],
+    guidanceRange: [0, 10],
+    seed: true,
+    negativePrompt: false,
+    sizeRange: [256, 2500],
+    // Omitted for "standard" so Cloudflare's own default applies; the rest are chosen points in
+    // the documented range, not a formula.
+    qualitySteps: { draft: 10, high: 30, max: 40 },
+  },
+  '@cf/leonardo/phoenix-1.0': {
+    stepsParam: 'num_steps',
+    stepsRange: [1, 50],
+    guidanceRange: [2, 10],
+    seed: true,
+    negativePrompt: true,
+    sizeRange: [256, 2048],
+    qualitySteps: { draft: 10, high: 35, max: 50 },
+  },
+  '@cf/black-forest-labs/flux-1-schnell': {
+    stepsParam: 'steps',
+    stepsRange: [1, 8],
+    guidanceRange: false,
+    seed: false,
+    negativePrompt: false,
+    sizeRange: false,
+    qualitySteps: { draft: 2, high: 6, max: 8 },
+  },
+  '@cf/stabilityai/stable-diffusion-xl-base-1.0': {
+    stepsParam: 'num_steps',
+    stepsRange: [1, 20],
+    guidanceRange: null, // schema documents no bounds; the clamp below is ours
+    seed: true,
+    negativePrompt: true,
+    sizeRange: [256, 2048],
+    qualitySteps: { draft: 8, high: 16, max: 20 },
+  },
+  '@cf/bytedance/stable-diffusion-xl-lightning': {
+    stepsParam: 'num_steps',
+    stepsRange: [1, 20],
+    guidanceRange: null, // schema documents no bounds; the clamp below is ours
+    seed: true,
+    negativePrompt: true,
+    sizeRange: [256, 2048],
+    qualitySteps: { draft: 4, high: 12, max: 20 },
+  },
+}
+
+/** Our own guard where the schema gives none. Not a model limit — see MODEL_CAPABILITIES. */
+const UNDOCUMENTED_GUIDANCE_GUARD = [0, 20]
+
+/**
+ * A number the caller actually supplied, or null.
+ *
+ * Number(null) is 0, not NaN — so a bare Number.isFinite(Number(v)) test reads an UNSET
+ * parameter as a deliberate zero. That turned "no steps requested" into steps: 0, clamped to the
+ * model minimum of 1, and quietly set every image to a one-step render. Caught by the existing
+ * payload assertions within a minute of being written; it would not have been visible in a
+ * finished picture, only in a worse one.
+ */
+function suppliedNumber(value) {
+  if (value === null || value === undefined || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+export const IMAGE_QUALITY_LEVELS = ['draft', 'standard', 'high', 'max']
+
+/**
  * The prompt vocabulary, copied VERBATIM from IMAGE_*_PRESETS in
  * Agent-Builder/src/components/VegvisrAgentChat.tsx.
  *
@@ -181,13 +274,6 @@ export const PLACEHOLDERS = {
   fancy: 'https://vegvisr.imgix.net/FANCYIMG.png',
 }
 
-/** Sizes must be multiples of 8 for the model; anything out of range is dropped, not guessed. */
-function pixelSide(value) {
-  const n = Number.parseInt(value ?? '', 10)
-  if (!Number.isFinite(n) || n < 256 || n > 2048) return null
-  return Math.round(n / 8) * 8
-}
-
 /**
  * The caller's own upload credential, read on the server.
  *
@@ -208,27 +294,166 @@ async function uploadTokenFor(env, actor) {
   return row?.emailVerificationToken || null
 }
 
+/**
+ * Turn what the caller asked for into a payload the CHOSEN model will accept, and say out loud
+ * whatever had to change on the way.
+ *
+ * CLAMP AND REPORT, rather than refuse. A caller who asks flux-1-schnell for 40 steps has made
+ * a reasonable request of the wrong model; failing the call costs a round trip and produces no
+ * picture, so the run happens at 8 and the reply says the number moved. Silence is the one
+ * option ruled out — Agent-Builder's generate_image advertised width, height and seed in its
+ * schema and dropped all three in the executor, and the only way that was ever discovered was
+ * the user measuring a file (2026-09-04). A parameter that is ignored must be reported ignored.
+ *
+ * Returns { payload, applied, notes }. `notes` is caller-facing prose, one line per adjustment.
+ */
+export function resolveModelParams(model, requested = {}) {
+  const caps = MODEL_CAPABILITIES[model]
+  if (!caps) return { payload: {}, applied: {}, notes: [] }
+
+  const short = model.split('/').pop()
+  const payload = {}
+  const applied = {}
+  const notes = []
+
+  // ── size ────────────────────────────────────────────────────────────────────
+  const { format = null, width = null, height = null } = requested
+  const preset = format && IMAGE_FORMATS[format] ? IMAGE_FORMATS[format] : null
+  if (caps.sizeRange === false) {
+    if (preset || width || height) {
+      notes.push(`${short} has no width or height parameter — it generates at its own fixed size, so the size you asked for was not sent.`)
+    }
+  } else {
+    const [minSide, maxSide] = caps.sizeRange
+    const clampSide = (value, round) => {
+      const n = Number.parseInt(value ?? '', 10)
+      if (!Number.isFinite(n)) return null
+      const r = round ? Math.round(n / 8) * 8 : n
+      return Math.min(maxSide, Math.max(minSide, r))
+    }
+    // A named format carries exact dimensions and is NOT rounded to a multiple of 8: the chat UI
+    // sends 1120x630 and it works, so rounding would quietly change an aspect ratio the caller
+    // asked for BY NAME. Loose numbers are free input and do get rounded.
+    const w = preset ? clampSide(preset.width, false) : clampSide(width, true)
+    const h = preset ? clampSide(preset.height, false) : clampSide(height, true)
+    if (w) { payload.width = w; applied.width = w }
+    if (h) { payload.height = h; applied.height = h }
+    if (!preset && width && w !== null && Number.parseInt(width, 10) !== w) {
+      notes.push(`width ${width} became ${w} — ${short} takes ${minSide}-${maxSide} px in multiples of 8.`)
+    }
+    if (!preset && height && h !== null && Number.parseInt(height, 10) !== h) {
+      notes.push(`height ${height} became ${h} — ${short} takes ${minSide}-${maxSide} px in multiples of 8.`)
+    }
+  }
+
+  // ── steps ───────────────────────────────────────────────────────────────────
+  // An explicit number beats a named level: someone who passes steps knows what it is.
+  const [minSteps, maxSteps] = caps.stepsRange
+  const askedSteps = suppliedNumber(requested.steps)
+  let wantSteps = null
+  if (askedSteps !== null) {
+    wantSteps = Math.round(askedSteps)
+  } else if (requested.quality && requested.quality !== 'standard') {
+    wantSteps = caps.qualitySteps[requested.quality] ?? null
+  }
+  if (wantSteps !== null) {
+    const clamped = Math.min(maxSteps, Math.max(minSteps, wantSteps))
+    payload[caps.stepsParam] = clamped
+    applied[caps.stepsParam] = clamped
+    if (clamped !== wantSteps) {
+      notes.push(`steps ${wantSteps} became ${clamped} — ${short} accepts ${minSteps}-${maxSteps}.`)
+    }
+  }
+
+  // ── guidance ────────────────────────────────────────────────────────────────
+  const askedGuidance = suppliedNumber(requested.guidance)
+  if (askedGuidance !== null) {
+    const want = askedGuidance
+    if (caps.guidanceRange === false) {
+      notes.push(`${short} has no guidance parameter, so guidance ${want} was not sent.`)
+    } else {
+      const [lo, hi] = caps.guidanceRange === null ? UNDOCUMENTED_GUIDANCE_GUARD : caps.guidanceRange
+      const clamped = Math.min(hi, Math.max(lo, want))
+      payload.guidance = clamped
+      applied.guidance = clamped
+      if (clamped !== want) {
+        notes.push(`guidance ${want} became ${clamped} — ${short} accepts ${lo}-${hi}.`)
+      }
+    }
+  }
+
+  // ── seed ────────────────────────────────────────────────────────────────────
+  // Seed 0 is a legal seed and a falsy number. A truthiness test here would silently discard it
+  // and break the one thing a seed is for: asking for the same picture twice.
+  const askedSeed = suppliedNumber(requested.seed)
+  if (askedSeed !== null) {
+    const want = Math.round(askedSeed)
+    if (!caps.seed) {
+      notes.push(`${short} has no seed parameter, so seed ${want} was not sent and this image cannot be reproduced. Use lucid-origin for a repeatable result.`)
+    } else if (want < 0) {
+      notes.push(`seed ${want} was not sent — a seed must be 0 or greater.`)
+    } else {
+      payload.seed = want
+      applied.seed = want
+    }
+  }
+
+  // ── negative prompt ─────────────────────────────────────────────────────────
+  const neg = String(requested.negativePrompt || '').trim()
+  if (neg) {
+    if (!caps.negativePrompt) {
+      notes.push(`${short} has no negative_prompt parameter. Say what you DO want in the prompt instead; what to avoid cannot be expressed to this model.`)
+    } else {
+      payload.negative_prompt = neg
+      applied.negativePrompt = neg
+    }
+  }
+
+  return { payload, applied, notes }
+}
+
 /** Generate the bytes. Returns {ok, bytes, type} or a structured failure. */
-export async function generateImageBytes(env, { prompt, width = null, height = null, model = null, style = null, lighting = null, format = null, renderTraits = null, imageText = null, textTreatment = null }) {
+export async function generateImageBytes(
+  env,
+  {
+    prompt,
+    width = null,
+    height = null,
+    model = null,
+    style = null,
+    lighting = null,
+    format = null,
+    renderTraits = null,
+    imageText = null,
+    textTreatment = null,
+    quality = null,
+    steps = null,
+    guidance = null,
+    seed = null,
+    negativePrompt = null,
+  },
+) {
   if (!env.AI) return fail(ERR.INTERNAL_ERROR, 'The AI binding is not configured on this worker.')
 
   const chosen = model && IMAGE_MODELS.includes(model) ? model : DEFAULT_IMAGE_MODEL
   const finalPrompt = composeImagePrompt({ prompt, style, lighting, renderTraits, imageText, textTreatment })
 
-  // A named format carries exact dimensions and is NOT rounded: the chat UI sends 1120x630 and
-  // it works, so forcing multiples of 8 here would quietly change the aspect ratio a caller
-  // asked for by name. Explicit width/height are still clamped, because those are free numbers.
-  const preset = format && IMAGE_FORMATS[format] ? IMAGE_FORMATS[format] : null
-  const w = preset ? preset.width : pixelSide(width)
-  const h = preset ? preset.height : pixelSide(height)
+  // Size, steps, guidance, seed and negative_prompt are all resolved against THIS model's own
+  // schema rather than sent blind — the five models disagree about which of them even exist.
+  const { payload, applied, notes } = resolveModelParams(chosen, {
+    format,
+    width,
+    height,
+    quality,
+    steps,
+    guidance,
+    seed,
+    negativePrompt,
+  })
 
   let response
   try {
-    response = await env.AI.run(chosen, {
-      prompt: finalPrompt,
-      ...(w ? { width: w } : {}),
-      ...(h ? { height: h } : {}),
-    })
+    response = await env.AI.run(chosen, { prompt: finalPrompt, ...payload })
   } catch (e) {
     console.error('[images] generation failed on', chosen, '-', e.message)
     return fail(ERR.INTERNAL_ERROR, `Image generation failed (${chosen}): ${e.message}`)
@@ -256,7 +481,7 @@ export async function generateImageBytes(env, { prompt, width = null, height = n
     return fail(ERR.INTERNAL_ERROR, `${chosen} returned non-image data: ${preview.slice(0, 100)}`)
   }
 
-  return { ok: true, bytes, type, model: chosen, width: w, height: h, finalPrompt }
+  return { ok: true, bytes, type, model: chosen, width: applied.width || null, height: applied.height || null, finalPrompt, applied, notes }
 }
 
 /**
@@ -327,7 +552,28 @@ function countOccurrences(haystack, needle) {
  */
 export async function generateImageForNode(
   env,
-  { graphId, nodeId, prompt, placement = 'header', expectedVersion = null, actor, width = null, height = null, model = null, style = null, lighting = null, format = null, renderTraits = null, imageText = null, textTreatment = null },
+  {
+    graphId,
+    nodeId,
+    prompt,
+    placement = 'header',
+    expectedVersion = null,
+    actor,
+    width = null,
+    height = null,
+    model = null,
+    style = null,
+    lighting = null,
+    format = null,
+    renderTraits = null,
+    imageText = null,
+    textTreatment = null,
+    quality = null,
+    steps = null,
+    guidance = null,
+    seed = null,
+    negativePrompt = null,
+  },
 ) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   if (!graphId || !nodeId) return fail(ERR.INVALID_INPUT, 'graphId and nodeId are required.')
@@ -370,7 +616,23 @@ export async function generateImageForNode(
 
   // Generate and store BEFORE touching the graph. A failed upload must not bump a version or
   // leave a node half-edited.
-  const generated = await generateImageBytes(env, { prompt, width, height, model, style, lighting, format, renderTraits, imageText, textTreatment })
+  const generated = await generateImageBytes(env, {
+    prompt,
+    width,
+    height,
+    model,
+    style,
+    lighting,
+    format,
+    renderTraits,
+    imageText,
+    textTreatment,
+    quality,
+    steps,
+    guidance,
+    seed,
+    negativePrompt,
+  })
   if (!generated.ok) return generated
 
   const stored = await uploadImage(env, { bytes: generated.bytes, type: generated.type, actor })
@@ -402,6 +664,11 @@ export async function generateImageForNode(
     // What was actually sent, the way the chat UI shows "FINAL PROMPT SENT TO LUCID" — so a
     // caller can see how a style choice changed the wording instead of guessing.
     finalPrompt: generated.finalPrompt,
+    // What the model was actually given, and every request that had to be bent to fit it. A
+    // caller reads `notes` aloud to the user rather than reporting a setting as applied when the
+    // chosen model has no such parameter.
+    appliedParams: generated.applied,
+    ...(generated.notes?.length ? { notes: generated.notes } : {}),
     replaced: placeholder,
     remainingPlaceholders: countOccurrences(newInfo, placeholder),
     currentVersion: patched.currentVersion,

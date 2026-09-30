@@ -772,7 +772,27 @@ describe('generate_node_image fills a placeholder the node already has', () => {
     // an arbitrary URL into someone's node through this tool.
     assert.deepEqual(
       Object.keys(t.inputSchema.properties).sort(),
-      ['expectedVersion', 'format', 'graphId', 'height', 'imageText', 'lighting', 'model', 'nodeId', 'placement', 'prompt', 'renderTraits', 'style', 'textTreatment', 'width'],
+      [
+        'expectedVersion',
+        'format',
+        'graphId',
+        'guidance',
+        'height',
+        'imageText',
+        'lighting',
+        'model',
+        'negativePrompt',
+        'nodeId',
+        'placement',
+        'prompt',
+        'quality',
+        'renderTraits',
+        'seed',
+        'steps',
+        'style',
+        'textTreatment',
+        'width',
+      ],
     )
     // model is an enum of what the account actually has, not a free string — a model asked to
     // pick from prose invents a plausible id, and an invented one fails only at generation time.
@@ -2019,5 +2039,71 @@ describe('get_fulltext_elements tells the model to read before it writes', () =>
     const { env } = freshDb()
     const { client } = await connect(env, authFor('alice@example.com', ['graph:write']))
     assert.equal((await callErr(client, 'get_fulltext_elements', {})).code, gs.ERR.INSUFFICIENT_SCOPE)
+  })
+})
+
+/**
+ * get_image_guide — the answer to "what are my options?" asked through a chat.
+ *
+ * The UI gives a person dropdowns; a chat gives them nothing. The enums on
+ * generate_node_image stop a model inventing a value, but they do not tell a USER what exists,
+ * and the five models accept genuinely different parameters. This is the long form.
+ */
+describe('get_image_guide', () => {
+  test('it is read-only reference data and needs nothing beyond the read scope', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RO)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'get_image_guide')
+    assert.equal(t.annotations.readOnlyHint, true)
+    assert.equal(t.annotations.idempotentHint, true)
+    assert.equal(t.annotations.openWorldHint, false, 'it reads a table in this worker, not the network')
+    const g = await callOk(client, 'get_image_guide', {})
+    assert.equal(g.success, true)
+  })
+
+  test('it reports every offered model and what each one actually accepts', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RO)
+    const g = await callOk(client, 'get_image_guide', {})
+    assert.equal(g.models.length, 5)
+    assert.equal(g.defaultModel, '@cf/leonardo/lucid-origin')
+
+    const flux = g.models.find((m) => m.model.endsWith('flux-1-schnell'))
+    assert.equal(flux.seed, false, 'a caller must be able to learn flux cannot reproduce an image')
+    assert.equal(flux.size, 'fixed, not settable')
+    assert.equal(flux.guidance, 'not supported')
+    assert.equal(flux.maxSteps, 8)
+
+    const lucid = g.models.find((m) => m.model.endsWith('lucid-origin'))
+    assert.equal(lucid.negativePrompt, false)
+    assert.equal(lucid.size, '256-2500 px')
+  })
+
+  test('it hands back the same vocabulary the tool enums enforce — one source, not two', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RO)
+    const { tools } = await client.listTools()
+    const gen = tools.find((x) => x.name === 'generate_node_image').inputSchema.properties
+    const g = await callOk(client, 'get_image_guide', {})
+
+    // If the guide and the schema could drift, the guide would teach a user to ask for
+    // something the tool then rejects. Pinning them against each other is the only mechanism
+    // that stops that, since nothing else reads both.
+    assert.deepEqual(Object.keys(g.styles).sort(), [...gen.style.enum].sort())
+    assert.deepEqual(Object.keys(g.lighting).sort(), [...gen.lighting.enum].sort())
+    assert.deepEqual(Object.keys(g.formats).sort(), [...gen.format.enum].sort())
+    assert.deepEqual(Object.keys(g.renderTraits).sort(), [...gen.renderTraits.items.enum].sort())
+    assert.deepEqual(Object.keys(g.textTreatments).sort(), [...gen.textTreatment.enum].sort())
+    assert.deepEqual(Object.keys(g.quality).sort(), [...gen.quality.enum].sort())
+    assert.deepEqual(g.models.map((m) => m.model).sort(), [...gen.model.enum].sort())
+  })
+
+  test('one model can be asked about without pulling all five into context', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RO)
+    const g = await callOk(client, 'get_image_guide', { model: '@cf/leonardo/phoenix-1.0' })
+    assert.equal(g.models.length, 1)
+    assert.equal(g.models[0].guidance, '2-10')
   })
 })
