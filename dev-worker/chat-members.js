@@ -207,6 +207,14 @@ export async function addGroupMember(env, { groupId, email, role = 'member', act
     return { ok: true, groupId, email: address, userId: target.user_id, role: existing, alreadyMember: true }
   }
 
+  // added_by_* names US as the requester, so the chat worker checks our standing in the group as
+  // well as we do. Defence in depth rather than duplication: the gate above stops the call
+  // happening at all, and this stops it being honoured if some future path reaches the endpoint
+  // without passing through here. If the caller has no phone on file the fields are simply
+  // omitted, because the endpoint accepts that shape and refusing would break the tool over a
+  // check that is not the one protecting it.
+  const mine = await callerCredentials(env, actor)
+
   const res = await env.CHAT_WORKER.fetch(`https://group-chat-worker/groups/${groupId}/join`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -215,6 +223,7 @@ export async function addGroupMember(env, { groupId, email, role = 'member', act
       phone: target.phone,
       email: target.email || address,
       role,
+      ...(mine.ok ? { added_by_user_id: mine.userId, added_by_phone: mine.phone, added_by_email: mine.email } : {}),
     }),
   })
   const data = await res.json().catch(() => ({}))

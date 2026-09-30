@@ -151,6 +151,11 @@ describe('whose credentials go to the chat service', () => {
     assert.equal(sent.body.user_id, 'u-dave', 'the person being added, not the caller')
     assert.equal(sent.body.phone, '+4790000009')
     assert.equal(sent.body.role, 'admin')
+    // And the caller names themselves as the requester, so the chat worker can check our standing
+    // in the group too. The endpoint used to have no requester in it at all, which is why it never
+    // checked ownership.
+    assert.equal(sent.body.added_by_user_id, 'u-alice')
+    assert.equal(sent.body.added_by_phone, '+4790000001')
   })
 
   test('removing and inviting send the CALLER\'s credentials, and never a token', async () => {
