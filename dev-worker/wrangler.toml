@@ -121,3 +121,9 @@ service = "vegvisr-photos-worker"
 [[services]]
 binding = "AGENT_WORKER"
 service = "agent-worker"
+
+# gpt-image-2.5 for reference-image composition, through openai-worker's /images/edits.
+# Added 2026-10-01: Workers AI has nothing that preserves a specific subject across a new scene.
+[[services]]
+binding = "OPENAI_WORKER"
+service = "openai-worker"

@@ -655,6 +655,10 @@ describe('annotations tell the client the truth about each tool', () => {
       'add_group_member',
       'remove_group_member',
       'create_group_invite',
+      // Added 2026-10-01. The only tool that sends the user's own pictures to a third party:
+      // compose_node_image fetches reference images and hands them to OpenAI. Nothing else here
+      // leaves Cloudflare with content attached.
+      'compose_node_image',
     ])
     for (const t of tools) {
       assert.equal(t.annotations?.openWorldHint, outward.has(t.name), `${t.name} openWorldHint`)
@@ -1050,6 +1054,7 @@ describe('publish_html_node is the one tool that reaches the public internet', (
     const outward = tools.filter((t) => t.annotations?.openWorldHint).map((t) => t.name).sort()
     assert.deepEqual(outward, [
       'add_group_member',
+      'compose_node_image',
       'create_group_invite',
       'post_chat_message',
       'publish_html_node',
@@ -1976,6 +1981,7 @@ describe('post_chat_message is gated harder than everything else', () => {
     const outward = tools.filter((t) => t.annotations?.openWorldHint === true).map((t) => t.name).sort()
     assert.deepEqual(outward, [
       'add_group_member',
+      'compose_node_image',
       'create_group_invite',
       'post_chat_message',
       'publish_html_node',
@@ -2059,6 +2065,7 @@ describe('read_chat_messages is gated apart from posting', () => {
     const outward = tools.filter((t) => t.annotations?.openWorldHint).map((t) => t.name).sort()
     assert.deepEqual(outward, [
       'add_group_member',
+      'compose_node_image',
       'create_group_invite',
       'post_chat_message',
       'publish_html_node',

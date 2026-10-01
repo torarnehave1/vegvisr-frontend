@@ -1394,6 +1394,126 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── compose_node_image ────────────────────────────────────────────────────
+  //
+  // The sibling of generate_node_image, and a different provider underneath. Workers AI cannot
+  // hold onto a SPECIFIC subject across a new scene — lucid-origin and phoenix take no image
+  // input at all — so this goes out to gpt-image-2.5 through openai-worker. It is the only tool
+  // here whose cost is worth a caller's attention, which is why the reply states it.
+  server.registerTool(
+    'compose_node_image',
+    {
+      title: 'Compose a node image from reference pictures',
+      description:
+        'Make an image FROM one to four reference pictures you already have URLs for, and put it ' +
+        'into a fulltext node that contains an image placeholder. Use this when the point is a ' +
+        'SPECIFIC thing rather than a described one — this exact product, mascot, person or logo, ' +
+        'placed in a new scene, or two of them combined. generate_node_image is the right tool ' +
+        'when a description is enough; this one is slower and costs real money per call. ' +
+        'ORDER MATTERS: write the prompt referring to "the first reference image", "the second", ' +
+        'and so on, matching the order of referenceImageUrls — that wording is the only thing ' +
+        'telling them apart. List every feature that must survive (exact colours, markings, ' +
+        'clothing), because what you do not name may change. The URLs must be on a VEGR.AI host ' +
+        'such as vegvisr.imgix.net; anything else is refused. Requires the graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph containing the node.'),
+        nodeId: z.string().min(1).describe('The node whose placeholder to fill.'),
+        prompt: z
+          .string()
+          .min(1)
+          .describe(
+            'What to make, naming each reference by position and listing every feature that must ' +
+              'be preserved. Example: "The exact green plush rabbit from the first reference ' +
+              'image, jumping in a meadow, keeping its pink scarf and red shoes, with the emblem ' +
+              'from the second reference image embroidered on its chest."',
+          ),
+        referenceImageUrls: z
+          .array(z.string().min(1))
+          .min(1)
+          .max(4)
+          .describe('One to four https image URLs on a VEGR.AI host, in the order the prompt refers to them.'),
+        placement: z
+          .enum(['header', 'side', 'fancy'])
+          .optional()
+          .describe('Which placeholder to replace, matching the element already in the node. Default "header".'),
+        format: z
+          .enum(Object.keys(images.COMPOSE_FORMATS))
+          .optional()
+          .describe(
+            'Aspect ratio and size, named — the same names generate_node_image uses, at sizes ' +
+              'this model renders exactly. Omit to let it choose.',
+          ),
+        quality: z
+          .enum(images.COMPOSE_QUALITIES)
+          .optional()
+          .describe(
+            'Default "low", which answers in about 13 seconds. "high" takes about 33 and costs ' +
+              'roughly four times as much — ask the user before choosing it. A still higher ' +
+              'setting exists but takes about 99 seconds, longer than this connection waits, so ' +
+              'it is only available in the Agent Builder.',
+          ),
+        expectedVersion: z
+          .number()
+          .int()
+          .optional()
+          .describe("The version from get_graph. Omit to use the graph's current version."),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        nodeId: z.string(),
+        placement: z.string(),
+        imageUrl: z.string(),
+        model: z.string(),
+        quality: z.string(),
+        size: z.string(),
+        referenceImages: z.number(),
+        costUsd: z.number().nullable(),
+        durationMs: z.number().nullable(),
+        replaced: z.string(),
+        remainingPlaceholders: z.number(),
+        currentVersion: z.number(),
+        newVersion: z.number(),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      // A write that only overwrites a placeholder it verified was there. Not idempotent: a
+      // second call makes a different picture and costs again. openWorld, because the reference
+      // images are fetched and the composition happens at a third party.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ graphId, nodeId, prompt, referenceImageUrls, placement, format, quality, expectedVersion }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await images.composeImageForNode(env, {
+        graphId,
+        nodeId,
+        prompt,
+        referenceImageUrls,
+        placement: placement || 'header',
+        format: format ?? null,
+        quality: quality || 'low',
+        expectedVersion: Number.isInteger(expectedVersion) ? expectedVersion : null,
+        actor,
+      })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `Composed from ${result.referenceImages} reference image${result.referenceImages === 1 ? '' : 's'} ` +
+          `at ${result.quality} quality and placed in node ${nodeId}.\n${result.imageUrl}\n` +
+          (result.costUsd !== null ? `Cost: $${result.costUsd} · ${Math.round((result.durationMs || 0) / 1000)}s\n` : '') +
+          `Version ${result.currentVersion} → ${result.newVersion}.\nViewer: ${result.viewerUrl}`,
+      )
+    },
+  )
+
   // ── update_graph_metadata ─────────────────────────────────────────────────
   //
   // Wraps graph-service's updateMetadata, which was written and tested when graphService was
@@ -2172,6 +2292,7 @@ export const TOOL_NAMES = [
   'get_fulltext_elements',
   'get_image_guide',
   'generate_node_image',
+  'compose_node_image',
   'update_graph_metadata',
   'publish_html_node',
   'register_user',

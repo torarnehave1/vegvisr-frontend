@@ -733,3 +733,180 @@ describe('model capabilities — what each model will actually accept', () => {
     assert.match(r.notes.join(' '), /steps 99 became 20/)
   })
 })
+
+/**
+ * compose_node_image — the one image path that leaves Cloudflare.
+ *
+ * Workers AI cannot hold onto a specific subject across a new scene, so this goes out to
+ * gpt-image-2.5 through openai-worker. What is pinned here is the boundary: what this layer
+ * refuses before anything is sent, and what it does with what comes back.
+ */
+describe('composing from reference images', () => {
+  /** openai-worker's /images/edits, as far as this module can see it. */
+  class FakeOpenAiWorker {
+    constructor(reply = null) {
+      this.calls = []
+      // A 1x1 PNG, so the byte sniffer has something real to recognise.
+      this.png =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+      this.reply = reply
+    }
+    async fetch(url, init) {
+      const body = JSON.parse(init.body)
+      this.calls.push({ url, body })
+      if (this.reply) return new Response(JSON.stringify(this.reply.body), { status: this.reply.status })
+      return new Response(
+        JSON.stringify({
+          data: [{ b64_json: this.png }],
+          model: 'gpt-image-2.5-sunburst',
+          size: body.size,
+          cost_usd: 0.0306,
+          duration_ms: 13024,
+        }),
+        { status: 200 },
+      )
+    }
+  }
+
+  async function withCompose(info = HEADER_EL, reply = null) {
+    const { env, graphId } = await withGraph(info)
+    env.OPENAI_WORKER = new FakeOpenAiWorker(reply)
+    return { env, graphId, openai: env.OPENAI_WORKER }
+  }
+
+  const REF = 'https://vegvisr.imgix.net/kalle.jpg'
+
+  test('max is refused HERE, with the reason and where to go instead', async () => {
+    const { env, graphId, openai } = await withCompose()
+    const r = await images.composeImageForNode(env, {
+      graphId, nodeId: 'n1', prompt: 'x', referenceImageUrls: [REF], quality: 'max', actor: ALICE,
+    })
+    assert.equal(r.ok, false)
+    assert.equal(r.code, gs.ERR.INVALID_INPUT)
+    // 99 seconds measured on the real API — longer than an MCP client waits. A tool that can hang
+    // its own caller is not a tool, so the refusal says where that quality IS available.
+    assert.match(r.message, /99 seconds/)
+    assert.match(r.message, /Agent Builder/)
+    assert.equal(openai.calls.length, 0, 'refused before anything left this worker')
+  })
+
+  test('only low and high are offered, and low is the default', async () => {
+    assert.deepEqual(images.COMPOSE_QUALITIES, ['low', 'high'])
+    const { env, graphId, openai } = await withCompose()
+    await images.composeImageForNode(env, { graphId, nodeId: 'n1', prompt: 'x', referenceImageUrls: [REF], actor: ALICE })
+    assert.equal(openai.calls[0].body.quality, 'low')
+  })
+
+  test('between one and four references, counted before the call', async () => {
+    const { env, graphId, openai } = await withCompose()
+    const none = await images.composeImageForNode(env, { graphId, nodeId: 'n1', prompt: 'x', referenceImageUrls: [], actor: ALICE })
+    assert.equal(none.code, gs.ERR.INVALID_INPUT)
+
+    const many = await images.composeImageForNode(env, {
+      graphId, nodeId: 'n1', prompt: 'x', referenceImageUrls: Array(5).fill(REF), actor: ALICE,
+    })
+    assert.match(many.message, /At most 4/)
+    assert.equal(openai.calls.length, 0)
+  })
+
+  test('a node with no placeholder is refused before the expensive part', async () => {
+    const { env, graphId, openai } = await withCompose('Just prose, no element.')
+    const r = await images.composeImageForNode(env, {
+      graphId, nodeId: 'n1', prompt: 'x', referenceImageUrls: [REF], actor: ALICE,
+    })
+    assert.equal(r.code, gs.ERR.INVALID_INPUT)
+    assert.match(r.message, /no header placeholder/)
+    assert.equal(openai.calls.length, 0, 'nothing is paid for a node that cannot receive it')
+  })
+
+  test('every named format resolves to a size this model can actually render', async () => {
+    // gpt-image-2.5 needs both edges a multiple of 16; IMAGE_FORMATS is built for Workers AI,
+    // which needs 8. Three of the five fail that, so COMPOSE_FORMATS carries its own sizes —
+    // otherwise asking for 16:9 by name would quietly produce some other shape.
+    for (const [name, size] of Object.entries(images.COMPOSE_FORMATS)) {
+      assert.equal(size.width % 16, 0, `${name} width ${size.width}`)
+      assert.equal(size.height % 16, 0, `${name} height ${size.height}`)
+      const pixels = size.width * size.height
+      assert.ok(pixels >= 655360 && pixels <= 8294400, `${name} ${pixels} px`)
+      const ratio = size.width / size.height
+      assert.ok(ratio <= 3 && ratio >= 1 / 3, `${name} ratio ${ratio}`)
+    }
+    // And the named ratios are still exact, which is the whole point of naming them.
+    const r = (n) => images.COMPOSE_FORMATS[n].width / images.COMPOSE_FORMATS[n].height
+    assert.equal(r('landscape-16:9').toFixed(4), (16 / 9).toFixed(4))
+    assert.equal(r('story-9:16').toFixed(4), (9 / 16).toFixed(4))
+    assert.equal(r('cinematic-4:2'), 2)
+    assert.equal(r('square-1:1'), 1)
+    assert.equal(r('portrait-4:5'), 0.8)
+
+    // The names match IMAGE_FORMATS, so a caller can use one vocabulary across both tools.
+    assert.deepEqual(Object.keys(images.COMPOSE_FORMATS).sort(), Object.keys(images.IMAGE_FORMATS).sort())
+  })
+
+  test('a named format reaches the service as exact pixels, not auto', async () => {
+    const { env, graphId, openai } = await withCompose()
+    await images.composeImageForNode(env, {
+      graphId, nodeId: 'n1', prompt: 'x', referenceImageUrls: [REF], format: 'landscape-16:9', actor: ALICE,
+    })
+    assert.equal(openai.calls[0].body.size, '1280x720')
+
+    const { env: e2, openai: o2, graphId: g2 } = await withCompose()
+    await images.composeImageForNode(e2, { graphId: g2, nodeId: 'n1', prompt: 'x', referenceImageUrls: [REF], actor: ALICE })
+    assert.equal(o2.calls[0].body.size, 'auto', 'no format named means the model chooses')
+  })
+
+  test('the reference URLs and prompt reach the service unchanged, in order', async () => {
+    const { env, graphId, openai } = await withCompose()
+    const refs = ['https://vegvisr.imgix.net/a.png', 'https://vegvisr.imgix.net/b.png']
+    await images.composeImageForNode(env, {
+      graphId, nodeId: 'n1', prompt: '  the first and the second  ', referenceImageUrls: refs, actor: ALICE,
+    })
+    assert.deepEqual(openai.calls[0].body.referenceImageUrls, refs, 'order is what tells them apart')
+    assert.equal(openai.calls[0].body.prompt, 'the first and the second')
+  })
+
+  test('a refusal from the image service is passed through, not flattened', async () => {
+    // "that host is not allowed" and "both edges must be multiples of 16" both live there, and
+    // both are things the caller can act on.
+    const { env, graphId } = await withCompose(HEADER_EL, { status: 400, body: { error: 'host evil.example is not allowed' } })
+    const r = await images.composeImageForNode(env, {
+      graphId, nodeId: 'n1', prompt: 'x', referenceImageUrls: ['https://evil.example/a.png'], actor: ALICE,
+    })
+    assert.equal(r.ok, false)
+    assert.match(r.message, /host evil\.example is not allowed/)
+  })
+
+  test('non-image data is caught by the sniffer, never stored', async () => {
+    const { env, graphId } = await withCompose(HEADER_EL, {
+      status: 200,
+      body: { data: [{ b64_json: btoa('<html>an error page</html>') }] },
+    })
+    const r = await images.composeImageForNode(env, {
+      graphId, nodeId: 'n1', prompt: 'x', referenceImageUrls: [REF], actor: ALICE,
+    })
+    assert.equal(r.ok, false)
+    assert.match(r.message, /not an image/)
+  })
+
+  test('the happy path fills the placeholder and reports what it cost', async () => {
+    const { env, graphId } = await withCompose()
+    const r = await images.composeImageForNode(env, {
+      graphId, nodeId: 'n1', prompt: 'x', referenceImageUrls: [REF, REF], quality: 'high', actor: ALICE,
+    })
+    assert.ok(r.ok, JSON.stringify(r))
+    assert.equal(r.referenceImages, 2)
+    assert.equal(r.quality, 'high')
+    assert.equal(r.costUsd, 0.0306, 'not guessable from the request, so it is stated')
+    assert.equal(r.durationMs, 13024)
+    assert.match(r.imageUrl, /^https:/)
+    assert.equal(r.remainingPlaceholders, 0)
+  })
+
+  test('without the service binding it says so rather than failing obscurely', async () => {
+    const { env, graphId } = await withGraph(HEADER_EL)
+    const r = await images.composeImageForNode(env, {
+      graphId, nodeId: 'n1', prompt: 'x', referenceImageUrls: [REF], actor: ALICE,
+    })
+    assert.match(r.message, /OPENAI_WORKER service binding/)
+  })
+})

@@ -590,41 +590,18 @@ function countOccurrences(haystack, needle) {
 }
 
 /**
- * Generate an image and swap it into a node that already carries a placeholder.
+ * Find the placeholder a caller wants filled, and the version to write against.
  *
- * `placement` names WHICH placeholder to replace, not where to put anything: position, size and
- * how many paragraphs wrap beside it were all decided by the element the model wrote. Only the
- * FIRST matching placeholder is replaced, so a node with two pending images fills them one call
- * at a time and the caller can see which one moved.
+ * Extracted so the two image tools cannot drift. The version rule in particular is subtle enough
+ * that a second copy would eventually disagree with the first: updateNode compares against
+ * `metadata.version`, NOT the history table's MAX(version), and on some graphs the two differ.
+ *
+ * `placement` names WHICH placeholder, not where to put anything — position, size and how many
+ * paragraphs wrap beside it were all decided by the element the model already wrote.
  */
-export async function generateImageForNode(
-  env,
-  {
-    graphId,
-    nodeId,
-    prompt,
-    placement = 'header',
-    expectedVersion = null,
-    actor,
-    width = null,
-    height = null,
-    model = null,
-    style = null,
-    lighting = null,
-    format = null,
-    renderTraits = null,
-    imageText = null,
-    textTreatment = null,
-    quality = null,
-    steps = null,
-    guidance = null,
-    seed = null,
-    negativePrompt = null,
-  },
-) {
+async function resolvePlaceholder(env, { graphId, nodeId, placement, expectedVersion, actor }) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   if (!graphId || !nodeId) return fail(ERR.INVALID_INPUT, 'graphId and nodeId are required.')
-  if (!prompt || !String(prompt).trim()) return fail(ERR.INVALID_INPUT, 'prompt is required.')
 
   const placeholder = PLACEHOLDERS[String(placement).toLowerCase()]
   if (!placeholder) {
@@ -655,11 +632,209 @@ export async function generateImageForNode(
     )
   }
 
-  // updateNode compares against metadata.version, NOT the history table's MAX(version); the two
-  // can differ. Read the default from the same row the placeholder came from.
   const version = Number.isInteger(expectedVersion)
     ? expectedVersion
     : Number(graphData.metadata?.version || 0)
+
+  return { ok: true, placeholder, info, version }
+}
+
+/**
+ * Put a stored image URL where the placeholder was, replacing only the FIRST match.
+ *
+ * A node with two pending images therefore fills one call at a time, and the caller can see which
+ * one moved. When the node edit fails the URL is handed back anyway: the image exists and is
+ * addressable, so a retry belongs in update_node rather than in paying to make it again.
+ */
+async function swapPlaceholder(env, { graphId, nodeId, placement, info, placeholder, url, version, actor }) {
+  const at = info.indexOf(placeholder)
+  const newInfo = info.slice(0, at) + url + info.slice(at + placeholder.length)
+
+  const patched = await updateNode(env, {
+    graphId,
+    nodeId,
+    fields: { info: newInfo },
+    expectedVersion: version,
+    actor,
+  })
+  if (!patched.ok) return { ...patched, imageUrl: url }
+
+  return {
+    ok: true,
+    graphId,
+    nodeId,
+    placement,
+    imageUrl: url,
+    replaced: placeholder,
+    remainingPlaceholders: countOccurrences(newInfo, placeholder),
+    currentVersion: patched.currentVersion,
+    newVersion: patched.newVersion,
+    ...graphLinks(graphId),
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Composition from reference images — a different provider, and deliberately so
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Everything above runs on Workers AI, where nothing can hold onto a SPECIFIC subject across a
+// new scene. Verified against the published schemas on 2026-09-30: lucid-origin and phoenix-1.0
+// take no image input at all, and the SDXL family's img2img transforms one picture rather than
+// composing from several. What this does — "that exact plush rabbit, in a meadow, with this logo
+// on its chest" — needs gpt-image-2.5, so it goes out through openai-worker's /images/edits.
+//
+// TWO QUALITIES, NOT SIX. Measured on the real API: low answers in 13 seconds and high in 33,
+// while max took 99 — longer than an MCP client will wait, and 15x the cost of low. A tool that
+// can hang its own caller is not a tool, so max is reachable from Agent-Builder, where a person
+// is watching a progress indicator, and not from here.
+export const COMPOSE_QUALITIES = ['low', 'high']
+export const MAX_REFERENCE_IMAGES = 4
+
+/**
+ * The same five named formats, at sizes gpt-image-2.5 will actually render.
+ *
+ * It needs both edges to be a multiple of 16; IMAGE_FORMATS is built for Workers AI, which needs
+ * 8. Three of the five fail that — 648, 600 and 648 are multiples of 8 and not of 16 — so reusing
+ * the table would quietly drop landscape-16:9, cinematic-4:2 and story-9:16 to the model's own
+ * "auto" and hand back some other shape than the one asked for by name.
+ *
+ * These are exact: 1280x720 is 16:9 to the pixel, 1280x640 is 2:1, 720x1280 is 9:16. Every one
+ * also clears OpenAI's other rules — ratio within 1:3 to 3:1, and 655,360 to 8,294,400 pixels,
+ * which is why 1024x576 could not be used for 16:9 despite dividing cleanly.
+ */
+export const COMPOSE_FORMATS = {
+  'landscape-16:9': { width: 1280, height: 720 },
+  'cinematic-4:2': { width: 1280, height: 640 },
+  'square-1:1': { width: 1024, height: 1024 },
+  'portrait-4:5': { width: 896, height: 1120 },
+  'story-9:16': { width: 720, height: 1280 },
+}
+
+/**
+ * Compose an image from one to four reference images and swap it into a node's placeholder.
+ *
+ * References are URLs, never bytes: a URL is a short string, where base64 in a tool argument
+ * would put a megabyte of noise through the model's context — the same reason generate_node_image
+ * never accepts an image either. openai-worker holds the allowlist of hosts it will fetch from;
+ * this layer does not second-guess it, it reports what comes back.
+ */
+export async function composeImageForNode(
+  env,
+  { graphId, nodeId, prompt, referenceImageUrls, placement = 'header', format = null, quality = 'low', expectedVersion = null, actor },
+) {
+  if (!env.OPENAI_WORKER?.fetch) {
+    return fail(ERR.INTERNAL_ERROR, 'The OPENAI_WORKER service binding is not configured on this worker.')
+  }
+  if (!prompt || !String(prompt).trim()) return fail(ERR.INVALID_INPUT, 'prompt is required.')
+
+  const refs = Array.isArray(referenceImageUrls) ? referenceImageUrls.filter(Boolean) : []
+  if (refs.length === 0) {
+    return fail(ERR.INVALID_INPUT, 'referenceImageUrls must name at least one image.')
+  }
+  if (refs.length > MAX_REFERENCE_IMAGES) {
+    return fail(ERR.INVALID_INPUT, `At most ${MAX_REFERENCE_IMAGES} reference images.`)
+  }
+  if (!COMPOSE_QUALITIES.includes(quality)) {
+    return fail(
+      ERR.INVALID_INPUT,
+      `quality must be ${COMPOSE_QUALITIES.join(' or ')} here. "max" exists but takes about 99 seconds, ` +
+        'which is longer than this connection will wait — use the Agent Builder for that.',
+    )
+  }
+
+  const slot = await resolvePlaceholder(env, { graphId, nodeId, placement, expectedVersion, actor })
+  if (!slot.ok) return slot
+
+  // The named format decides the output size, from COMPOSE_FORMATS rather than IMAGE_FORMATS:
+  // same names, sizes this model can actually render.
+  const preset = format && COMPOSE_FORMATS[format] ? COMPOSE_FORMATS[format] : null
+  const size = preset ? `${preset.width}x${preset.height}` : 'auto'
+
+  let res
+  try {
+    res = await env.OPENAI_WORKER.fetch('https://openai-worker/images/edits', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: String(prompt).trim(), referenceImageUrls: refs, size, quality }),
+    })
+  } catch (e) {
+    console.error('[images] openai-worker unreachable:', e.message)
+    return fail(ERR.INTERNAL_ERROR, `Could not reach the image service: ${e.message}`)
+  }
+
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    // Passed through rather than flattened: this is where "that host is not allowed" and "both
+    // edges must be multiples of 16" live, and both are things the caller can act on.
+    return fail(ERR.INVALID_INPUT, data.error || `The image service refused the request (status ${res.status}).`)
+  }
+
+  const b64 = data?.data?.[0]?.b64_json
+  if (!b64) return fail(ERR.INTERNAL_ERROR, 'The image service returned no image.')
+
+  const binary = atob(b64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+
+  // Ask the bytes what they are, the same as every other path here. An error payload wearing an
+  // image's clothes would otherwise be stored and put a permanently broken URL into a node.
+  const type = sniffImageType(bytes)
+  if (!type) return fail(ERR.INTERNAL_ERROR, 'The image service returned data that is not an image.')
+
+  const stored = await uploadImage(env, { bytes, type, actor })
+  if (!stored.ok) return stored
+
+  const swapped = await swapPlaceholder(env, {
+    graphId, nodeId, placement, info: slot.info, placeholder: slot.placeholder,
+    url: stored.url, version: slot.version, actor,
+  })
+  if (!swapped.ok) return swapped
+
+  return {
+    ...swapped,
+    model: data.model || 'gpt-image-2.5-sunburst',
+    quality,
+    size: data.size || size,
+    referenceImages: refs.length,
+    // Reported because it is not guessable and differs by an order of magnitude between the two
+    // qualities. A caller that cannot see the bill cannot choose sensibly.
+    costUsd: data.cost_usd ?? null,
+    durationMs: data.duration_ms ?? null,
+  }
+}
+
+/**
+ * Generate an image from a prompt and swap it into a node that already carries a placeholder.
+ */
+export async function generateImageForNode(
+  env,
+  {
+    graphId,
+    nodeId,
+    prompt,
+    placement = 'header',
+    expectedVersion = null,
+    actor,
+    width = null,
+    height = null,
+    model = null,
+    style = null,
+    lighting = null,
+    format = null,
+    renderTraits = null,
+    imageText = null,
+    textTreatment = null,
+    quality = null,
+    steps = null,
+    guidance = null,
+    seed = null,
+    negativePrompt = null,
+  },
+) {
+  if (!prompt || !String(prompt).trim()) return fail(ERR.INVALID_INPUT, 'prompt is required.')
+
+  const slot = await resolvePlaceholder(env, { graphId, nodeId, placement, expectedVersion, actor })
+  if (!slot.ok) return slot
 
   // Generate and store BEFORE touching the graph. A failed upload must not bump a version or
   // leave a node half-edited.
@@ -685,28 +860,14 @@ export async function generateImageForNode(
   const stored = await uploadImage(env, { bytes: generated.bytes, type: generated.type, actor })
   if (!stored.ok) return stored
 
-  const at = info.indexOf(placeholder)
-  const newInfo = info.slice(0, at) + stored.url + info.slice(at + placeholder.length)
-
-  const patched = await updateNode(env, {
-    graphId,
-    nodeId,
-    fields: { info: newInfo },
-    expectedVersion: version,
-    actor,
+  const swapped = await swapPlaceholder(env, {
+    graphId, nodeId, placement, info: slot.info, placeholder: slot.placeholder,
+    url: stored.url, version: slot.version, actor,
   })
-  if (!patched.ok) {
-    // The image exists and is addressable; only the node edit failed. Hand back the URL so the
-    // caller can retry the swap with update_node instead of paying to generate it again.
-    return { ...patched, imageUrl: stored.url }
-  }
+  if (!swapped.ok) return swapped
 
   return {
-    ok: true,
-    graphId,
-    nodeId,
-    placement,
-    imageUrl: stored.url,
+    ...swapped,
     model: generated.model,
     // What was actually sent, the way the chat UI shows "FINAL PROMPT SENT TO LUCID" — so a
     // caller can see how a style choice changed the wording instead of guessing.
@@ -716,10 +877,5 @@ export async function generateImageForNode(
     // chosen model has no such parameter.
     appliedParams: generated.applied,
     ...(generated.notes?.length ? { notes: generated.notes } : {}),
-    replaced: placeholder,
-    remainingPlaceholders: countOccurrences(newInfo, placeholder),
-    currentVersion: patched.currentVersion,
-    newVersion: patched.newVersion,
-    ...graphLinks(graphId),
   }
 }
