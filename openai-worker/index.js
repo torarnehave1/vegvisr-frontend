@@ -130,6 +130,11 @@ export default {
         return await handleImages(request, env, corsHeaders);
       }
 
+      // Image editing with reference images — the only route that takes pictures IN
+      if (pathname === '/images/edits' && request.method === 'POST') {
+        return await handleImageEdits(request, env, corsHeaders);
+      }
+
       // Image model shortcuts
       if (pathname.match(/^\/(dall-e-3|dall-e-2|gpt-image-1|gpt-image-1-mini|gpt-image-1\.5)$/) && request.method === 'POST') {
         const model = pathname.substring(1);
@@ -443,6 +448,226 @@ async function handleImages(request, env, corsHeaders) {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Image editing with reference images — POST /images/edits
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The endpoint that takes pictures IN. /images above calls /v1/images/generations, which is
+// text-only; this calls /v1/images/edits, which accepts several reference images and composes
+// from them. Measured against the real API on 2026-10-01: a photo of a specific plush toy plus a
+// logo file produced that same toy, recognisably itself, in a new scene with the logo embroidered
+// on its chest — one call, 99 seconds, $0.18 at max quality.
+//
+// REFERENCES ARE URLs, NOT BYTES. The caller names images by URL and this worker fetches them.
+// That is what lets the MCP server use it: a URL is a short string, where base64 in a tool
+// argument would put a megabyte of noise through a model's context. It is also why the allowlist
+// below is not optional — a worker that fetches an arbitrary URL on a caller's say-so is a
+// request-forgery engine with someone else's API key attached.
+//
+// QUALITY DEFAULTS TO low, DELIBERATELY. Measured: low 196 output tokens, high 1756, max 7024 —
+// a 15x spread in cost and an 8x spread in latency for the same request. Everything else in this
+// worker defaults to the generous option; this one must not, because the obvious caller is an AI
+// agent that may run it in a loop.
+
+/**
+ * Hosts a reference image may be fetched from.
+ *
+ * An allowlist rather than a blocklist, and fixed hostnames rather than a pattern the caller
+ * supplies. EXTRA_IMAGE_HOSTS in wrangler vars extends it comma-separated for a World on its
+ * own domain.
+ */
+const ALLOWED_IMAGE_HOSTS = ['vegvisr.imgix.net', 'photos-api.vegvisr.org'];
+const ALLOWED_IMAGE_SUFFIXES = ['.vegvisr.org', '.vegr.ai'];
+
+function isAllowedImageUrl(raw, env) {
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return { ok: false, reason: 'not a valid URL' };
+  }
+  if (url.protocol !== 'https:') {
+    return { ok: false, reason: 'must be https' };
+  }
+  const host = url.hostname.toLowerCase();
+  const extra = String(env.EXTRA_IMAGE_HOSTS || '')
+    .split(',')
+    .map(h => h.trim().toLowerCase())
+    .filter(Boolean);
+  const allowed =
+    ALLOWED_IMAGE_HOSTS.includes(host) ||
+    extra.includes(host) ||
+    ALLOWED_IMAGE_SUFFIXES.some(suffix => host.endsWith(suffix));
+  if (!allowed) {
+    return { ok: false, reason: `host ${host} is not allowed` };
+  }
+  return { ok: true, url };
+}
+
+/**
+ * The output size rules, from OpenAI's own image guide (read 2026-10-01): both edges multiples
+ * of 16, neither above 3840, ratio within 1:3 to 3:1, and a total pixel count between 655,360
+ * and 8,294,400.
+ *
+ * Checked here rather than left to the API, because the failure arrives after the caller has
+ * already waited through the uploads — and because an unchecked multiple-of-8 rule produced
+ * exactly this class of failure in the Workers AI path two days ago.
+ */
+function validateEditSize(size) {
+  if (!size || size === 'auto') return { ok: true, size: 'auto' };
+  const match = String(size).match(/^(\d+)x(\d+)$/);
+  if (!match) return { ok: false, reason: 'size must be WIDTHxHEIGHT, or "auto"' };
+  const w = Number(match[1]);
+  const h = Number(match[2]);
+  if (w % 16 || h % 16) return { ok: false, reason: `both edges must be multiples of 16 (got ${w}x${h})` };
+  if (w > 3840 || h > 3840) return { ok: false, reason: 'neither edge may exceed 3840' };
+  const ratio = w / h;
+  if (ratio > 3 || ratio < 1 / 3) return { ok: false, reason: 'aspect ratio must be between 1:3 and 3:1' };
+  const pixels = w * h;
+  if (pixels < 655360) return { ok: false, reason: 'total pixels must be at least 655,360' };
+  if (pixels > 8294400) return { ok: false, reason: 'total pixels must not exceed 8,294,400' };
+  return { ok: true, size: `${w}x${h}` };
+}
+
+/** Models documented to accept reference images on /v1/images/edits. Only sunburst is verified. */
+const EDIT_MODELS = ['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare', 'gpt-image-2'];
+const EDIT_QUALITIES = ['low', 'medium', 'high', 'xhigh', 'max', 'auto'];
+const MAX_REFERENCE_IMAGES = 4;
+const MAX_REFERENCE_BYTES = 20 * 1024 * 1024;
+
+/** Token rates for gpt-image-2.5, per million. From OpenAI's pricing page, 2026-10-01. */
+const IMAGE_TOKEN_RATES = { imageInput: 8, textInput: 5, output: 30 };
+
+function jsonError(message, status, corsHeaders) {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
+}
+
+async function handleImageEdits(request, env, corsHeaders) {
+  try {
+    const body = await request.json();
+    const {
+      prompt,
+      referenceImageUrls,
+      model = 'gpt-image-2.5-sunburst',
+      size = 'auto',
+      quality = 'low',
+      background,
+      output_format,
+      userId
+    } = body;
+
+    if (!prompt) {
+      return jsonError('prompt is required', 400, corsHeaders);
+    }
+    if (!Array.isArray(referenceImageUrls) || referenceImageUrls.length === 0) {
+      return jsonError('referenceImageUrls must be a non-empty array of https URLs', 400, corsHeaders);
+    }
+    if (referenceImageUrls.length > MAX_REFERENCE_IMAGES) {
+      return jsonError(`at most ${MAX_REFERENCE_IMAGES} reference images`, 400, corsHeaders);
+    }
+    if (!EDIT_MODELS.includes(model)) {
+      return jsonError(`model must be one of: ${EDIT_MODELS.join(', ')}`, 400, corsHeaders);
+    }
+    if (!EDIT_QUALITIES.includes(quality)) {
+      return jsonError(`quality must be one of: ${EDIT_QUALITIES.join(', ')}`, 400, corsHeaders);
+    }
+    const sizeCheck = validateEditSize(size);
+    if (!sizeCheck.ok) {
+      return jsonError(sizeCheck.reason, 400, corsHeaders);
+    }
+
+    // Credential before any fetching: the same rule /generate-image learned the hard way, where
+    // an image was generated and only then found to be unstorable.
+    const userKey = await getUserApiKey(env, userId, 'openai');
+    const openaiKey = userKey || env.OPENAI_API_KEY;
+    if (!openaiKey) {
+      return jsonError('OpenAI API key not configured', 500, corsHeaders);
+    }
+
+    // Fetch every reference up front, so one bad URL fails before anything reaches OpenAI.
+    const files = [];
+    for (const [index, raw] of referenceImageUrls.entries()) {
+      const check = isAllowedImageUrl(raw, env);
+      if (!check.ok) {
+        return jsonError(`referenceImageUrls[${index}]: ${check.reason}`, 400, corsHeaders);
+      }
+      const res = await fetch(check.url.href);
+      if (!res.ok) {
+        return jsonError(`referenceImageUrls[${index}]: fetch returned ${res.status}`, 400, corsHeaders);
+      }
+      const type = res.headers.get('content-type') || '';
+      if (!type.startsWith('image/')) {
+        return jsonError(`referenceImageUrls[${index}]: served ${type || 'no content-type'}, not an image`, 400, corsHeaders);
+      }
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      if (bytes.byteLength > MAX_REFERENCE_BYTES) {
+        return jsonError(`referenceImageUrls[${index}]: larger than 20 MB`, 400, corsHeaders);
+      }
+      const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : 'jpg';
+      files.push(new File([bytes], `reference-${index + 1}.${ext}`, { type }));
+    }
+
+    // ORDER MATTERS, and a caller has to be told so: a prompt refers to "the first reference
+    // image" and "the second", and that wording is the only thing keeping them apart.
+    const form = new FormData();
+    form.append('model', model);
+    form.append('prompt', prompt);
+    if (sizeCheck.size !== 'auto') form.append('size', sizeCheck.size);
+    if (quality !== 'auto') form.append('quality', quality);
+    if (background) form.append('background', background);
+    if (output_format) form.append('output_format', output_format);
+    for (const file of files) form.append('image[]', file);
+
+    const started = Date.now();
+    const openaiResponse = await fetch('https://api.openai.com/v1/images/edits', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${openaiKey}` },
+      body: form
+    });
+
+    if (!openaiResponse.ok) {
+      const error = await openaiResponse.text();
+      return new Response(error, {
+        status: openaiResponse.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const result = await openaiResponse.json();
+
+    // The cost is reported back because it is not guessable from the request: measured, the same
+    // call costs $0.014 at low and $0.219 at max. A caller that cannot see the bill cannot choose
+    // a quality sensibly.
+    const usage = result.usage || {};
+    const details = usage.input_tokens_details || {};
+    const imageTokens = details.image_tokens || 0;
+    const textTokens = details.text_tokens || 0;
+    const outputTokens = usage.output_tokens || 0;
+    const costUsd =
+      (imageTokens / 1e6) * IMAGE_TOKEN_RATES.imageInput +
+      (textTokens / 1e6) * IMAGE_TOKEN_RATES.textInput +
+      (outputTokens / 1e6) * IMAGE_TOKEN_RATES.output;
+
+    return new Response(JSON.stringify({
+      ...result,
+      model,
+      quality,
+      size: sizeCheck.size,
+      reference_images: files.length,
+      duration_ms: Date.now() - started,
+      cost_usd: Number(costUsd.toFixed(4))
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    return jsonError(error.message, 500, corsHeaders);
   }
 }
 
@@ -1072,6 +1297,53 @@ function handleOpenApiJson(corsHeaders) {
             200: { description: 'Chat completion', content: { 'application/json': { schema: { $ref: '#/components/schemas/ChatResponse' } } } },
             400: { description: 'Missing messages array' },
             500: { description: 'API key not configured' }
+          }
+        }
+      },
+      '/images/edits': {
+        post: {
+          tags: ['Images'],
+          summary: 'Image editing with reference images',
+          description:
+            'Edit or compose using one to four REFERENCE IMAGES, named by https URL — the only route here that takes pictures in. ' +
+            'The worker fetches each URL itself, so a caller sends short strings rather than base64; the hosts it will fetch from ' +
+            'are allowlisted (vegvisr.imgix.net, photos-api.vegvisr.org, *.vegvisr.org, *.vegr.ai, plus EXTRA_IMAGE_HOSTS). ' +
+            'ORDER MATTERS: refer to them in the prompt as "the first reference image", "the second", and so on. ' +
+            'Size must have both edges a multiple of 16, each at most 3840, a ratio within 1:3 to 3:1, and 655,360 to 8,294,400 total pixels. ' +
+            'Quality defaults to "low" on purpose — measured, "max" costs about 15x more and takes about 8x longer for the same request ' +
+            '(low $0.014, high $0.061, max $0.219 at 1024x1024). The reply carries usage, duration_ms and cost_usd so a caller can see the bill. ' +
+            'Expect 30-120 seconds; a max-quality call with two references measured 99 seconds.',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['prompt', 'referenceImageUrls'],
+                  properties: {
+                    prompt: { type: 'string', description: 'What to make. Name each reference by position, and list every feature that must be preserved.' },
+                    referenceImageUrls: {
+                      type: 'array',
+                      items: { type: 'string', format: 'uri' },
+                      minItems: 1,
+                      maxItems: 4,
+                      description: 'https URLs on an allowlisted host. Order is the order the prompt refers to.'
+                    },
+                    model: { type: 'string', enum: ['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare', 'gpt-image-2'], default: 'gpt-image-2.5-sunburst' },
+                    size: { type: 'string', default: 'auto', description: 'WIDTHxHEIGHT with both edges a multiple of 16, or "auto".' },
+                    quality: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max', 'auto'], default: 'low' },
+                    background: { type: 'string', description: 'Set "transparent" with output_format png or webp.' },
+                    output_format: { type: 'string', enum: ['png', 'jpeg', 'webp'] },
+                    userId: { type: 'string', description: 'Resolves a per-user OpenAI key; falls back to the worker key.' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Image produced, with usage, duration_ms and cost_usd', content: { 'application/json': { schema: { $ref: '#/components/schemas/ImageResponse' } } } },
+            400: { description: 'Missing prompt, a disallowed reference host, an unfetchable reference, or an invalid size' },
+            500: { description: 'API key not configured or upstream error' }
           }
         }
       },
