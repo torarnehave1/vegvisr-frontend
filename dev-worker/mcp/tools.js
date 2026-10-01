@@ -315,6 +315,27 @@ export function registerTools(server, getContext) {
         graphId: z.string().min(1).describe('The graph id.'),
         nodeId: z.string().optional().describe('Return only this node, instead of the whole graph.'),
       },
+      // Declared 2026-10-01. This was the only tool of 28 without one, and the omission made it
+      // look broken from outside: the nodes WERE fetched and WERE in structuredContent, but a
+      // client has no contract telling it what that field holds, so it reads content[0].text —
+      // which was a one-line count. The description promised "metadata, nodes, edges" and that
+      // was true of a field nothing was reading.
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        title: z.string().nullable(),
+        description: z.string().nullable(),
+        metaArea: z.string().nullable(),
+        publicationState: z.string(),
+        version: z.number().nullable(),
+        createdBy: z.string().nullable(),
+        nodeCount: z.number(),
+        edgeCount: z.number(),
+        nodes: z.array(z.record(z.any())),
+        edges: z.array(z.record(z.any())),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
       annotations: READ_ONLY,
     },
     async ({ graphId, nodeId }) => {
@@ -356,10 +377,49 @@ export function registerTools(server, getContext) {
         ...gs.graphLinks(graphId),
       }
 
-      const summary = nodeId
-        ? `Node ${nodeId} of graph "${payload.title}" (version ${payload.version}).`
-        : `Graph "${payload.title}" (${graphId}) — version ${payload.version}, ${payload.nodeCount} nodes, ` +
-          `${payload.edgeCount} edges, ${payload.publicationState}.`
+      // The text has to carry the ids too, not just a count.
+      //
+      // structuredContent holds everything, and with an outputSchema declared a client can now
+      // rely on it — but a client that only reads the text still has to be able to find a node to
+      // act on. A summary that says "4 nodes" and names none of them cannot be followed by
+      // update_node. Every other read tool here lists its contents; this one counted them.
+      //
+      // Truncated per node rather than dropped: an html-node's info can be tens of kilobytes, and
+      // a graph of them would bury the ids this exists to surface. The full text is one
+      // get_graph(nodeId) away, and the reply says so when it has cut something.
+      const PREVIEW = 160
+      const preview = (text) => {
+        const flat = String(text || '').replace(/\s+/g, ' ').trim()
+        if (!flat) return ''
+        return flat.length > PREVIEW ? `${flat.slice(0, PREVIEW)}…` : flat
+      }
+
+      let summary
+      if (nodeId) {
+        const node = g.nodes[0] || {}
+        const info = String(node.info || '')
+        summary =
+          `Node ${nodeId} of graph "${payload.title}" (version ${payload.version}).\n` +
+          `label: ${node.label ?? '(none)'}\ntype: ${node.type ?? '(none)'}\n` +
+          (info ? `info (${info.length} chars):\n${info}` : 'info: (empty)')
+      } else {
+        const lines = g.nodes.map((n) => {
+          const body = preview(n.info)
+          return `• ${n.id} — ${n.label || '(no label)'} [${n.type || 'unknown'}]${body ? `\n    ${body}` : ''}`
+        })
+        const edgeLines = g.edges.map(
+          (e) => `• ${e.source} → ${e.target}${e.label ? ` (${e.label})` : ''}`,
+        )
+        summary = [
+          `Graph "${payload.title}" (${graphId}) — version ${payload.version}, ${payload.nodeCount} nodes, ` +
+            `${payload.edgeCount} edges, ${payload.publicationState}.`,
+          ...(lines.length ? ['', 'Nodes:', ...lines] : []),
+          ...(edgeLines.length ? ['', 'Edges:', ...edgeLines] : []),
+          ...(g.nodes.some((n) => String(n.info || '').replace(/\s+/g, ' ').trim().length > PREVIEW)
+            ? ['', `Node text is shortened above. Call get_graph with that nodeId for the whole thing.`]
+            : []),
+        ].join('\n')
+      }
 
       return ok(payload, `${summary}\nViewer: ${payload.viewerUrl}`)
     },

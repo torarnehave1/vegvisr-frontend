@@ -2382,3 +2382,107 @@ describe('protocol version probing', () => {
     assert.equal(res.status, 200, 'the same header that refused server/discover does not refuse initialize')
   })
 })
+
+/**
+ * get_graph — what a client can actually SEE.
+ *
+ * Reported 2026-10-01: a client could not find node ids. The nodes were being fetched and were
+ * in structuredContent the whole time; get_graph was simply the only tool of 28 without an
+ * outputSchema, so a client had no contract telling it what that field held and fell back to
+ * content[0].text — which was a one-line count. The description promised "metadata, nodes,
+ * edges", and that was true of a field nothing was reading.
+ *
+ * Both halves are pinned here, because fixing only the schema would still leave a text-only
+ * client unable to name a node to update_node.
+ */
+describe('get_graph exposes nodes to a client, not only to the payload', () => {
+  async function withNodes() {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', {
+      title: 'Aha',
+      metaArea: '#TEST',
+      nodes: [
+        { id: 'n1', label: 'First node', type: 'fulltext', info: 'Short body.' },
+        { id: 'n2', label: 'Second node', type: 'fulltext', info: 'x'.repeat(500) },
+      ],
+      edges: [{ source: 'n1', target: 'n2', label: 'next' }],
+    })
+    return { client, graphId: g.graphId }
+  }
+
+  test('it declares an outputSchema, like every other tool here', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'get_graph')
+    assert.ok(t.outputSchema, 'without this a client cannot rely on structuredContent')
+    const props = Object.keys(t.outputSchema.properties)
+    for (const field of ['nodes', 'edges', 'version', 'nodeCount', 'edgeCount', 'title']) {
+      assert.ok(props.includes(field), `outputSchema should name ${field}`)
+    }
+  })
+
+  test('every tool declares an outputSchema — get_graph was the one that did not', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const missing = tools.filter((t) => !t.outputSchema).map((t) => t.name)
+    assert.deepEqual(missing, [], 'a tool without an output schema looks broken from outside')
+  })
+
+  test('the TEXT names every node id, label and type — not just a count', async () => {
+    const { client, graphId } = await withNodes()
+    const r = await client.callTool({ name: 'get_graph', arguments: { graphId } })
+    const text = r.content[0].text
+    // The reported symptom: a client reading only the text could not find a node to act on.
+    assert.match(text, /n1 — First node \[fulltext\]/)
+    assert.match(text, /n2 — Second node \[fulltext\]/)
+    assert.match(text, /n1 → n2 \(next\)/, 'edges too, so a client can see the shape')
+    assert.match(text, /2 nodes, 1 edges/, 'the original summary line is kept')
+  })
+
+  test('long node text is shortened in the text, and the reply says where the rest is', async () => {
+    // An html-node's info runs to tens of kilobytes. Printing it whole would bury the ids this
+    // listing exists to surface, so it is cut per node rather than dropped wholesale.
+    const { client, graphId } = await withNodes()
+    const r = await client.callTool({ name: 'get_graph', arguments: { graphId } })
+    const text = r.content[0].text
+    assert.ok(!text.includes('x'.repeat(200)), 'the 500-char node is not printed whole')
+    assert.match(text, /…/)
+    assert.match(text, /get_graph with that nodeId for the whole thing/)
+  })
+
+  test('structuredContent still carries everything, untruncated', async () => {
+    const { client, graphId } = await withNodes()
+    const r = await client.callTool({ name: 'get_graph', arguments: { graphId } })
+    assert.equal(r.structuredContent.nodes.length, 2)
+    assert.equal(r.structuredContent.edges.length, 1)
+    assert.equal(r.structuredContent.nodes[1].info.length, 500, 'the payload is never cut')
+    assert.equal(r.structuredContent.nodeCount, 2)
+  })
+
+  test('a single node returns its whole info, so a client can edit without losing text', async () => {
+    // The second half of the report: reading one node gave a version line and nothing else, so
+    // rewriting a node meant guessing at what was already in it.
+    const { client, graphId } = await withNodes()
+    const r = await client.callTool({ name: 'get_graph', arguments: { graphId, nodeId: 'n2' } })
+    const text = r.content[0].text
+    assert.match(text, /label: Second node/)
+    assert.match(text, /type: fulltext/)
+    assert.match(text, /info \(500 chars\)/)
+    assert.ok(text.includes('x'.repeat(500)), 'one node is never truncated — this is the full read')
+  })
+
+  test('an empty graph still reads cleanly, and a missing node is still refused', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'Empty', metaArea: '#T', nodes: [] })
+    const r = await client.callTool({ name: 'get_graph', arguments: { graphId: g.graphId } })
+    assert.match(r.content[0].text, /0 nodes, 0 edges/)
+    assert.ok(!r.content[0].text.includes('Nodes:'), 'no empty heading')
+
+    const e = await callErr(client, 'get_graph', { graphId: g.graphId, nodeId: 'nope' })
+    assert.equal(e.code, gs.ERR.GRAPH_NOT_FOUND)
+  })
+})
