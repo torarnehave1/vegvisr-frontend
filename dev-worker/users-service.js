@@ -287,6 +287,83 @@ export async function setUserGroups(env, { email, groupTags, mode = 'add', actor
 
 
 /**
+ * Update contact info — phone, address, street, postal code, place, city, country, name — for
+ * someone who is ALREADY registered.
+ *
+ * register_user refuses an email that already exists (users-service.js:59-65, deliberately —
+ * silently patching a stranger's profile over MCP would be worse than refusing). That left no
+ * way to update anyone's contact details once they had an account, which is exactly what a
+ * Superadmin needs to do routinely ("add her phone number", "she moved, update the address").
+ * Same split as setUserGroups above: a sibling tool for the existing-account case, rather than
+ * changing register_user's refuse-on-clash behaviour.
+ *
+ * The write goes through the same agent-worker route register_user uses — admin/register-user
+ * already merges supplied fields into an existing row and leaves role/group_tags alone when
+ * they are not sent. This function's own job is just the MCP-specific narrowing: the Superadmin
+ * gate, the caller's own credential, and refusing up front when the account does not exist yet
+ * (so the tool's name stays honest — it never creates an account as a side effect).
+ */
+export async function updateUserProfile(env, { email, phone, address, street, postalCode, place, city, country, name, actor }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!actor.isSuperadmin) {
+    return fail(ERR.FORBIDDEN_GRAPH, "Updating someone's contact info requires the Superadmin role.")
+  }
+  if (!looksLikeEmail(email)) return fail(ERR.INVALID_INPUT, 'A valid email address is required.')
+
+  const normalisedEmail = String(email).trim().toLowerCase()
+  const row = await env.vegvisr_org
+    .prepare('SELECT email FROM config WHERE email = ? LIMIT 1')
+    .bind(normalisedEmail)
+    .first()
+  if (!row) {
+    return fail(
+      ERR.GRAPH_NOT_FOUND,
+      `${normalisedEmail} is not registered. Use register_user to create the account first — it takes the same contact fields.`,
+    )
+  }
+
+  const fields = { phone, address, street, postal_code: postalCode, place, city, country, name }
+  const supplied = Object.fromEntries(
+    Object.entries(fields).filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== ''),
+  )
+  if (Object.keys(supplied).length === 0) {
+    return fail(ERR.INVALID_INPUT, 'Supply at least one field to update (phone, address, street, postal_code, place, city, country, or name).')
+  }
+
+  const token = await callerToken(env, actor)
+  if (!token) return fail(ERR.FORBIDDEN_GRAPH, 'No credential on your account. Sign in at vegvisr.org once, then try again.')
+  if (!env.AGENT_WORKER?.fetch) {
+    return fail(ERR.INTERNAL_ERROR, 'The AGENT_WORKER service binding is not configured on this worker.')
+  }
+
+  // Never forwards role or group_tags — this tool only ever touches the fields named above.
+  const res = await env.AGENT_WORKER.fetch('https://agent-worker/admin/register-user', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Token': token },
+    body: JSON.stringify({ email: normalisedEmail, ...supplied }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || data?.success === false) {
+    return fail(ERR.INVALID_INPUT, data?.error || `Could not update the profile (status ${res.status}).`)
+  }
+
+  return {
+    ok: true,
+    email: data.email || normalisedEmail,
+    name: data.name ?? null,
+    phone: data.phone ?? null,
+    address: data.address ?? null,
+    street: data.street ?? null,
+    postalCode: data.postal_code ?? null,
+    place: data.place ?? null,
+    city: data.city ?? null,
+    country: data.country ?? null,
+    changed: true,
+  }
+}
+
+
+/**
  * Change a registered person's role.
  *
  * Separate from registration because admin_register_user deliberately does NOT re-rank an

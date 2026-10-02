@@ -1833,7 +1833,9 @@ export function registerTools(server, getContext) {
         'login.vegvisr.org. THIS CREATES AN ACCOUNT FOR A REAL PERSON — confirm the name and the ' +
         'exact email with the user before calling it. An email that is ALREADY REGISTERED is ' +
         'refused and nothing is changed, so this can never quietly edit a stranger\'s record; ' +
-        'use list_users to check first, or to find who holds the address. A phone number is worth ' +
+        'use list_users to check first, or to find who holds the address. To update phone, ' +
+        'postal address, or name on an account that already exists, use update_user_profile ' +
+        'instead. A phone number is worth ' +
         'adding when you have it, because it is what lets them sign in by SMS code. The sign-in ' +
         'credential is never returned. Requires the user:register scope, which an ordinary ' +
         'connection does not carry.',
@@ -2006,6 +2008,73 @@ export function registerTools(server, getContext) {
         r.changed
           ? `${r.email}: ${r.before || '(no groups)'} → ${r.groupTags || '(no groups)'}`
           : `${r.email} was already ${r.groupTags ? `in ${r.groupTags}` : 'in no groups'}. Nothing changed.`,
+      )
+    },
+  )
+
+  // ── update_user_profile ───────────────────────────────────────────────────
+  //
+  // register_user refuses an email that already exists, which also left no way to update
+  // contact info — phone, address, etc. — on an account once it was created. Same split as
+  // set_user_groups just above: a sibling tool for the existing-account case, sharing
+  // user:register rather than adding a new opt-in scope.
+  server.registerTool(
+    'update_user_profile',
+    {
+      title: "Update a member's contact info",
+      description:
+        'Update phone, address, street, postal code, place, city, country or name for someone ' +
+        'who is ALREADY registered. Only the fields you supply change — everything else, ' +
+        'including role and group tags, is left alone. Fails if the email is not registered. ' +
+        'For someone who does not have an account yet, use register_user instead — it takes ' +
+        'these same contact fields directly. Requires the user:register scope and the ' +
+        'Superadmin role.',
+      inputSchema: {
+        email: z.string().min(3).describe('The already-registered person to update.'),
+        phone: z.string().optional().describe('Mobile number in +47XXXXXXXX form.'),
+        address: z.string().optional().describe('Address line.'),
+        street: z.string().optional().describe('Street or road name.'),
+        postalCode: z.string().optional().describe('Postal code.'),
+        place: z.string().optional().describe('Postal place/locality.'),
+        city: z.string().optional().describe('City/municipality.'),
+        country: z.string().optional().describe('Country.'),
+        name: z.string().optional().describe("The person's full name."),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        email: z.string(),
+        name: z.string().nullable(),
+        phone: z.string().nullable(),
+        address: z.string().nullable(),
+        street: z.string().nullable(),
+        postalCode: z.string().nullable(),
+        place: z.string().nullable(),
+        city: z.string().nullable(),
+        country: z.string().nullable(),
+        changed: z.boolean(),
+      },
+      // Writes to someone's own contact fields only — never role, never group_tags, and nothing
+      // leaves this system.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ email, phone, address, street, postalCode, place, city, country, name }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'user:register')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await users.updateUserProfile(env, { email, phone, address, street, postalCode, place, city, country, name, actor })
+      if (!r.ok) return fromService(r)
+
+      const { ok: _o, ...payload } = r
+      const changedFields = Object.entries({ phone, address, street, postalCode, place, city, country, name })
+        .filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '')
+        .map(([k]) => k)
+      return ok(
+        { success: true, ...payload },
+        `${r.email} updated: ${changedFields.join(', ') || 'nothing supplied'}.`,
       )
     },
   )
@@ -2417,6 +2486,7 @@ export const TOOL_NAMES = [
   'register_user',
   'list_users',
   'set_user_groups',
+  'update_user_profile',
   'set_user_role',
   'list_published_sites',
   'search_graphs',

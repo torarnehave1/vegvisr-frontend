@@ -105,6 +105,7 @@ describe('18. tools/list', () => {
   const SUBJECT_TOOLS = new Set([
     'register_user',
     'set_user_groups',
+    'update_user_profile',
     'set_user_role',
     'add_group_member',
     'remove_group_member',
@@ -1448,6 +1449,78 @@ describe('set_user_groups tags someone who is already registered', () => {
     const env = seeded()
     const { client } = await connect(env, ALICE_RW)
     const e = await callErr(client, 'set_user_groups', { email: 'kate@longwhitecloud.com', groupTags: '#X' })
+    assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+    assert.equal(e.requiredScope, 'user:register')
+  })
+})
+
+
+describe('update_user_profile updates someone who is already registered', () => {
+  const REG = {
+    auth: { ...ALICE_RW.auth, scope: ['graph:read', 'user:register'], userId: 'root@example.com' },
+    props: { userId: 'root@example.com', email: 'root@example.com', role: 'Superadmin', authMethod: 'oauth' },
+  }
+
+  function seeded() {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.AGENT_WORKER = new FakeRegisterWorker({ updated: true })
+    raw.prepare("INSERT OR REPLACE INTO config (user_id, data, email, emailVerificationToken, Role, group_tags) VALUES (?,?,?,?,?,?)")
+      .run('u-root', '{}', 'root@example.com', 'sess-root', 'Superadmin', null)
+    raw.prepare("INSERT OR REPLACE INTO config (user_id, data, email, emailVerificationToken, Role, group_tags) VALUES (?,?,?,?,?,?)")
+      .run('u-kate', '{}', 'kate@longwhitecloud.com', 'tok-kate', 'Admin', '#IIBA')
+    return env
+  }
+
+  test('updates phone and address, and forwards only the supplied fields', async () => {
+    const env = seeded()
+    const { client } = await connect(env, REG)
+    const r = await callOk(client, 'update_user_profile', {
+      email: 'kate@longwhitecloud.com',
+      phone: '+4790784052',
+      city: 'Oslo',
+      country: 'Norway',
+    })
+    assert.equal(r.success, true)
+    assert.equal(r.phone, '+4790784052')
+    assert.equal(r.city, 'Oslo')
+    assert.equal(r.country, 'Norway')
+    const sent = env.AGENT_WORKER.calls[0].body
+    assert.equal(sent.phone, '+4790784052')
+    assert.equal(sent.city, 'Oslo')
+    assert.equal(sent.country, 'Norway')
+    // role and group_tags are never part of what this tool forwards.
+    assert.equal('role' in sent, false)
+    assert.equal('group_tags' in sent, false)
+  })
+
+  test('an unregistered email is refused and points at register_user', async () => {
+    const env = seeded()
+    const { client } = await connect(env, REG)
+    const e = await callErr(client, 'update_user_profile', { email: 'nobody@example.com', phone: '+4790784052' })
+    assert.equal(e.code, gs.ERR.GRAPH_NOT_FOUND)
+    assert.match(e.message, /register_user/)
+    assert.equal(env.AGENT_WORKER.calls.length, 0, 'no write when the account does not exist')
+  })
+
+  test('refuses when no field is supplied', async () => {
+    const env = seeded()
+    const { client } = await connect(env, REG)
+    const e = await callErr(client, 'update_user_profile', { email: 'kate@longwhitecloud.com' })
+    assert.equal(e.code, gs.ERR.INVALID_INPUT)
+  })
+
+  test('a non-Superadmin cannot update someone else\'s profile', async () => {
+    const env = seeded()
+    const { client } = await connect(env, { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['user:register'] } })
+    const e = await callErr(client, 'update_user_profile', { email: 'kate@longwhitecloud.com', phone: '+4790784052' })
+    assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH)
+  })
+
+  test('the scope is required', async () => {
+    const env = seeded()
+    const { client } = await connect(env, ALICE_RW)
+    const e = await callErr(client, 'update_user_profile', { email: 'kate@longwhitecloud.com', phone: '+4790784052' })
     assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
     assert.equal(e.requiredScope, 'user:register')
   })

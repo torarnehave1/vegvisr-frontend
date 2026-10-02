@@ -359,6 +359,9 @@ export class FakeRegisterWorker {
       ...(this.updated ? { updated: true } : {}),
       user_id: 'uid-1', email: body.email, name: body.name ?? null,
       role: this.role, phone: body.phone ?? null,
+      address: body.address ?? null, street: body.street ?? null,
+      postal_code: body.postal_code ?? null, place: body.place ?? null,
+      city: body.city ?? null, country: body.country ?? null,
       // The real executor deliberately omits emailVerificationToken; the fake includes one so a
       // test can prove the MCP layer strips it even if that ever changes upstream.
       emailVerificationToken: 'SHOULD-NEVER-REACH-A-MODEL',
