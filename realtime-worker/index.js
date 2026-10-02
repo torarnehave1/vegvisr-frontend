@@ -233,6 +233,71 @@ async function enqueueStreamRecordings(email, env, opts = {}) {
 // Meetings live in their creator's app; ownership is tracked in meeting_ownership.
 // Falls back to the shared/default app when ownership is unknown (legacy meetings
 // created before per-user apps existed).
+/**
+ * Is this caller allowed into the World that owns this meeting?
+ *
+ * A World's membership is its MAIN CHAT GROUP (decided 2026-09-22: "World member = main group
+ * member"), not the `group_tags` column on config. The two name different sets of people — for
+ * NIBI on 2026-10-02 they overlapped almost not at all — so picking the other one would have
+ * locked real members out of a live meeting.
+ *
+ * The chain: meetingId → meeting_ownership.owner_email → world_founders.founder_email →
+ * main_chat_group_id → group_members.
+ *
+ * A meeting whose owner runs no World, or whose World has no main_chat_group_id, is NOT gated.
+ * Eight of the nine meeting owners are in that position today, and silently closing their rooms
+ * while answering a question about NIBI is not a thing to do by accident.
+ *
+ * Returns { gated, allowed, world, groupId }. It never throws into the request path: a database
+ * that cannot be read answers `gated: false`, because losing the roster must not lock everyone
+ * out of a meeting that is about to start.
+ */
+async function checkWorldMembership(meetingId, auth, env) {
+  const miss = { gated: false, allowed: true, world: null, groupId: null }
+  if (!env.vegvisr_org || !env.CHAT_DB) return miss
+
+  try {
+    const owner = await env.vegvisr_org
+      .prepare('SELECT owner_email FROM meeting_ownership WHERE meeting_id = ?')
+      .bind(meetingId).first()
+    if (!owner?.owner_email) return miss
+
+    const world = await env.vegvisr_org
+      .prepare('SELECT world_name, main_chat_group_id FROM world_founders WHERE founder_email = ? AND main_chat_group_id IS NOT NULL LIMIT 1')
+      .bind(owner.owner_email).first()
+    if (!world?.main_chat_group_id) return miss
+
+    // The caller's user_id is what group_members holds. auth may carry an e-mail instead, so
+    // resolve it the same way everything else here does rather than assuming.
+    let userId = auth.userId || null
+    if (!userId && auth.email) {
+      const row = await env.vegvisr_org
+        .prepare('SELECT user_id FROM config WHERE email = ? LIMIT 1')
+        .bind(auth.email).first()
+      userId = row?.user_id || null
+    }
+    if (!userId) {
+      return { gated: true, allowed: false, world: world.world_name, groupId: world.main_chat_group_id }
+    }
+
+    const member = await env.CHAT_DB
+      .prepare('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? LIMIT 1')
+      .bind(world.main_chat_group_id, userId).first()
+
+    return {
+      gated: true,
+      allowed: Boolean(member),
+      world: world.world_name,
+      groupId: world.main_chat_group_id,
+    }
+  } catch (e) {
+    // Fail OPEN, deliberately, and say so. This gate protects a room, not a bank account, and a
+    // transient database error at the top of a meeting would otherwise lock out everyone at once.
+    console.error('[world-gate] membership check failed, allowing:', e.message)
+    return miss
+  }
+}
+
 async function getMeetingOwnerCredentials(meetingId, env) {
   let ownerEmail = null
   try {
@@ -1421,6 +1486,27 @@ export default {
         const body = await request.json()
         const { meetingId, clientData } = body
         if (!meetingId) return createResponse(JSON.stringify({ error: 'meetingId is required' }), 400)
+
+        // Authentication was checked above; this checks BELONGING. Until now any signed-in
+        // VEGR.AI user who knew a meetingId could mint a token for someone else's World meeting.
+        //
+        // Deployed in log-only mode first. WORLD_GATE_ENFORCE must be set to "true" to refuse,
+        // and until then a denial is only recorded — because the roster this measures against is
+        // maintained by hand, and turning the gate on before it is right would lock real members
+        // out of a live room. The /join route took the same two-step route today for the same
+        // reason: you cannot close what you have not measured.
+        const gate = await checkWorldMembership(meetingId, auth, env)
+        if (gate.gated && !gate.allowed) {
+          const who = auth.userId || auth.email || 'unknown'
+          if (String(env.WORLD_GATE_ENFORCE) === 'true') {
+            console.log(`[world-gate] REFUSED ${who} → ${gate.world} (${meetingId})`)
+            return createResponse(
+              JSON.stringify({ error: `This meeting belongs to ${gate.world}. Ask the host to add you to the ${gate.world} group.` }),
+              403,
+            )
+          }
+          console.log(`[world-gate] would refuse ${who} → ${gate.world} (${meetingId}) — not enforcing`)
+        }
 
         // Mint the join token in the app that OWNS this meeting (where it lives),
         // not the caller's app — a guest joining another user's room must get a
