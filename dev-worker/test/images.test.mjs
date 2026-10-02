@@ -152,10 +152,15 @@ describe("generate_node_image — the caller's own credential", () => {
     assert.equal(up.size, 12)
   })
 
-  test('no album is claimed — uploading into one would stamp createdBy and lock other users out', async () => {
+  test('the upload names a per-user album, which is owned by that user from the first write', async () => {
+    // This asserted `album === null` until 2026-10-02, on the reasoning that photos-worker claimed
+    // a SHARED album for whoever uploaded first and 403'd everyone after. That reasoning went
+    // stale: photos-worker sets createdBy on an album it CREATES and leaves an existing one
+    // alone. A per-user album is therefore owned correctly from its first upload, where a shared
+    // one would be owned by nobody — and the images stop disappearing into a pool of 981.
     const { env, graphId } = await withGraph(HEADER_EL)
     await images.generateImageForNode(env, { graphId, nodeId: 'n1', prompt: 'x', actor: ALICE })
-    assert.equal(env.PHOTOS_WORKER.uploads[0].album, null)
+    assert.equal(env.PHOTOS_WORKER.uploads[0].album, 'mcp-alice')
   })
 
   test('a user with no config row cannot upload, and nothing is written', async () => {
@@ -908,5 +913,62 @@ describe('composing from reference images', () => {
       graphId, nodeId: 'n1', prompt: 'x', referenceImageUrls: [REF], actor: ALICE,
     })
     assert.match(r.message, /OPENAI_WORKER service binding/)
+  })
+})
+
+/**
+ * Which album an MCP upload lands in.
+ *
+ * It used to be none at all, on the reasoning that photos-worker claimed a shared album for
+ * whoever uploaded first and 403'd everyone after. That reasoning is now out of date:
+ * photos-worker sets createdBy on an album it CREATES and leaves an existing one alone. A
+ * per-user album is therefore owned by that user from its first upload, which is the ownership
+ * we actually want — and it answers the question that prompted this, which was 981 images in one
+ * pool with nothing marking which came from where.
+ */
+describe('the album an upload lands in', () => {
+  test('one album per person, named from the authenticated identity', () => {
+    assert.equal(images.albumForActor({ email: 'torarnehave@gmail.com' }), 'mcp-torarnehave')
+    assert.equal(images.albumForActor({ email: 'msneeggen@gmail.com' }), 'mcp-msneeggen')
+    // Two people never share an album, which is the whole point: no album has an ambiguous owner.
+    assert.notEqual(
+      images.albumForActor({ email: 'a@x.no' }),
+      images.albumForActor({ email: 'b@x.no' }),
+    )
+  })
+
+  test('the name is sanitised, because it becomes part of a KV key', () => {
+    assert.equal(images.albumForActor({ email: 'Tor.Arne+test@VEGVISR.org' }), 'mcp-tor-arne-test')
+    assert.equal(images.albumForActor({ email: 'ab--cd@x.no' }), 'mcp-ab-cd', 'runs of junk collapse')
+    assert.equal(images.albumForActor({ email: 'a'.repeat(80) + '@x.no' }).length, 52, 'capped')
+    assert.ok(/^mcp-[a-z0-9-]+$/.test(images.albumForActor({ email: 'Æ Ø Å!!@x.no' })))
+    // A local part of nothing but dots would have produced "mcp-...", which raises a question
+    // about ".." in a key that is simpler not to have.
+    assert.equal(images.albumForActor({ email: '...@x.no' }), 'mcp-uploads')
+  })
+
+  test('an identity that yields nothing still gets a real album, never an empty name', () => {
+    for (const actor of [{}, null, undefined, { email: '' }, { email: '--@x.no' }]) {
+      assert.equal(images.albumForActor(actor), 'mcp-uploads')
+    }
+  })
+
+  test('falls back to the user id when there is no e-mail', () => {
+    assert.equal(images.albumForActor({ userId: 'u-abc' }), 'mcp-u-abc')
+  })
+
+  test('the upload actually carries it, and it matches the caller', async () => {
+    const { env, graphId } = await withGraph(HEADER_EL)
+    const r = await images.generateImageForNode(env, { graphId, nodeId: 'n1', prompt: 'x', actor: ALICE })
+    assert.ok(r.ok, JSON.stringify(r))
+    const up = env.PHOTOS_WORKER.uploads.at(-1)
+    assert.equal(up.album, 'mcp-alice', `alice@example.com → mcp-alice, got ${up.album}`)
+  })
+
+  test('a different caller uploads to a different album', async () => {
+    const { env, graphId } = await withGraph(HEADER_EL, { owner: BOB })
+    const r = await images.generateImageForNode(env, { graphId, nodeId: 'n1', prompt: 'x', actor: BOB })
+    assert.ok(r.ok, JSON.stringify(r))
+    assert.equal(env.PHOTOS_WORKER.uploads.at(-1).album, 'mcp-bob')
   })
 })

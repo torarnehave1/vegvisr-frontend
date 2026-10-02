@@ -532,13 +532,37 @@ export async function generateImageBytes(
 }
 
 /**
- * Store the bytes through photos-worker, as the authenticated user.
+ * The album an MCP upload lands in: one per person, named from the authenticated identity.
  *
- * No album. photos-worker stamps `createdBy` on an album record the first time someone uploads
- * into one, and thereafter refuses everyone else with 403. The shared `agent-generated` album
- * holds ~280 images and currently has no `createdBy`, so the first MCP upload would claim it
- * for whoever called first and lock the rest out. The image is reachable by its URL from the
- * node either way; that is the deliverable.
+ * NOT a shared album. photos-worker's /upload sets `createdBy` on an album it CREATES and leaves
+ * an existing one alone (photos-worker/index.js, the comment above the album write) — so a
+ * per-user album is owned by that user from its first upload, which is the ownership we want,
+ * while a shared one would have no owner at all and belong to nobody.
+ *
+ * It also answers the question that started this: 981 images in one pool with nothing marking
+ * which came from where. `mcp-<local part of the e-mail>` groups them per person and reads
+ * clearly in the Photos app's album list.
+ *
+ * Sanitised rather than trusted: the e-mail comes from a validated OAuth token, but it reaches
+ * photos-worker as an album NAME and later as part of a KV key, so only [a-z0-9-] survives and
+ * the length is capped. Dots are folded to hyphens deliberately — `tor.arne` reads better as
+ * `tor-arne`, and a local part of nothing but dots would otherwise produce `mcp-...`, which
+ * raises a question about `..` in a key that is simpler to not have.
+ */
+export function albumForActor(actor) {
+  const source = String(actor?.email || actor?.userId || '').split('@')[0]
+  const safe = source
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48)
+    .replace(/-+$/, '')
+  return safe ? `mcp-${safe}` : 'mcp-uploads'
+}
+
+/**
+ * Store the bytes through photos-worker, as the authenticated user.
  */
 export async function uploadImage(env, { bytes, actor, type = { ext: 'jpg', mime: 'image/jpeg' } }) {
   if (!env.PHOTOS_WORKER?.fetch) {
@@ -559,6 +583,7 @@ export async function uploadImage(env, { bytes, actor, type = { ext: 'jpg', mime
   const form = new FormData()
   form.append('file', new File([bytes], `${stem}.${type.ext}`, { type: type.mime }))
   form.append('filename', stem)
+  form.append('album', albumForActor(actor))
 
   const res = await env.PHOTOS_WORKER.fetch('https://vegvisr-photos-worker/upload', {
     method: 'POST',
