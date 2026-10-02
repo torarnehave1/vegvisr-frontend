@@ -258,3 +258,67 @@ describe('the invite window', () => {
     }
   })
 })
+
+/**
+ * set_group_member_role — how a group owner delegates.
+ *
+ * An admin can add members and make invite links but cannot appoint another admin, so the power
+ * to delegate stops with the owner. Built because a World's main chat group is owned by the
+ * World's own address while the person running the platform connects as themselves; the
+ * alternative was letting any Superadmin bypass the owner check in every group.
+ */
+describe('changing a member\'s role', () => {
+  const ROLE_REPLY = { ok: true, status: 200, body: { success: true, role: 'admin', previous_role: 'member' } }
+
+  test('only the owner may change a role — an admin may not', async () => {
+    const { env, worker } = setup(ROLE_REPLY)
+    const byAdmin = await members.setGroupMemberRole(env, { groupId: 'g1', email: 'carol@example.com', role: 'admin', actor: BOB })
+    assert.equal(byAdmin.ok, false)
+    assert.equal(byAdmin.code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.match(byAdmin.message, /admin of that group, and this needs owner/)
+    assert.equal(worker.calls.length, 0, 'refused before anything left this worker')
+  })
+
+  test('the owner may, and the call carries their own credentials', async () => {
+    const { env, worker } = setup(ROLE_REPLY)
+    const r = await members.setGroupMemberRole(env, { groupId: 'g1', email: 'carol@example.com', role: 'admin', actor: ALICE })
+    assert.equal(r.ok, true, JSON.stringify(r))
+    assert.equal(r.role, 'admin')
+    assert.equal(r.previousRole, 'member', 'reported so the change can be undone')
+
+    const sent = worker.calls[0]
+    assert.equal(sent.method, 'PATCH')
+    assert.match(sent.url, /\/groups\/g1\/members\/u-carol$/, 'the target is in the path')
+    assert.equal(sent.body.user_id, 'u-alice', "the OWNER's identity authorises it")
+    assert.equal(sent.body.role, 'admin')
+  })
+
+  test('ownership cannot be granted through the role argument', async () => {
+    const { env, worker } = setup(ROLE_REPLY)
+    for (const role of ['owner', 'superadmin', '']) {
+      const r = await members.setGroupMemberRole(env, { groupId: 'g1', email: 'carol@example.com', role, actor: ALICE })
+      assert.equal(r.code, gs.ERR.INVALID_INPUT, `role=${role}`)
+    }
+    assert.match(
+      (await members.setGroupMemberRole(env, { groupId: 'g1', email: 'carol@example.com', role: 'owner', actor: ALICE })).message,
+      /Ownership is a transfer/,
+    )
+    assert.equal(worker.calls.length, 0)
+  })
+
+  test('an unregistered address is refused before the call', async () => {
+    const { env, worker } = setup(ROLE_REPLY)
+    const r = await members.setGroupMemberRole(env, { groupId: 'g1', email: 'nobody@example.com', role: 'admin', actor: ALICE })
+    assert.equal(r.code, gs.ERR.GRAPH_NOT_FOUND)
+    assert.equal(worker.calls.length, 0)
+  })
+
+  test("the chat worker's own refusals pass through — it owns the remaining rules", async () => {
+    // That an owner cannot change their own role, and that an owner's role cannot be changed, are
+    // enforced there and deliberately not restated here: a second copy would drift from the first.
+    const { env } = setup({ ok: false, status: 400, body: { error: 'The owner cannot change their own role' } })
+    const r = await members.setGroupMemberRole(env, { groupId: 'g1', email: 'carol@example.com', role: 'member', actor: ALICE })
+    assert.equal(r.ok, false)
+    assert.match(r.message, /cannot change their own role/)
+  })
+})

@@ -236,6 +236,73 @@ export async function addGroupMember(env, { groupId, email, role = 'member', act
 }
 
 /**
+ * Promote a member to admin, or demote an admin back to member. Owner only.
+ *
+ * This is how a group owner DELEGATES. An admin can add members and create invite links but
+ * cannot change roles, so the ability to appoint one stays with the owner and goes no further.
+ *
+ * The case it was built for: a World's main chat group is owned by the World's own address
+ * (post@nibi.no), while the person administering the platform connects as themselves and could
+ * not add members to a group they are responsible for. The alternative was letting any platform
+ * Superadmin bypass the owner check in every group; this removes no check at all.
+ *
+ * The chat worker's further rules — ownership is not assignable, the owner cannot change their
+ * own role, an owner's role cannot be changed by anyone — are deliberately NOT restated here.
+ * They are its rules, they are already right, and a second copy would drift from the first.
+ */
+export async function setGroupMemberRole(env, { groupId, email, role, actor }) {
+  if (!groupId) return fail(ERR.INVALID_INPUT, 'groupId is required.')
+  const address = String(email || '').trim().toLowerCase()
+  if (!address) return fail(ERR.INVALID_INPUT, 'email is required.')
+  if (!['member', 'admin'].includes(role)) {
+    return fail(ERR.INVALID_INPUT, "role must be 'member' or 'admin'. Ownership is a transfer, not a role change.")
+  }
+
+  const gate = await requireGroupRole(env, groupId, actor, CAN_REMOVE)
+  if (!gate.ok) return gate
+
+  const target = await env.vegvisr_org
+    .prepare('SELECT user_id FROM config WHERE LOWER(email) = ? LIMIT 1')
+    .bind(address)
+    .first()
+  if (!target?.user_id) {
+    return fail(ERR.GRAPH_NOT_FOUND, `${address} is not a registered VEGR.AI user.`, { email: address })
+  }
+
+  const creds = await callerCredentials(env, actor)
+  if (!creds.ok) {
+    return fail(ERR.FORBIDDEN_GRAPH, `The chat service cannot identify you: ${creds.reason}.`)
+  }
+
+  const res = await env.CHAT_WORKER.fetch(
+    `https://group-chat-worker/groups/${groupId}/members/${encodeURIComponent(target.user_id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: creds.userId, phone: creds.phone, email: creds.email, role }),
+    },
+  )
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    console.error('[chat-members] role change refused, status', res.status)
+    return fail(
+      res.status === 404 ? ERR.GRAPH_NOT_FOUND : ERR.FORBIDDEN_GRAPH,
+      data.error || `The chat service refused the request (status ${res.status}).`,
+      { groupId, email: address },
+    )
+  }
+
+  return {
+    ok: true,
+    groupId,
+    email: address,
+    userId: target.user_id,
+    role: data.role || role,
+    previousRole: data.previous_role || null,
+  }
+}
+
+/**
  * Remove a member. Owner only, and the chat worker enforces that again on its side.
  *
  * Its two further rules — an owner cannot remove themselves, and an owner cannot be removed — are

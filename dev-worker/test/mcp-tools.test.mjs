@@ -108,6 +108,7 @@ describe('18. tools/list', () => {
     'set_user_role',
     'add_group_member',
     'remove_group_member',
+    'set_group_member_role',
   ])
 
   test('no tool lets a model ask to be someone else', async () => {
@@ -151,6 +152,11 @@ describe('18. tools/list', () => {
     // neither is grantable through a tool argument.
     const agm = tools.find((x) => x.name === 'add_group_member')
     assert.deepEqual([...agm.inputSchema.properties.role.enum].sort(), ['admin', 'member'])
+
+    // Same ceiling on the tool that CHANGES a role. Granting ownership would be handing the group
+    // over, which is a transfer and not something a role argument should be able to express.
+    const sr2 = tools.find((x) => x.name === 'set_group_member_role')
+    assert.deepEqual([...sr2.inputSchema.properties.role.enum].sort(), ['admin', 'member'])
   })
 
   test('nothing deletes content, and the one removal tool takes access rather than data', async () => {
@@ -659,6 +665,7 @@ describe('annotations tell the client the truth about each tool', () => {
       // compose_node_image fetches reference images and hands them to OpenAI. Nothing else here
       // leaves Cloudflare with content attached.
       'compose_node_image',
+      'set_group_member_role',
     ])
     for (const t of tools) {
       assert.equal(t.annotations?.openWorldHint, outward.has(t.name), `${t.name} openWorldHint`)
@@ -1060,6 +1067,7 @@ describe('publish_html_node is the one tool that reaches the public internet', (
       'publish_html_node',
       'register_user',
       'remove_group_member',
+      'set_group_member_role',
     ])
     const t = tools.find((x) => x.name === 'publish_html_node')
     assert.equal(t.annotations.destructiveHint, true, 'it replaces the page that is there')
@@ -1987,6 +1995,7 @@ describe('post_chat_message is gated harder than everything else', () => {
       'publish_html_node',
       'register_user',
       'remove_group_member',
+      'set_group_member_role',
     ])
   })
 
@@ -2071,6 +2080,7 @@ describe('read_chat_messages is gated apart from posting', () => {
       'publish_html_node',
       'register_user',
       'remove_group_member',
+      'set_group_member_role',
     ])
     // The property that makes adding another one safe: no such scope is advertised, so every
     // one of them requires a person to tick a box on the consent screen.

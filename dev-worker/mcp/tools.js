@@ -869,6 +869,64 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── set_group_member_role ─────────────────────────────────────────────────
+  //
+  // How a group owner DELEGATES. An admin can add members and make invite links but cannot change
+  // roles, so appointing one stays with the owner and goes no further. Built 2026-10-02 because a
+  // World's main chat group is owned by the World's own address while the person running the
+  // platform connects as themselves — the alternative on the table was letting any Superadmin
+  // bypass the owner check everywhere, and this removes no check at all.
+  server.registerTool(
+    'set_group_member_role',
+    {
+      title: 'Promote or demote a member of a chat group',
+      description:
+        'Make an existing member of a chat group an admin, or put an admin back to ordinary ' +
+        'member. Only the group OWNER can do this — an admin cannot appoint another admin. An ' +
+        'admin may add members and create invite links; removing members and changing roles stay ' +
+        'with the owner. Ownership itself cannot be granted here: handing over a group is a ' +
+        'transfer, not a role change. The owner cannot change their own role either, which would ' +
+        'leave the group with nobody able to promote anyone back. Use list_group_members to see ' +
+        'who holds what. Requires the chat:write scope.',
+      inputSchema: {
+        groupId: z.string().min(1).describe('The group you own.'),
+        email: z.string().min(3).describe("The member's registered e-mail address."),
+        role: z
+          .enum(['member', 'admin'])
+          .describe('"admin" lets them add members and make invite links; "member" takes that away.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        groupId: z.string(),
+        email: z.string(),
+        userId: z.string(),
+        role: z.string(),
+        previousRole: z.string().nullable(),
+      },
+      // A write that reaches another person — it changes what they can do — but nothing is lost
+      // and it is exactly reversible by the same call with the other role.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ groupId, email, role }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await members.setGroupMemberRole(env, { groupId, email, role, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        result.previousRole && result.previousRole !== result.role
+          ? `${result.email} is now ${result.role} of that group (was ${result.previousRole}).`
+          : `${result.email} is ${result.role} of that group.`,
+      )
+    },
+  )
+
   // ── create_group_invite ───────────────────────────────────────────────────
   //
   // The path for someone the system does NOT already know. It keeps the consent with the person
@@ -2348,6 +2406,7 @@ export const TOOL_NAMES = [
   'list_group_members',
   'add_group_member',
   'remove_group_member',
+  'set_group_member_role',
   'create_group_invite',
   'get_fulltext_elements',
   'get_image_guide',

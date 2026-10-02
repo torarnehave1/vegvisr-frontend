@@ -1077,6 +1077,29 @@ var index_default = {
               }
             },
             "/groups/{groupId}/members/{userId}": {
+              patch: {
+                summary: "Change a member's role in a group (owner only)",
+                description:
+                  "Promote a member to admin, or demote an admin back to member. An admin can add members and create invite links; " +
+                  "only the owner can remove members or change roles. 'owner' cannot be assigned here — handing over a group is a " +
+                  "transfer, not a role change — and the owner cannot change their own role, which would leave the group with nobody " +
+                  "able to promote anyone back.",
+                operationId: "setGroupMemberRole",
+                parameters: [
+                  groupIdParam,
+                  { name: "userId", in: "path", required: true, schema: { type: "string" }, description: "user_id of the member whose role changes" }
+                ],
+                requestBody: {
+                  required: true,
+                  content: { "application/json": { schema: { type: "object", required: ["user_id", "phone", "role"], properties: { ...authBodyProps, role: { type: "string", enum: ["member", "admin"], description: "The role to set." } } } } }
+                },
+                responses: {
+                  "200": { description: "Role changed", content: { "application/json": { schema: { type: "object", properties: { ...successProp, group_id: { type: "string" }, user_id: { type: "string" }, role: { type: "string" }, previous_role: { type: "string" } } } } } },
+                  "400": { description: "Invalid role, or the owner tried to change their own", content: { "application/json": { schema: errorSchema } } },
+                  "403": { description: "Not the owner, or the target is the owner", content: { "application/json": { schema: errorSchema } } },
+                  "404": { description: "User is not a member of this group", content: { "application/json": { schema: errorSchema } } }
+                }
+              },
               delete: {
                 summary: "Remove a member from a group (owner only)",
                 operationId: "removeGroupMember",
@@ -1938,6 +1961,74 @@ var index_default = {
         }
         return jsonResponse({ success: true, senders: result.senders });
       }
+      // ── PATCH /groups/{id}/members/{userId} — change a member's role ─────────
+      //
+      // Added 2026-10-02. The roles already existed and were already enforced by the invite and
+      // removal checks; there was simply no way to CHANGE one after a member was added. `/join`
+      // takes a role but uses INSERT OR IGNORE, so re-joining as admin does nothing to someone
+      // who is already in the group.
+      //
+      // The case that needed it: a World's main chat group is owned by the World's own address
+      // (post@nibi.no) while the person administering the platform connects as themselves, and so
+      // could not add members to a group they are responsible for. The alternative on the table
+      // was letting any platform Superadmin bypass the owner check in every group — this is the
+      // narrower answer. It removes no check; it lets an owner delegate inside their own group.
+      const memberRoleMatch = pathname.match(/^\/groups\/([^/]+)\/members\/([^/]+)$/);
+      if (memberRoleMatch && request.method === "PATCH") {
+        const groupId = memberRoleMatch[1];
+        const targetUserId = decodeURIComponent(memberRoleMatch[2]);
+        const body = await readJson(request);
+        if (!body) {
+          return errorResponse("Invalid JSON body");
+        }
+        const userId = (body.user_id || "").trim();
+        const phone = (body.phone || "").trim();
+        const email = body.email ? String(body.email).trim() : "";
+        const role = (body.role || "").trim();
+        if (!userId) {
+          return errorResponse("user_id required");
+        }
+        if (!phone) {
+          return errorResponse("phone required");
+        }
+        // Not "owner". Handing over a group is a transfer, not a role change, and it would let an
+        // owner leave a group with two owners or none depending on what followed.
+        if (role !== "member" && role !== "admin") {
+          return errorResponse("role must be 'member' or 'admin'");
+        }
+        const auth = await validateUser(env, userId, phone, email);
+        if (!auth.ok) {
+          return errorResponse(auth.error, auth.status);
+        }
+        const requesterMember = await env.CHAT_DB.prepare(
+          "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?"
+        ).bind(groupId, userId).first();
+        if (!requesterMember || requesterMember.role !== "owner") {
+          return errorResponse("Only the group owner can change a member's role", 403);
+        }
+        if (targetUserId === userId) {
+          // An owner demoting themselves would leave the group with no one able to promote
+          // anybody back, including themselves.
+          return errorResponse("The owner cannot change their own role", 400);
+        }
+        const target = await env.CHAT_DB.prepare(
+          "SELECT role FROM group_members WHERE group_id = ? AND user_id = ?"
+        ).bind(groupId, targetUserId).first();
+        if (!target) {
+          return errorResponse("User is not a member of this group", 404);
+        }
+        if (target.role === "owner") {
+          return errorResponse("Cannot change an owner's role", 403);
+        }
+        await env.CHAT_DB.prepare(
+          "UPDATE group_members SET role = ? WHERE group_id = ? AND user_id = ?"
+        ).bind(role, groupId, targetUserId).run();
+        await env.CHAT_DB.prepare(
+          "UPDATE groups SET updated_at = ? WHERE id = ?"
+        ).bind(Date.now(), groupId).run();
+        return jsonResponse({ success: true, group_id: groupId, user_id: targetUserId, role, previous_role: target.role });
+      }
+
       const removeMemberMatch = pathname.match(/^\/groups\/([^/]+)\/members\/([^/]+)$/);
       if (removeMemberMatch && request.method === "DELETE") {
         const groupId = removeMemberMatch[1];
