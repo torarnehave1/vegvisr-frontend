@@ -1842,7 +1842,7 @@ export function registerTools(server, getContext) {
       inputSchema: {
         email: z.string().min(3).describe("The person's email address. This is the identity — it is how they sign in, and it is what makes the call idempotent."),
         name: z.string().optional().describe("The person's full name."),
-        phone: z.string().optional().describe('Mobile number in +47XXXXXXXX form. Optional, but without it they cannot sign in by SMS code.'),
+        phone: z.string().optional().describe('Mobile number in +47XXXXXXXX form. Optional, but without it they cannot sign in by SMS code. Marked verified immediately — usable for SMS sign-in and chat-group membership right away, no OTP step needed.'),
         groupTags: z
           .string()
           .optional()
@@ -2031,7 +2031,7 @@ export function registerTools(server, getContext) {
         'Superadmin role.',
       inputSchema: {
         email: z.string().min(3).describe('The already-registered person to update.'),
-        phone: z.string().optional().describe('Mobile number in +47XXXXXXXX form.'),
+        phone: z.string().optional().describe('Mobile number in +47XXXXXXXX form. Marked verified immediately if it is new or different from what was on file — usable for SMS sign-in and chat-group membership right away, no OTP step needed.'),
         address: z.string().optional().describe('Address line.'),
         street: z.string().optional().describe('Street or road name.'),
         postalCode: z.string().optional().describe('Postal code.'),
