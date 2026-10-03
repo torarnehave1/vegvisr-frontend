@@ -22,7 +22,7 @@ export const NODE_TYPES = [
   'agent-run', 'app-viewer', 'audio', 'audio-portfolio-selector', 'audio-transcription',
   'background', 'bubblechart', 'button_row', 'chart', 'cloudflare-live', 'cloudflare-video',
   'company-card', 'component', 'css-node', 'data-node', 'email-brand', 'email-manager',
-  'email-template', 'fulltext', 'guide-node', 'html-node', 'image', 'image-analysis',
+  'email-signature', 'email-template', 'fulltext', 'guide-node', 'html-node', 'image', 'image-analysis',
   'imagequote', 'info', 'instagram-post', 'json-node', 'layout', 'learn-script', 'linechart',
   'link', 'map', 'markdown-image', 'menu', 'menu_creator', 'mermaid-diagram', 'network',
   'news-feed', 'password-protection', 'person-network-canvas', 'person-profile', 'piechart',
