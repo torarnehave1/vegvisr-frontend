@@ -369,3 +369,73 @@ export class FakeRegisterWorker {
     }), { status: 200 })
   }
 }
+
+/**
+ * Sending accounts on a profile, in the production shape.
+ *
+ * `emailAccountPasswords` is keyed by account id and holds the credential in plaintext in the
+ * real database (email-worker/index.js:2317-2320). The fixture therefore stores a value for the
+ * accounts that should have one and omits the key entirely for those that should not — because
+ * email-service only ever asks whether the key EXISTS, and a fixture that always supplied one
+ * would make the "no credential stored" refusal untestable.
+ */
+export function seedSenders(raw, email, accounts, { role = 'User', userId = null } = {}) {
+  raw.exec(`CREATE TABLE IF NOT EXISTS config (
+    user_id TEXT, data TEXT NOT NULL DEFAULT '{}', email TEXT PRIMARY KEY,
+    emailVerificationToken TEXT, Role TEXT, phone TEXT,
+    phone_verification_code TEXT, phone_verification_expires_at INTEGER, phone_verified_at INTEGER,
+    display_name TEXT, group_tags TEXT
+  )`)
+  const emailAccounts = []
+  const emailAccountPasswords = {}
+  const emailAccountVerifiedAt = {}
+  accounts.forEach((a, i) => {
+    const id = a.id || `acct-${email.split('@')[0]}-${i}`
+    emailAccounts.push({
+      id,
+      email: a.email,
+      name: a.name || '',
+      accountType: a.accountType || 'cf-email-service',
+      cfAccountId: a.cfAccountId === undefined ? '5c34c130' : a.cfAccountId,
+      isDefault: !!a.isDefault,
+      hasPassword: a.hasCredential !== false,
+    })
+    if (a.hasCredential !== false) emailAccountPasswords[id] = 'CREDENTIAL-NEVER-READ'
+    if (a.verified) emailAccountVerifiedAt[id] = '2026-09-30T10:00:00.000Z'
+  })
+  const data = JSON.stringify({ settings: { emailAccounts, emailAccountPasswords, emailAccountVerifiedAt } })
+  raw
+    .prepare('INSERT OR REPLACE INTO config (user_id, data, email, emailVerificationToken, Role, phone) VALUES (?,?,?,?,?,?)')
+    .run(userId || `u-${email.split('@')[0]}`, data, email, `sess-${email.split('@')[0]}`, role, '+4790000009')
+}
+
+/** The two tables from database/email-sender-grants.sql, plus any rows the test wants. */
+export function seedGrants(raw, rows = []) {
+  raw.exec(`
+    CREATE TABLE IF NOT EXISTS email_sender_grants (
+      id TEXT PRIMARY KEY, sender_email TEXT NOT NULL, holder_email TEXT NOT NULL,
+      grantee_email TEXT NOT NULL, granted_by TEXT NOT NULL, granted_at TEXT NOT NULL,
+      expires_at TEXT, revoked_at TEXT, revoked_by TEXT, note TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_esg_live
+      ON email_sender_grants(sender_email, grantee_email) WHERE revoked_at IS NULL;
+    CREATE TABLE IF NOT EXISTS email_send_log (
+      id TEXT PRIMARY KEY, ts TEXT NOT NULL, actor_email TEXT NOT NULL, sender_email TEXT NOT NULL,
+      holder_email TEXT, basis TEXT, grant_id TEXT, recipient_domain TEXT, recipient_hash TEXT,
+      subject_chars INTEGER, body_chars INTEGER, template_source TEXT, signature_name TEXT,
+      outcome TEXT NOT NULL, message_id TEXT, surface TEXT NOT NULL, client_id TEXT
+    );
+  `)
+  const ins = raw.prepare(
+    `INSERT OR REPLACE INTO email_sender_grants
+       (id, sender_email, holder_email, grantee_email, granted_by, granted_at, expires_at, revoked_at, revoked_by, note)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  )
+  for (const r of rows) {
+    ins.run(
+      r.id, r.sender_email, r.holder_email, r.grantee_email,
+      r.granted_by || r.holder_email, r.granted_at || '2026-10-01T09:00:00.000Z',
+      r.expires_at ?? null, r.revoked_at ?? null, r.revoked_by ?? null, r.note ?? null,
+    )
+  }
+}

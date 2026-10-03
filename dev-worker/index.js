@@ -24,6 +24,7 @@ import {
 import { listTemplates as gsListTemplates } from './templates-service.js'
 import { readPublishedDomainRegistry, mergePublishedDomains } from './published-domains.js'
 import { NODE_TYPES } from './node-types.js'
+import * as emailService from './email-service.js'
 import { OAuthProvider } from '@cloudflare/workers-oauth-provider'
 import { handleAuthorize, ISSUER, MCP_RESOURCE, SUPPORTED_SCOPES } from './oauth/authorize.js'
 import { mcpHandler } from './mcp/server.js'
@@ -5572,6 +5573,69 @@ const restHandler = {
         return new Response(JSON.stringify(openApiSpec, null, 2), {
           status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      // ── E-mail sender grants ────────────────────────────────────────────────
+      //
+      // Delegating "you may send mail as post@nibi.no" is NOT an MCP tool, and that is a
+      // consequence of how identity works here rather than an oversight. The holder of a World's
+      // mailbox usually cannot complete the OAuth flow at all — every vegvisr.org login ends at
+      // the SMS step and a mailbox address has no routable phone. The path that does work is the
+      // Agent Builder's System Owner "Login as…" bar, which hands over a token that ALREADY
+      // exists (realtime-worker/index.js:1641) rather than minting one. So these are REST routes
+      // authenticated by that token, and the granter is read from the token's own row.
+      //
+      // There is deliberately no field naming the granter. A body cannot say who it is from.
+      if (pathname === '/email/sender-grants' || pathname.startsWith('/email/sender-grants/')) {
+        const tv = await validateAuth(request, env)
+        if (!tv.valid) {
+          return new Response(JSON.stringify({ error: tv.error || 'Authentication required' }), {
+            status: tv.status || 401, headers: corsHeaders,
+          })
+        }
+        // A full session only. A narrowly scoped API token minted for graph writes has no
+        // business handing out the right to send mail as somebody.
+        if (!hasScope(tv.scopes, 'all')) {
+          return new Response(JSON.stringify({
+            error: 'Sender grants need a signed-in session, not a scoped API token.',
+            code: 'INSUFFICIENT_SCOPE',
+          }), { status: 403, headers: corsHeaders })
+        }
+        const actor = normalizeActor(tv)
+        const reply = (r) => new Response(
+          JSON.stringify(r.ok ? { success: true, ...r, ok: undefined } : { success: false, error: r.message, code: r.code }),
+          { status: r.ok ? 200 : (r.status || 500), headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+
+        const revokeMatch = pathname.match(/^\/email\/sender-grants\/([^/]+)\/revoke$/)
+        if (revokeMatch && request.method === 'POST') {
+          return reply(await emailService.revokeSenderGrant(env, {
+            grantId: decodeURIComponent(revokeMatch[1]), actor,
+          }))
+        }
+        if (pathname === '/email/sender-grants' && request.method === 'POST') {
+          const body = await request.json().catch(() => null)
+          if (!body) {
+            return new Response(JSON.stringify({ success: false, error: 'Invalid JSON body', code: 'INVALID_INPUT' }), {
+              status: 400, headers: corsHeaders,
+            })
+          }
+          return reply(await emailService.createSenderGrant(env, {
+            senderEmail: body.senderEmail,
+            granteeEmail: body.granteeEmail,
+            expiresInDays: body.expiresInDays,
+            note: body.note,
+            actor,
+          }))
+        }
+        if (pathname === '/email/sender-grants' && request.method === 'GET') {
+          return reply(await emailService.listSenderGrants(env, {
+            actor, includeRevoked: url.searchParams.get('includeRevoked') === '1',
+          }))
+        }
+        return new Response(JSON.stringify({ success: false, error: 'Method not allowed', code: 'INVALID_INPUT' }), {
+          status: 405, headers: corsHeaders,
         })
       }
 

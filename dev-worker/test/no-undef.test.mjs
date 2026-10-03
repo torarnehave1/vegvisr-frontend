@@ -59,6 +59,7 @@ test('no module calls a name that does not exist', async () => {
     ...sourcesIn('mcp'),
     new URL('../chat-service.js', import.meta.url).pathname,
     new URL('../chat-members.js', import.meta.url).pathname,
+    new URL('../email-service.js', import.meta.url).pathname,
     new URL('../images-service.js', import.meta.url).pathname,
     new URL('../graph-service.js', import.meta.url).pathname,
     new URL('../users-service.js', import.meta.url).pathname,
