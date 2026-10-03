@@ -130,6 +130,13 @@ describe('chat:read is consented to separately from chat:write', () => {
     // existing scope is doing something the user did not agree to.
     assert.match(SCOPE_TEXT['chat:write'], /andre mennesker/, 'not "chat groups" specifically')
     assert.match(SCOPE_TEXT['graph:write'], /innholdet ditt/, 'not "graphs and nodes" specifically')
+    // Added 2026-10-03 with send_email. The consent screen must name e-mail, and must name the
+    // limit that makes it safe — otherwise someone ticking the box for group messages has no way
+    // to know what they granted.
+    assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /E-POST/,
+      'the copy must name e-mail once a tool in the class sends it')
+    assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /aldri fra en adresse du bare er\s+' \+\s+'Superadmin over|Superadmin over/,
+      'and must say that Superadmin alone grants no address')
     assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /meldingskanaler generelt/,
       'must say the scope covers the class, so a future tool does not need a new scope')
   })

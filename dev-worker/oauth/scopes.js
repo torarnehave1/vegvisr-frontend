@@ -140,10 +140,25 @@ export const OPT_IN_SCOPE_DETAIL = {
   // frozen — only the scope names are — so describing more of a risk class costs a consent
   // screen that reads correctly and nothing else. Naming it matters: someone reading only
   // "sende meldinger" would not expect an assistant to be able to add a person to a group.
+  //
+  // Widened again 2026-10-03 for e-mail. The scope was defined at the top of this file as
+  // "sending a message that reaches other people, IN ANY CHANNEL", and the sentence above
+  // promised that a future tool in the class would reuse it rather than ask for a new
+  // authorisation — so this is the promise being kept, not stretched.
+  //
+  // THE HONEST COST, recorded rather than smoothed over: everyone who ticked this box before
+  // today consented under wording that said nothing about e-mail, and widening the copy does not
+  // reach back to them. What they actually gained is bounded by the own-profile rule — "my
+  // assistant can send as MY OWN address" — which is new but is not somebody else's identity.
+  // Sending as another World requires that World holder's deliberate, revocable grant, and no
+  // amount of consent here produces one.
   'chat:write':
     'Lar assistenten sende meldinger som når andre mennesker, på dine vegne, og endre hvem som ' +
     'er med i chattegrupper DU eier eller er admin i. I dag betyr det chattegrupper du er ' +
-    'medlem av; scopen dekker meldingskanaler generelt, så et framtidig verktøy i samme klasse ' +
+    'medlem av OG E-POST: den kan sende e-post fra adresser som står på din egen profil, eller ' +
+    'som noen uttrykkelig har gitt deg lov til å bruke — aldri fra en adresse du bare er ' +
+    'Superadmin over, og en sendt e-post kan ikke kalles tilbake. Scopen dekker ' +
+    'meldingskanaler generelt, så et framtidig verktøy i samme klasse ' +
     'vil bruke den i stedet for å be deg autorisere på nytt. Meldingene postes av ' +
     'assistentens egen bot og merkes alltid med at en AI skrev dem på dine vegne. Den kan bare ' +
     'poste i grupper der boten er lagt til. Meldinger kan ikke slettes av assistenten etterpå. ' +
