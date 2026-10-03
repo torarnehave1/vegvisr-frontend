@@ -23,6 +23,7 @@ import { z } from 'zod'
 import * as gs from '../graph-service.js'
 import * as chat from '../chat-service.js'
 import * as members from '../chat-members.js'
+import * as mail from '../email-service.js'
 import * as templates from '../templates-service.js'
 import * as images from '../images-service.js'
 import * as sites from '../published-domains.js'
@@ -975,6 +976,196 @@ export function registerTools(server, getContext) {
         { success: true, ...payload },
         `Invite link, valid ${result.expiresInDays} day${result.expiresInDays === 1 ? '' : 's'}:\n${result.inviteLink}\n` +
           'Anyone with this link can join the group. Give it only to the people it is for.',
+      )
+    },
+  )
+
+  // ── list_email_senders ────────────────────────────────────────────────────
+  //
+  // Behind chat:write rather than a read scope, for the reason list_chat_groups already gives:
+  // the list describes where this assistant is allowed to speak.
+  server.registerTool(
+    'list_email_senders',
+    {
+      title: 'Addresses you may send e-mail as',
+      description:
+        "List the e-mail addresses this connection can send FROM, and why each one is allowed: " +
+        "either the address is on the authenticated user's own profile, or somebody explicitly " +
+        "granted it to them. For a granted address it names who granted it and when the grant " +
+        "expires, so the user can see what they are relying on. Call this before preview_email " +
+        "rather than asking the user to recall an address, and never guess an address that is not " +
+        "in the list — it will be refused. Platform Superadmin status adds nothing to this list. " +
+        "It never returns a credential, an account id, or anybody else's addresses. Reading it " +
+        "changes nothing and sends nothing. Requires the chat:write scope, the same one sending needs.",
+      inputSchema: {},
+      outputSchema: {
+        success: z.boolean(),
+        count: z.number(),
+        senders: z.array(
+          z.object({
+            email: z.string(),
+            fromName: z.string().nullable(),
+            basis: z.string(),
+            holderEmail: z.string(),
+            grantedBy: z.string().nullable(),
+            expiresAt: z.string().nullable(),
+            note: z.string().nullable(),
+            lastVerifiedAt: z.string().nullable(),
+          }),
+        ),
+      },
+      annotations: READ_ONLY,
+    },
+    async () => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await mail.listSendableSenders(env, { actor })
+      if (!result.ok) return fromService(result)
+      const { ok: _o, ...payload } = result
+      const lines = result.senders.map((s) =>
+        s.basis === 'own-profile'
+          ? `${s.email} — your own address`
+          : `${s.email} — granted by ${s.grantedBy}${s.expiresAt ? `, expires ${s.expiresAt}` : ''}`,
+      )
+      return ok(
+        { success: true, ...payload },
+        result.count === 0
+          ? 'You cannot send e-mail as any address. Add a sending account to your profile, or ask ' +
+              'an address holder to grant you theirs.'
+          : `You may send as:\n${lines.join('\n')}`,
+      )
+    },
+  )
+
+  // ── preview_email ─────────────────────────────────────────────────────────
+  //
+  // A separate tool rather than a flag on the send, because no connected MCP client declares the
+  // `elicitation` capability: this server cannot ask the user anything in the middle of a call. A
+  // preview is the only point at which a person reads the text before it leaves, and a tool whose
+  // name is not "send" is much harder for a model to reach for when it was asked for a draft.
+  server.registerTool(
+    'preview_email',
+    {
+      title: 'Render an e-mail without sending it',
+      description:
+        "Render exactly what sending would produce, and return it without sending anything. " +
+        "USE THIS BEFORE EVERY SEND. No connected MCP client lets this server ask the user a " +
+        "question mid-call, so this is the only way the user sees the text before it leaves. It " +
+        "resolves the sending address by the same rule a send does, so a refusal here is the " +
+        "refusal you would get there — one step earlier, with nothing delivered. It fills the " +
+        "sending World's template and the chosen signature, and lists every placeholder no " +
+        "variable filled in `unresolvedPlaceholders`; sending REFUSES those rather than delivering " +
+        "a literal \"{name}\" to a person. Show the user the `subject` and `html` it returns and " +
+        "let them confirm before you send. You may only send as an address on the user's own " +
+        "profile or one somebody explicitly granted them — platform Superadmin grants nothing " +
+        "here, so call list_email_senders rather than assuming. `sent` is always false: this " +
+        "changes nothing, sends nothing and reaches nobody. Requires the chat:write scope.",
+      inputSchema: {
+        fromEmail: z
+          .string()
+          .min(3)
+          .describe(
+            "The address the e-mail comes FROM. Must be one list_email_senders returned — an " +
+              "address on your own profile, or one somebody granted you. Being a platform " +
+              "Superadmin grants nothing here. Never invent one.",
+          ),
+        toEmail: z
+          .string()
+          .min(3)
+          .optional()
+          .describe('The recipient, if known. Optional for a preview, required to send. One address only.'),
+        templatePurpose: z
+          .string()
+          .optional()
+          .describe(
+            "Which of the sending World's templates to use, e.g. \"login\". Omit it and pass " +
+              "subject + bodyHtml to write the e-mail yourself.",
+          ),
+        language: z.enum(['no', 'en']).optional().describe('Template language. Default "no".'),
+        signature: z
+          .string()
+          .optional()
+          .describe(
+            "The signature to append, by its name. Omit for the World's default; pass \"none\" to " +
+              "append none. A name that does not exist is refused with the list of names that do.",
+          ),
+        subject: z
+          .string()
+          .optional()
+          .describe("Subject line. Required when no templatePurpose is given; overrides the template's own subject."),
+        bodyHtml: z
+          .string()
+          .optional()
+          .describe(
+            'The body as HTML, when writing one directly instead of using a template. This is the ' +
+              'ONLY input treated as markup — every value in `variables` is HTML-escaped.',
+          ),
+        variables: z
+          .record(z.string())
+          .optional()
+          .describe('Values for the {placeholders} in the template and signature. Each one is HTML-escaped.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        sent: z.boolean(),
+        senderEmail: z.string(),
+        fromName: z.string().nullable(),
+        toEmail: z.string().nullable(),
+        domain: z.string(),
+        subject: z.string(),
+        html: z.string(),
+        textPreview: z.string(),
+        basis: z.string(),
+        grantId: z.string().nullable(),
+        templateSource: z.string(),
+        signatureName: z.string().nullable(),
+        unresolvedPlaceholders: z.array(z.string()),
+        warnings: z.array(z.string()),
+        characters: z.number(),
+      },
+      // Renders and returns. Nothing is written, nothing is sent, nobody is reached.
+      annotations: READ_ONLY,
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await mail.renderEmail(env, { ...args, actor })
+      if (!result.ok) {
+        // A refused preview earns a log row: an attempt to send as another World's address is
+        // precisely the event worth being able to see afterwards, succeeded or not.
+        await mail.logSend(env, {
+          actorEmail: actor.email,
+          senderEmail: String(args.fromEmail || '').toLowerCase(),
+          toEmail: args.toEmail,
+          outcome: result.code,
+          surface: 'mcp-preview',
+          clientId: auth?.clientId || null,
+        })
+        return fromService(result)
+      }
+
+      const { ok: _o, ...payload } = result
+      const notes = [
+        result.unresolvedPlaceholders.length
+          ? `Unfilled placeholders: ${result.unresolvedPlaceholders.map((x) => `{${x}}`).join(', ')} — sending will refuse until every one has a value.`
+          : null,
+        ...result.warnings,
+      ].filter(Boolean)
+      return ok(
+        { success: true, ...payload },
+        `NOT SENT — this is a preview.\nFrom: ${result.senderEmail}${result.toEmail ? `\nTo: ${result.toEmail}` : ''}\n` +
+          `Subject: ${result.subject}\n` +
+          `Signature: ${result.signatureName || 'none'} · Template: ${result.templateSource}\n` +
+          (notes.length ? `\n${notes.join('\n')}\n` : '') +
+          `\n${result.html}`,
       )
     },
   )
@@ -2477,6 +2668,8 @@ export const TOOL_NAMES = [
   'remove_group_member',
   'set_group_member_role',
   'create_group_invite',
+  'list_email_senders',
+  'preview_email',
   'get_fulltext_elements',
   'get_image_guide',
   'generate_node_image',

@@ -439,3 +439,43 @@ export function seedGrants(raw, rows = []) {
     )
   }
 }
+
+/**
+ * A World's #EMAIL-<domain> graph, in the shape set_world_email_template writes.
+ *
+ * meta_area on knowledge_graphs is a GENERATED column over data, so the marker has to live inside
+ * the JSON rather than be set alongside it — which is also how loadEmailGraph finds it.
+ */
+export function seedEmailGraph(raw, domain, { brand = null, templates = [], signatures = [], id } = {}) {
+  const nodes = []
+  if (brand) {
+    nodes.push({ id: 'n-brand', label: `${domain} email brand`, type: 'email-brand', info: '', metadata: brand })
+  }
+  for (const t of templates) {
+    nodes.push({
+      id: t.id || `n-tpl-${t.purpose}-${t.language}`,
+      label: `Email — ${t.purpose}`,
+      type: 'email-template',
+      info: t.info,
+      metadata: { purpose: t.purpose, language: t.language, subject: t.subject },
+    })
+  }
+  for (const s of signatures) {
+    nodes.push({
+      id: s.id || `n-sig-${s.name}`,
+      label: `Signature — ${s.name}`,
+      type: 'email-signature',
+      info: s.info,
+      metadata: {
+        name: s.name,
+        ...(s.language ? { language: s.language } : {}),
+        isDefault: !!s.isDefault,
+        ...(s.senderEmail ? { senderEmail: s.senderEmail } : {}),
+      },
+    })
+  }
+  const data = JSON.stringify({ metadata: { title: `Email Templates — ${domain}`, metaArea: `#EMAIL-${domain}`, createdBy: `post@${domain}` }, nodes, edges: [] })
+  raw
+    .prepare('INSERT INTO knowledge_graphs (id, title, created_by, data) VALUES (?,?,?,?)')
+    .run(id || `g-email-${domain}`, `Email Templates — ${domain}`, `post@${domain}`, data)
+}

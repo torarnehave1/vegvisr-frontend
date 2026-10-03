@@ -112,6 +112,16 @@ describe('18. tools/list', () => {
     'set_group_member_role',
   ])
 
+  // The e-mail tools, added 2026-10-03. They name two addresses — the RECIPIENT, the way
+  // add_group_member names the person being added, and which of the caller's own permitted
+  // identities the mail goes out AS. Neither is a claim about who the caller is: that still comes
+  // from the token and only from the token.
+  //
+  // They are a separate set because they spell their subject `toEmail` rather than `email`, so the
+  // assertion below is about what they must NOT carry. Relying on that spelling to slip past the
+  // ban loop is exactly the accident this file exists to prevent.
+  const ADDRESS_TOOLS = new Set(['preview_email', 'list_email_senders'])
+
   test('no tool lets a model ask to be someone else', async () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RW)
@@ -123,11 +133,38 @@ describe('18. tools/list', () => {
         assert.equal(props.includes(forbidden), false, `${t.name} exposes ${forbidden}`)
       }
       // And outside the directory tools, a subject cannot be named either.
-      if (SUBJECT_TOOLS.has(t.name)) continue
+      if (SUBJECT_TOOLS.has(t.name) || ADDRESS_TOOLS.has(t.name)) continue
       for (const forbidden of ['email', 'role']) {
         assert.equal(props.includes(forbidden), false, `${t.name} exposes ${forbidden}`)
       }
     }
+  })
+
+  // Decision of 2026-10-03, as a protocol fact rather than a promise: the right to send as an
+  // address is own-profile or an explicit grant, and Superadmin is neither. Agent-Builder's
+  // send_email has `forUserEmail`, which is its Superadmin override; its ABSENCE here is what makes
+  // the rule unaskable. A model has nowhere to say "send as somebody else" — and no way to name an
+  // accountId either, which is what email-worker's unauthenticated gmail route needs.
+  test('an e-mail tool cannot ask to send on another person\'s behalf', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    for (const name of ADDRESS_TOOLS) {
+      const t = tools.find((x) => x.name === name)
+      assert.ok(t, `${name} should be registered`)
+      const props = Object.keys(t.inputSchema.properties || {})
+      for (const forbidden of ['forUserEmail', 'userEmail', 'accountId', 'cfAccountId', 'holderEmail', 'basis']) {
+        assert.equal(props.includes(forbidden), false, `${name} exposes ${forbidden}`)
+      }
+    }
+    const preview = tools.find((x) => x.name === 'preview_email')
+    assert.ok(Object.keys(preview.inputSchema.properties).includes('fromEmail'))
+    // A preview must say, in the text a model reads, that it does not send.
+    assert.match(preview.description, /sends nothing/i)
+    assert.match(preview.description, /Superadmin grants nothing/i)
+    // And it must not be flagged as reaching anybody.
+    assert.equal(preview.annotations.openWorldHint, false)
+    assert.equal(preview.annotations.readOnlyHint, true)
   })
 
   test('a directory tool names a subject, and cannot hand out Superadmin', async () => {

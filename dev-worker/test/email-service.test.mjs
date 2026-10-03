@@ -12,7 +12,7 @@
 // Run:  node --test test/email-service.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { freshDb, seedSenders, seedGrants } from './d1-adapter.mjs'
+import { freshDb, seedSenders, seedGrants, seedEmailGraph } from './d1-adapter.mjs'
 import * as gs from '../graph-service.js'
 import * as email from '../email-service.js'
 
@@ -323,4 +323,233 @@ test('a revoked grant is hidden by default and visible on request', async () => 
   const all = await email.listSenderGrants(env, { actor: actorFor(NIBI, 'Admin'), includeRevoked: true })
   assert.equal(all.count, 1)
   assert.equal(all.grants[0].live, false)
+})
+
+// ── Composing ───────────────────────────────────────────────────────────────
+//
+// renderEmail is the whole of a preview and the first half of a send, which is deliberate: a
+// preview nobody can trust is worse than no preview, so the two cannot be allowed to diverge.
+
+const TEMPLATE = [
+  '<div>',
+  '  <!-- edit:heading:start --><h2 style="color:{brandAccent}">Hei {name}</h2><!-- edit:heading:end -->',
+  '  <p>{message}</p>',
+  '  <!-- edit:signature:start --><!-- edit:signature:end -->',
+  '  <!-- edit:footer:start --><p>{brandFooter}</p><!-- edit:footer:end -->',
+  '</div>',
+].join('\n')
+
+function worldWithGraph(grants = [], graph = {}) {
+  const { env, raw } = freshDb()
+  seedSenders(raw, 'torarne@example.com', [{ email: VEGR, name: 'VEGR.AI', verified: true }])
+  seedSenders(raw, NIBI, [{ email: NIBI, name: 'NIBI', verified: true }], { role: 'Admin' })
+  seedSenders(raw, 'boss@example.com', [], { role: 'Superadmin' })
+  seedGrants(raw, grants)
+  seedEmailGraph(raw, 'nibi.no', {
+    brand: { name: 'NIBI', accent: '#1f3a5f', footer: 'NIBI · nibi.no', fromName: 'NIBI' },
+    templates: [{ purpose: 'nyhetsbrev', language: 'no', subject: 'Nytt fra {brandName}', info: TEMPLATE }],
+    signatures: [
+      { name: 'tor-arne', language: 'no', isDefault: true, info: '<!-- edit:signature:start --><p>Tor Arne Håve</p><!-- edit:signature:end -->' },
+      { name: 'drift', info: '<p>Drift</p>' },
+    ],
+    ...graph,
+  })
+  return { env, raw }
+}
+
+const asHolder = () => actorFor(NIBI, 'Admin')
+
+test('a template, its brand and the default signature compose into one email', async () => {
+  const { env } = worldWithGraph()
+  const r = await email.renderEmail(env, {
+    fromEmail: NIBI, toEmail: 'someone@example.com', templatePurpose: 'nyhetsbrev',
+    variables: { name: 'Inger', message: 'Hei igjen' }, actor: asHolder(),
+  })
+  assert.equal(r.ok, true)
+  assert.equal(r.sent, false, 'rendering must never claim to have sent')
+  assert.equal(r.subject, 'Nytt fra NIBI')
+  assert.match(r.html, /Hei Inger/)
+  assert.match(r.html, /Tor Arne Håve/)
+  assert.match(r.html, /NIBI · nibi\.no/)
+  assert.equal(r.signatureName, 'tor-arne')
+  assert.equal(r.templateSource, 'world-template:nyhetsbrev/no')
+  assert.deepEqual(r.unresolvedPlaceholders, [])
+  assert.equal(r.html.includes('<!-- edit:'), false, 'authoring markers never reach a recipient')
+})
+
+// The divergence from email-worker's renderTemplate, which does none of this. On the login path
+// the only substituted value is a link the worker generated; here every value came from a model.
+test('variable values are escaped, and bodyHtml is not', async () => {
+  const { env } = worldWithGraph()
+  const r = await email.renderEmail(env, {
+    fromEmail: NIBI, subject: 'Hei', bodyHtml: '<p><b>bold</b> {note}</p>',
+    variables: { note: '<script>alert(1)</script>' }, actor: asHolder(),
+  })
+  assert.equal(r.ok, true)
+  assert.match(r.html, /<b>bold<\/b>/, 'bodyHtml is declared markup and stays markup')
+  assert.equal(r.html.includes('<script>'), false, 'a model-supplied value must not become markup')
+  assert.match(r.html, /&lt;script&gt;/)
+})
+
+test('renderTemplate fills both brace styles, repeats, and leaves unknown keys alone', () => {
+  const out = email.renderTemplate(
+    { subject: '{a} and {{a}}', body: '{a}-{a} {{b}} {c}' },
+    { a: 'X', b: 'Y' },
+  )
+  assert.equal(out.subject, 'X and X')
+  assert.equal(out.body, 'X-X Y {c}')
+})
+
+test('an unfilled placeholder is reported, named, and found in the subject too', async () => {
+  const { env } = worldWithGraph()
+  const r = await email.renderEmail(env, {
+    fromEmail: NIBI, templatePurpose: 'nyhetsbrev', variables: { name: 'Inger' }, actor: asHolder(),
+  })
+  assert.equal(r.ok, true)
+  assert.deepEqual(r.unresolvedPlaceholders, ['message'])
+})
+
+test('a named signature is matched exactly, and a miss lists what exists', async () => {
+  const { env } = worldWithGraph()
+  const hit = await email.renderEmail(env, {
+    fromEmail: NIBI, templatePurpose: 'nyhetsbrev', signature: 'drift',
+    variables: { name: 'x', message: 'y' }, actor: asHolder(),
+  })
+  assert.equal(hit.signatureName, 'drift')
+
+  // Never fuzzy. suggestNodeType guesses a near miss because the cost there is a badly-typed
+  // node; here the cost is the wrong person's name at the bottom of somebody's email.
+  const miss = await email.renderEmail(env, {
+    fromEmail: NIBI, templatePurpose: 'nyhetsbrev', signature: 'tor-arn',
+    variables: { name: 'x', message: 'y' }, actor: asHolder(),
+  })
+  assert.equal(miss.ok, false)
+  assert.equal(miss.code, gs.ERR.GRAPH_NOT_FOUND)
+  assert.match(miss.message, /drift/)
+  assert.match(miss.message, /tor-arne/)
+})
+
+test('"none" appends nothing and is not an error', async () => {
+  const { env } = worldWithGraph()
+  const r = await email.renderEmail(env, {
+    fromEmail: NIBI, templatePurpose: 'nyhetsbrev', signature: 'none',
+    variables: { name: 'x', message: 'y' }, actor: asHolder(),
+  })
+  assert.equal(r.ok, true)
+  assert.equal(r.signatureName, null)
+  assert.equal(r.html.includes('Tor Arne'), false)
+})
+
+// A composition the template author did not design is exactly what a preview exists to surface.
+test('a template with no signature slot warns about where the signature went', async () => {
+  const { env, raw } = freshDb()
+  seedSenders(raw, NIBI, [{ email: NIBI }], { role: 'Admin' })
+  seedGrants(raw)
+  seedEmailGraph(raw, 'nibi.no', {
+    brand: { name: 'NIBI' },
+    templates: [{ purpose: 'kort', language: 'no', subject: 'Hei', info: '<div><p>Tekst</p><!-- edit:footer:start --><p>f</p><!-- edit:footer:end --></div>' }],
+    signatures: [{ name: 'x', isDefault: true, info: '<p>SIG</p>' }],
+  })
+  const r = await email.renderEmail(env, { fromEmail: NIBI, templatePurpose: 'kort', actor: asHolder() })
+  assert.equal(r.ok, true)
+  assert.match(r.warnings.join(' '), /no signature slot/)
+  assert.ok(r.html.indexOf('SIG') < r.html.indexOf('<p>f</p>'), 'the signature sits above the footer')
+})
+
+test('a World with no default signature says so rather than failing', async () => {
+  const { env, raw } = freshDb()
+  seedSenders(raw, NIBI, [{ email: NIBI }], { role: 'Admin' })
+  seedGrants(raw)
+  seedEmailGraph(raw, 'nibi.no', {
+    brand: { name: 'NIBI' },
+    templates: [{ purpose: 'kort', language: 'no', subject: 'Hei', info: '<p>Tekst</p>' }],
+    signatures: [{ name: 'x', info: '<p>SIG</p>' }],
+  })
+  const r = await email.renderEmail(env, { fromEmail: NIBI, templatePurpose: 'kort', actor: asHolder() })
+  assert.equal(r.ok, true)
+  assert.equal(r.signatureName, null)
+  assert.match(r.warnings.join(' '), /no default email signature/)
+})
+
+// email-worker's loadWorldEmailNodes takes results[0] from a summaries query and cannot tell one
+// match from three, so two graphs for one World would resolve by row order. Reading D1 directly
+// buys the ability to refuse, for free.
+test('two graphs tagged for the same World is a refusal, not a coin toss', async () => {
+  const { env, raw } = worldWithGraph()
+  seedEmailGraph(raw, 'nibi.no', { id: 'g-duplicate', brand: { name: 'Other' }, templates: [] })
+  const r = await email.renderEmail(env, { fromEmail: NIBI, templatePurpose: 'nyhetsbrev', actor: asHolder() })
+  assert.equal(r.ok, false)
+  assert.equal(r.code, gs.ERR.INVALID_INPUT)
+  assert.match(r.message, /g-duplicate/)
+})
+
+test('a World with no email graph can still be written to directly', async () => {
+  const { env } = worldWithGraph()
+  const withTemplate = await email.renderEmail(env, {
+    fromEmail: VEGR, templatePurpose: 'login', actor: actorFor('torarne@example.com'),
+  })
+  assert.equal(withTemplate.ok, false)
+  assert.equal(withTemplate.code, gs.ERR.GRAPH_NOT_FOUND)
+  assert.match(withTemplate.message, /set_world_email_template/)
+
+  const direct = await email.renderEmail(env, {
+    fromEmail: VEGR, subject: 'Hei', bodyHtml: '<p>Rett fram</p>', actor: actorFor('torarne@example.com'),
+  })
+  assert.equal(direct.ok, true)
+  assert.equal(direct.templateSource, 'caller-html')
+})
+
+test('a direct email needs both a subject and a body', async () => {
+  const { env } = worldWithGraph()
+  const a = await email.renderEmail(env, { fromEmail: NIBI, bodyHtml: '<p>x</p>', actor: asHolder() })
+  assert.equal(a.code, gs.ERR.INVALID_INPUT)
+  const b = await email.renderEmail(env, { fromEmail: NIBI, subject: 'Hei', actor: asHolder() })
+  assert.equal(b.code, gs.ERR.INVALID_INPUT)
+})
+
+// The gate runs first, so a caller who may not send as an address never learns what that World's
+// templates or signatures are called.
+test('rendering refuses on the sender before it reads any template', async () => {
+  const { env } = worldWithGraph()
+  const r = await email.renderEmail(env, {
+    fromEmail: NIBI, templatePurpose: 'nyhetsbrev', actor: actorFor('boss@example.com', 'Superadmin'),
+  })
+  assert.equal(r.ok, false)
+  assert.equal(r.code, gs.ERR.FORBIDDEN_GRAPH)
+  assert.equal(r.message.includes('nyhetsbrev'), false, 'a refusal must not describe the World it refused')
+})
+
+test('a grant holder renders with the holder named, ready for the send to authenticate as them', async () => {
+  const { env } = worldWithGraph([liveGrantRow()])
+  const r = await email.renderEmail(env, {
+    fromEmail: NIBI, templatePurpose: 'nyhetsbrev', variables: { name: 'x', message: 'y' },
+    actor: actorFor('torarne@example.com'),
+  })
+  assert.equal(r.ok, true)
+  assert.equal(r.basis, 'grant')
+  assert.equal(r.grantId, 'g-live')
+})
+
+// ── The log ─────────────────────────────────────────────────────────────────
+
+test('the log records the attempt without copying the message into it', async () => {
+  const { env, raw } = worldWithGraph()
+  await email.logSend(env, {
+    actorEmail: 'torarne@example.com', senderEmail: NIBI, holderEmail: NIBI, basis: 'grant',
+    toEmail: 'Inger.Hildrum@Example.COM', subjectChars: 12, bodyChars: 400,
+    templateSource: 'world-template:nyhetsbrev/no', signatureName: 'tor-arne', outcome: 'SENT',
+  })
+  const row = raw.prepare('SELECT * FROM email_send_log').all()[0]
+  assert.equal(row.recipient_domain, 'example.com')
+  assert.equal(row.recipient_hash.length, 64)
+  assert.equal(row.outcome, 'SENT')
+
+  const all = JSON.stringify(row).toLowerCase()
+  assert.equal(all.includes('inger.hildrum'), false, 'the local part is never stored')
+  assert.equal(all.includes('hei'), false)
+})
+
+test('a failed log write never breaks the call', async () => {
+  const { env } = freshDb()
+  await email.logSend(env, { actorEmail: 'a@b.no', senderEmail: 'c@d.no', outcome: 'SENT' })
 })

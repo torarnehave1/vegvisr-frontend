@@ -536,3 +536,343 @@ export async function listSenderGrants(env, { actor, includeRevoked }) {
 
   return { ok: true, grants, count: grants.length }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Composing — template + signature + brand, with nothing sent
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The placeholder substitution email-worker performs, with ONE deliberate difference.
+ *
+ * The original is email-worker/index.js:19-45 and it does NO escaping. On the login path that was
+ * harmless: the only substituted value is a magic link the worker generated itself. On this path
+ * every value in `variables` comes from a model, so each one is escaped before substitution and
+ * `bodyHtml` is the single input declared to be markup.
+ *
+ * The copy exists because the original is not exported and email-worker's local source is
+ * decompiled from its deployed bundle, so editing it costs more than it reads. A parity test pins
+ * the two against the same fixture; it is a brake on drift, not a guarantee.
+ */
+export function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+export function renderTemplate(template, variables, { escape = true } = {}) {
+  let subject = template.subject || ''
+  let body = template.body || ''
+  for (const [key, raw] of Object.entries(variables || {})) {
+    const value = escape ? escapeHtml(raw) : String(raw ?? '')
+    // Double braces FIRST. email-worker/index.js:23-40 does the single form first, which turns
+    // `{{name}}` into `{Tor}` — a stray brace delivered to a person, and a documented form that
+    // has never worked. Deliberate divergence, like the escaping above.
+    for (const ph of [`{{${key}}}`, `{${key}}`]) {
+      const re = new RegExp(ph.replace(/[{}]/g, '\\$&'), 'g')
+      subject = subject.replace(re, value)
+      body = body.replace(re, value)
+    }
+  }
+  return { subject, body }
+}
+
+/** The edit-section markers are an authoring aid; a delivered email never carries them. */
+export function stripEditMarkers(html) {
+  return String(html || '').replace(/[ \t]*<!--\s*edit:[a-z0-9-]+:(?:start|end)\s*-->[ \t]*\n?/gi, '')
+}
+
+/** Every {placeholder} no variable filled. A preview reports them; a send refuses on them. */
+export function unresolvedIn(...parts) {
+  const found = new Set()
+  for (const part of parts) {
+    for (const m of String(part || '').matchAll(/\{\{?([a-zA-Z][a-zA-Z0-9_]*)\}?\}/g)) found.add(m[1])
+  }
+  return [...found].sort()
+}
+
+/**
+ * The World's email graph for a domain.
+ *
+ * Read straight from D1 rather than through the KG worker, which buys the one thing email-worker
+ * cannot do: `loadWorldEmailNodes` takes `results[0]` from a summaries query
+ * (email-worker/index.js:242-246) and so cannot tell one match from three. Two graphs tagged for
+ * the same World is a misconfiguration that would otherwise resolve differently depending on row
+ * order, and silently sign mail with the wrong World's brand.
+ */
+export async function loadEmailGraph(env, domain) {
+  const marker = `#EMAIL-${String(domain || '').trim().toLowerCase()}`
+  const { results } = await env.vegvisr_org
+    .prepare("SELECT id, data FROM knowledge_graphs WHERE lower(COALESCE(meta_area,'')) = lower(?)")
+    .bind(marker)
+    .all()
+  const rows = results || []
+  if (rows.length === 0) return { ok: false, code: ERR.GRAPH_NOT_FOUND, marker }
+  if (rows.length > 1) {
+    return { ok: false, code: ERR.INVALID_INPUT, marker, graphIds: rows.map((r) => r.id) }
+  }
+  let parsed
+  try {
+    parsed = JSON.parse(rows[0].data || '{}')
+  } catch {
+    return { ok: false, code: ERR.INTERNAL_ERROR, marker }
+  }
+  return { ok: true, graphId: rows[0].id, marker, nodes: Array.isArray(parsed.nodes) ? parsed.nodes : [] }
+}
+
+const typeOf = (n) => String(n?.type || '').toLowerCase()
+
+export function pickBrand(nodes) {
+  return (nodes.find((n) => typeOf(n) === 'email-brand') || {}).metadata || {}
+}
+
+export function pickTemplate(nodes, purpose, language) {
+  const all = nodes.filter((n) => typeOf(n) === 'email-template')
+  const forPurpose = all.filter((n) => String(n.metadata?.purpose || '').toLowerCase() === purpose)
+  if (forPurpose.length === 0) {
+    return { ok: false, purposes: [...new Set(all.map((n) => n.metadata?.purpose).filter(Boolean))].sort() }
+  }
+  const byLang = forPurpose.find((n) => String(n.metadata?.language || '').toLowerCase() === language)
+  const node = byLang || forPurpose[0]
+  return {
+    ok: true,
+    node,
+    subject: node.metadata?.subject || '',
+    language: String(node.metadata?.language || language).toLowerCase(),
+    exactLanguage: !!byLang,
+  }
+}
+
+/**
+ * Which signature to append.
+ *
+ * A named signature matches EXACTLY and is never guessed at. `suggestNodeType` (node-types.js:52)
+ * resolves a near miss because the cost of being wrong there is a badly-typed node; here the cost
+ * is the wrong person's name at the bottom of somebody's e-mail, so a miss is a refusal that lists
+ * what does exist.
+ *
+ * `'none'` means append nothing, which is why a signature may not be named that.
+ */
+export function pickSignature(nodes, { name, language, senderEmail }) {
+  const all = nodes.filter((n) => typeOf(n) === 'email-signature')
+  const names = all.map((n) => String(n.metadata?.name || '')).filter(Boolean).sort()
+
+  if (String(name || '').toLowerCase() === 'none') return { ok: true, node: null, reason: 'asked for none' }
+
+  if (name) {
+    const hit = all.find((n) => String(n.metadata?.name || '').toLowerCase() === String(name).toLowerCase())
+    if (!hit) return { ok: false, names }
+    return { ok: true, node: hit, reason: 'named' }
+  }
+
+  const defaults = all.filter((n) => n.metadata?.isDefault)
+  const pool = defaults.length ? defaults : []
+  const bySender = pool.find((n) => String(n.metadata?.senderEmail || '').toLowerCase() === String(senderEmail || '').toLowerCase())
+  const byLang = pool.find((n) => String(n.metadata?.language || '').toLowerCase() === String(language || '').toLowerCase())
+  const node = bySender || byLang || pool[0] || null
+  return { ok: true, node, reason: node ? 'default' : 'no default', names }
+}
+
+/**
+ * Put the signature where the template says it goes.
+ *
+ * Preferred: the body carries `<!-- edit:signature:start --> … <!-- edit:signature:end -->` and the
+ * signature fills it. Otherwise it is inserted before the footer section, and failing that
+ * appended — and BOTH fallbacks are reported as warnings, because a composition the template
+ * author did not design is exactly what a preview exists to surface.
+ */
+export function composeHtml(templateHtml, signatureHtml) {
+  const warnings = []
+  if (!signatureHtml) return { html: templateHtml, warnings }
+
+  const slot = /<!--\s*edit:signature:start\s*-->[\s\S]*?<!--\s*edit:signature:end\s*-->/i
+  if (slot.test(templateHtml)) {
+    return {
+      html: templateHtml.replace(slot, `<!-- edit:signature:start -->\n${signatureHtml}\n<!-- edit:signature:end -->`),
+      warnings,
+    }
+  }
+  const footer = /<!--\s*edit:footer:start\s*-->/i
+  if (footer.test(templateHtml)) {
+    warnings.push('The template has no signature slot, so the signature was inserted above the footer.')
+    return { html: templateHtml.replace(footer, `${signatureHtml}\n<!-- edit:footer:start -->`), warnings }
+  }
+  warnings.push('The template has no signature slot and no footer, so the signature was appended at the end.')
+  return { html: `${templateHtml}\n${signatureHtml}`, warnings }
+}
+
+/**
+ * Build exactly what a send would deliver, and deliver nothing.
+ *
+ * No connected MCP client declares the `elicitation` capability, so this server cannot ask a
+ * question in the middle of a call. This function is therefore the only way the person on the
+ * other end sees the text before it leaves — which is why `sendEmail` is written on top of it
+ * rather than beside it, and why a test asserts the two produce byte-identical output.
+ */
+export async function renderEmail(env, { fromEmail, toEmail, templatePurpose, language, signature, variables, subject, bodyHtml, actor }) {
+  const access = await resolveSenderAccess(env, { fromEmail, actor })
+  if (!access.ok) return access
+
+  const senderEmail = access.senderEmail
+  const domain = senderEmail.split('@')[1]
+  const lang = String(language || 'no').trim().toLowerCase()
+  const warnings = []
+
+  const graph = await loadEmailGraph(env, domain)
+  if (!graph.ok && graph.code === ERR.INVALID_INPUT) {
+    return fail(
+      ERR.INVALID_INPUT,
+      `Two or more knowledge graphs are tagged ${graph.marker}, so there is no single answer for ` +
+        `what ${domain}'s email looks like. Merge or retag them: ${graph.graphIds.join(', ')}.`,
+      { domain },
+    )
+  }
+
+  let templateHtml = ''
+  let renderedSubject = String(subject || '')
+  let templateSource = 'caller-html'
+  let signatureName = null
+
+  if (templatePurpose) {
+    if (!graph.ok) {
+      return fail(
+        ERR.GRAPH_NOT_FOUND,
+        `${domain} has no email template graph (${graph.marker}), so there is no "${templatePurpose}" ` +
+          'template to use. Create one with set_world_email_template in the Agent Builder, or pass ' +
+          'subject and bodyHtml to write this email directly.',
+        { domain },
+      )
+    }
+    const picked = pickTemplate(graph.nodes, String(templatePurpose).toLowerCase(), lang)
+    if (!picked.ok) {
+      return fail(
+        ERR.GRAPH_NOT_FOUND,
+        `${domain} has no "${templatePurpose}" email template. It has: ${picked.purposes.join(', ') || 'none at all'}.`,
+        { domain, purposes: picked.purposes },
+      )
+    }
+    if (!picked.exactLanguage) {
+      warnings.push(`No "${lang}" version of that template, so the ${picked.language} one was used.`)
+    }
+    // NOT stripped yet. composeHtml looks for <!-- edit:signature:start --> and the footer
+    // marker to decide where the signature goes; stripping first removed both and silently turned
+    // every compose into the "appended at the end" fallback.
+    templateHtml = String(picked.node.info || '')
+    renderedSubject = String(subject || picked.subject || '')
+    templateSource = `world-template:${String(templatePurpose).toLowerCase()}/${picked.language}`
+  } else {
+    if (!renderedSubject.trim()) return fail(ERR.INVALID_INPUT, 'subject is required when no templatePurpose is given.')
+    if (!String(bodyHtml || '').trim()) {
+      return fail(ERR.INVALID_INPUT, 'bodyHtml is required when no templatePurpose is given.')
+    }
+    templateHtml = String(bodyHtml)
+  }
+
+  // The signature.
+  let signatureHtml = ''
+  if (graph.ok) {
+    const sig = pickSignature(graph.nodes, { name: signature, language: lang, senderEmail })
+    if (!sig.ok) {
+      return fail(
+        ERR.GRAPH_NOT_FOUND,
+        `${domain} has no email signature called "${signature}". It has: ${sig.names.join(', ') || 'none at all'}. ` +
+          'Pass "none" to send without one.',
+        { domain, signatures: sig.names },
+      )
+    }
+    if (sig.node) {
+      signatureHtml = String(sig.node.info || '')
+      signatureName = sig.node.metadata?.name || null
+    } else if (sig.reason === 'no default' && String(signature || '').toLowerCase() !== 'none') {
+      warnings.push(`${domain} has no default email signature, so none was added.`)
+    }
+  } else if (signature && String(signature).toLowerCase() !== 'none') {
+    return fail(
+      ERR.GRAPH_NOT_FOUND,
+      `${domain} has no email template graph, so it has no signature called "${signature}".`,
+      { domain },
+    )
+  }
+
+  // Brand variables, then the caller's. A caller cannot overwrite the World's own brand values.
+  const brand = graph.ok ? pickBrand(graph.nodes) : {}
+  const vars = {
+    ...(variables || {}),
+    brandName: brand.name || '',
+    brandLogo: brand.logo || '',
+    brandAccent: brand.accent || '',
+    brandFromName: brand.fromName || '',
+    brandFooter: brand.footer || '',
+  }
+
+  const composed = composeHtml(templateHtml, signatureHtml)
+  warnings.push(...composed.warnings)
+  // Markers come off last: they are an authoring aid, they carry no placeholders, and they are
+  // what composeHtml needed to find the right slot.
+  const rendered = renderTemplate({ subject: renderedSubject, body: stripEditMarkers(composed.html) }, vars)
+  const unresolved = unresolvedIn(rendered.subject, rendered.body)
+
+  return {
+    ok: true,
+    senderEmail,
+    fromName: brand.fromName || access.account.name || null,
+    toEmail: normalizeEmail(toEmail),
+    domain,
+    subject: rendered.subject,
+    html: rendered.body,
+    textPreview: rendered.body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400),
+    basis: access.basis,
+    grantId: access.grantId,
+    templateSource,
+    signatureName,
+    unresolvedPlaceholders: unresolved,
+    warnings,
+    characters: rendered.body.length,
+    sent: false,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The log
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function sha256Hex(value) {
+  const bytes = new TextEncoder().encode(String(value || '').toLowerCase())
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Record an attempt — allowed or refused — without copying the message into a second place.
+ *
+ * The recipient's local part is never stored; the domain is, plus a hash of the full address so
+ * "was this person contacted?" stays answerable to somebody who already knows the address, while
+ * the log itself never becomes a contact list. Never throws into the request path, same contract
+ * as audit() (mcp/server.js:80-81).
+ */
+export async function logSend(env, row) {
+  try {
+    const to = normalizeEmail(row.toEmail)
+    await env.vegvisr_org
+      .prepare(
+        `INSERT INTO email_send_log
+           (id, ts, actor_email, sender_email, holder_email, basis, grant_id, recipient_domain,
+            recipient_hash, subject_chars, body_chars, template_source, signature_name, outcome,
+            message_id, surface, client_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      )
+      .bind(
+        crypto.randomUUID(), nowIso(), row.actorEmail || 'unknown', row.senderEmail || 'unknown',
+        row.holderEmail || null, row.basis || null, row.grantId || null,
+        to ? to.split('@')[1] : null, to ? await sha256Hex(to) : null,
+        row.subjectChars ?? null, row.bodyChars ?? null, row.templateSource || null,
+        row.signatureName || null, row.outcome, row.messageId || null, row.surface || 'mcp',
+        row.clientId || null,
+      )
+      .run()
+  } catch (e) {
+    console.error('[email-service] send log failed:', e.message)
+  }
+}
