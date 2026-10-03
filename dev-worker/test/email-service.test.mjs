@@ -15,6 +15,7 @@ import assert from 'node:assert/strict'
 import { freshDb, seedSenders, seedGrants, seedEmailGraph, RecordingEmailWorker } from './d1-adapter.mjs'
 import * as gs from '../graph-service.js'
 import * as email from '../email-service.js'
+import * as templates from '../email-templates-service.js'
 
 const actorFor = (address, role = 'User') =>
   gs.normalizeActor({
@@ -726,4 +727,100 @@ test('the render result carries the holder and account for the send, and nothing
   assert.ok(r.account?.id, 'and resolves the credential by the account id')
   // The tool must not spread this. If someone changes preview_email back to a spread, the
   // mcp-tools pin on its outputSchema is what should fail — this comment is the pointer to why.
+})
+
+// ── Writing templates ───────────────────────────────────────────────────────
+//
+// There is no template logic to test here, and that is the point: agent-worker's executor is the
+// one implementation. What this file owns is the narrowing — the caller's own credential, and a
+// refusal for the calls that would otherwise reach it and save nothing.
+
+class RecordingAgentWorker {
+  constructor({ ok = true, status = 200, error = null, body = {} } = {}) {
+    this.calls = []
+    this.ok = ok; this.status = status; this.error = error; this.body = body
+  }
+  async fetch(url, init = {}) {
+    this.calls.push({ url, token: new Headers(init.headers).get('X-API-Token'), body: JSON.parse(init.body) })
+    if (!this.ok) return new Response(JSON.stringify({ success: false, error: this.error }), { status: this.status })
+    return new Response(JSON.stringify({ success: true, graphId: 'g1', owner: 'post@nibi.no', ...this.body }), { status: 200 })
+  }
+}
+
+function templateWorld(opts = {}) {
+  const { env, raw } = freshDb()
+  seedSenders(raw, NIBI, [{ email: NIBI }], { role: 'Admin' })
+  seedGrants(raw)
+  const agent = new RecordingAgentWorker(opts)
+  env.AGENT_WORKER = agent
+  return { env, agent }
+}
+
+test('a template write runs on the caller’s own credential', async () => {
+  const { env, agent } = templateWorld()
+  const r = await templates.setWorldEmailTemplate(env, {
+    domain: 'NIBI.no', purpose: 'login', actor: asHolder(),
+  })
+  assert.equal(r.ok, true)
+  assert.equal(agent.calls.length, 1)
+  assert.equal(agent.calls[0].token, 'sess-post', "the caller's own token, never one named in an argument")
+  assert.equal(agent.calls[0].body.domain, 'nibi.no', 'the domain is normalised before it travels')
+})
+
+// Without this the call reaches agent-worker, saves a graph with nothing new in it, and reports
+// success — the shape of no-op that reads like a result.
+test('a call that would write nothing is refused before it leaves', async () => {
+  const { env, agent } = templateWorld()
+  const r = await templates.setWorldEmailTemplate(env, { domain: 'nibi.no', actor: asHolder() })
+  assert.equal(r.ok, false)
+  assert.equal(r.code, gs.ERR.INVALID_INPUT)
+  assert.equal(agent.calls.length, 0)
+})
+
+test('a signature needs both its selector and its html', async () => {
+  const { env, agent } = templateWorld()
+  const r = await templates.setWorldEmailTemplate(env, {
+    domain: 'nibi.no', signature: { name: 'tor-arne' }, actor: asHolder(),
+  })
+  assert.equal(r.code, gs.ERR.INVALID_INPUT)
+  assert.equal(agent.calls.length, 0)
+})
+
+test('a malformed domain never reaches the service', async () => {
+  const { env, agent } = templateWorld()
+  for (const bad of ['', 'nibi', 'not a domain', 'http://nibi.no']) {
+    const r = await templates.setWorldEmailTemplate(env, { domain: bad, purpose: 'login', actor: asHolder() })
+    assert.equal(r.code, gs.ERR.INVALID_INPUT, `"${bad}" should be refused`)
+  }
+  assert.equal(agent.calls.length, 0)
+})
+
+test('a caller with no credential is told what to do about it', async () => {
+  const { env, agent } = templateWorld()
+  const stranger = actorFor('nobody@example.com')
+  const r = await templates.setWorldEmailTemplate(env, { domain: 'nibi.no', purpose: 'login', actor: stranger })
+  assert.equal(r.code, gs.ERR.FORBIDDEN_GRAPH)
+  assert.match(r.message, /Sign in at vegvisr.org/)
+  assert.equal(agent.calls.length, 0)
+})
+
+// The executor's gate is the real one. Passing its wording through unchanged is more useful than
+// anything this layer could say instead.
+test('the executor’s own refusal is passed through as a forbidden, not an input error', async () => {
+  const { env } = templateWorld({
+    ok: false, status: 400, error: 'Only a Superadmin or the World Founder of nibi.no can change its email templates.',
+  })
+  const r = await templates.setWorldEmailTemplate(env, { domain: 'nibi.no', purpose: 'login', actor: asHolder() })
+  assert.equal(r.ok, false)
+  assert.equal(r.code, gs.ERR.FORBIDDEN_GRAPH)
+  assert.match(r.message, /World Founder of nibi\.no/)
+})
+
+test('the result reports who ended up owning the graph', async () => {
+  const { env } = templateWorld({ body: { owner: 'post@nibi.no', signature: { name: 'tor-arne' } } })
+  const r = await templates.setWorldEmailTemplate(env, {
+    domain: 'nibi.no', signature: { name: 'tor-arne', html: '<p>x</p>' }, actor: asHolder(),
+  })
+  assert.equal(r.owner, 'post@nibi.no')
+  assert.equal(r.signatureName, 'tor-arne')
 })

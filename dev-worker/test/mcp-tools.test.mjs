@@ -121,6 +121,7 @@ describe('18. tools/list', () => {
   // assertion below is about what they must NOT carry. Relying on that spelling to slip past the
   // ban loop is exactly the accident this file exists to prevent.
   const ADDRESS_TOOLS = new Set(['preview_email', 'send_email', 'list_email_senders'])
+  // set_email_template is NOT here: it names a DOMAIN, never an address, and never a person.
 
   test('no tool lets a model ask to be someone else', async () => {
     const { env } = freshDb()

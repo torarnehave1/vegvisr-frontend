@@ -24,6 +24,7 @@ import * as gs from '../graph-service.js'
 import * as chat from '../chat-service.js'
 import * as members from '../chat-members.js'
 import * as mail from '../email-service.js'
+import * as mailTemplates from '../email-templates-service.js'
 import * as templates from '../templates-service.js'
 import * as images from '../images-service.js'
 import * as sites from '../published-domains.js'
@@ -1265,6 +1266,120 @@ export function registerTools(server, getContext) {
         `SENT to ${result.toEmail} from ${result.senderEmail}.\nSubject: ${result.subject}\n` +
           `Signature: ${result.signatureName || 'none'}${result.messageId ? ` · id ${result.messageId}` : ''}\n` +
           'This cannot be recalled.',
+      )
+    },
+  )
+
+  // ── set_email_template ────────────────────────────────────────────────────
+  //
+  // graph:write, the same scope add_node already needs — because add_node can write these nodes
+  // raw today. What it cannot do is find the right graph, create one, fill in the built-in login
+  // template, pick a readable accent, place the edit markers, or get the ownership stamp right,
+  // and a typo in metadata.purpose produces a template that exists and is invisible to every
+  // send. Gating this more tightly than add_node would protect nothing and only push people
+  // towards the rawer path.
+  server.registerTool(
+    'set_email_template',
+    {
+      title: "Set a World's e-mail template, brand or signature",
+      description:
+        "Create or update the e-mail template, brand or signature for a World (a domain such as " +
+        "\"nibi.no\"). This is what send_email fills in when you give it a templatePurpose, and " +
+        "what puts the signature at the bottom of a sent e-mail. Stored in that World's knowledge " +
+        "graph, created on first use and found by its tag afterwards. Only a platform Superadmin " +
+        "or that World's registered founder may write it, because the login template is what a " +
+        "World's members click to sign in. For purpose \"login\" the subject and body are " +
+        "OPTIONAL — omit both to get the built-in Norwegian or English template, which is almost " +
+        "always better than writing HTML by hand. Pass `signature` alone, with no purpose, to add " +
+        "a signature without touching any template. Bodies are HTML with {placeholders}: brand " +
+        "values {brandName}, {brandLogo}, {brandAccent}, {brandFooter} are filled from the brand " +
+        "node, and anything else must be supplied when sending or the send is refused. Nothing is " +
+        "sent by this tool. Requires the graph:write scope.",
+      inputSchema: {
+        domain: z
+          .string()
+          .min(3)
+          .describe('The World domain, e.g. "nibi.no". It decides both the sending World and which template graph is written.'),
+        purpose: z
+          .string()
+          .optional()
+          .describe(
+            'Which e-mail this template is for, e.g. "login" or "nyhetsbrev". Matching at send ' +
+              'time is EXACT, so reuse a name the World already has rather than inventing a variant. ' +
+              'Omit it when you are only adding a signature or brand.',
+          ),
+        language: z.enum(['no', 'en']).optional().describe('Template language. Defaults to "no".'),
+        subject: z
+          .string()
+          .optional()
+          .describe('Subject line, may contain {placeholders}. Optional only for purpose "login".'),
+        body: z
+          .string()
+          .optional()
+          .describe('The e-mail body as HTML. Optional only for purpose "login", where the built-in template is used.'),
+        brand: z
+          .object({
+            name: z.string().optional().describe('The World\'s display name, e.g. "NIBI".'),
+            logo: z.string().optional().describe('Logo image URL.'),
+            accent: z
+              .string()
+              .optional()
+              .describe('Accent colour as hex, or "auto" to pick one from the logo that white button text stays readable on.'),
+            fromName: z.string().optional().describe('The display name recipients see in the From line.'),
+            fromEmail: z.string().optional().describe("The address this World's mail is sent from, e.g. \"post@nibi.no\"."),
+            footer: z.string().optional().describe('Footer line, e.g. "NIBI · nibi.no".'),
+          })
+          .optional()
+          .describe("The World's e-mail brand. Templates pull their colours and footer from it."),
+        signature: z
+          .object({
+            name: z
+              .string()
+              .describe('The selector a send uses, lowercase letters, digits and hyphens, e.g. "tor-arne". "none" is reserved.'),
+            html: z.string().describe('The signature block as HTML.'),
+            language: z.string().optional().describe('ISO code, e.g. "no".'),
+            isDefault: z.boolean().optional().describe('Use this when a send names no signature. At most one per language.'),
+            senderEmail: z.string().optional().describe('Restrict it to one sending address, for a World with several.'),
+            personName: z.string().optional().describe('Who it is, e.g. "Tor Arne Håve".'),
+            title: z.string().optional().describe('Their role, e.g. "Systemeier".'),
+            phone: z.string().optional().describe('Contact number, if the signature shows one.'),
+          })
+          .optional()
+          .describe('An e-mail signature. A World may hold several; a send picks one by name.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        domain: z.string(),
+        graphId: z.string().nullable(),
+        nodeId: z.string().nullable(),
+        purpose: z.string().nullable(),
+        language: z.string().nullable(),
+        subject: z.string().nullable(),
+        brandUpdated: z.boolean(),
+        usedDefaultTemplate: z.boolean(),
+        signatureName: z.string().nullable(),
+        owner: z.string().nullable(),
+        viewUrl: z.string().nullable(),
+        message: z.string().nullable(),
+      },
+      // Writes a node in a graph. It changes what a later send looks like, but by itself it
+      // reaches nobody — which is why openWorldHint is false here and true on send_email.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await mailTemplates.setWorldEmailTemplate(env, { ...args, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `${result.message || `Saved for ${result.domain}.`}${result.viewUrl ? `\n${result.viewUrl}` : ''}`,
       )
     },
   )
@@ -2770,6 +2885,7 @@ export const TOOL_NAMES = [
   'list_email_senders',
   'preview_email',
   'send_email',
+  'set_email_template',
   'get_fulltext_elements',
   'get_image_guide',
   'generate_node_image',
