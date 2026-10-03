@@ -1152,7 +1152,27 @@ export function registerTools(server, getContext) {
         return fromService(result)
       }
 
-      const { ok: _o, ...payload } = result
+      // Whitelisted, not spread. renderEmail carries the holder's address and the sending
+      // account — including its id — because sendEmail authenticates with them; neither belongs
+      // in a model's context, and the same precedent is set in users-service.js:124-134. Listing
+      // the fields here means a future addition there cannot start leaking one.
+      const payload = {
+        sent: result.sent,
+        senderEmail: result.senderEmail,
+        fromName: result.fromName,
+        toEmail: result.toEmail,
+        domain: result.domain,
+        subject: result.subject,
+        html: result.html,
+        textPreview: result.textPreview,
+        basis: result.basis,
+        grantId: result.grantId,
+        templateSource: result.templateSource,
+        signatureName: result.signatureName,
+        unresolvedPlaceholders: result.unresolvedPlaceholders,
+        warnings: result.warnings,
+        characters: result.characters,
+      }
       const notes = [
         result.unresolvedPlaceholders.length
           ? `Unfilled placeholders: ${result.unresolvedPlaceholders.map((x) => `{${x}}`).join(', ')} — sending will refuse until every one has a value.`
@@ -1166,6 +1186,85 @@ export function registerTools(server, getContext) {
           `Signature: ${result.signatureName || 'none'} · Template: ${result.templateSource}\n` +
           (notes.length ? `\n${notes.join('\n')}\n` : '') +
           `\n${result.html}`,
+      )
+    },
+  )
+
+  // ── send_email ────────────────────────────────────────────────────────────
+  //
+  // The outward one. Everything above it renders; this is the only thing in the e-mail set whose
+  // effect leaves the system, and it cannot be taken back.
+  server.registerTool(
+    'send_email',
+    {
+      title: 'Send an e-mail',
+      description:
+        "Send an e-mail. THIS DELIVERS A MESSAGE TO A REAL PERSON AND CANNOT BE UNDONE OR " +
+        "RECALLED. Call preview_email first, show the user what it returns, and send only after " +
+        "they have confirmed that text — this server cannot ask them anything itself. Takes the " +
+        "same arguments as preview_email and produces byte-identical output, with two additions: " +
+        "toEmail is required, and an unfilled {placeholder} is REFUSED rather than delivered " +
+        "literally. You may only send as an address on the user's own profile or one somebody " +
+        "explicitly granted them; platform Superadmin grants nothing here, so use " +
+        "list_email_senders rather than assuming. One recipient per call. Requires the chat:write " +
+        "scope.",
+      inputSchema: {
+        fromEmail: z
+          .string()
+          .min(3)
+          .describe(
+            "The address the e-mail comes FROM. Must be one list_email_senders returned. Never invent one.",
+          ),
+        toEmail: z.string().min(3).describe('The recipient. One address only, and it is required here.'),
+        templatePurpose: z
+          .string()
+          .optional()
+          .describe("Which of the sending World's templates to use. Omit it and pass subject + bodyHtml instead."),
+        language: z.enum(['no', 'en']).optional().describe('Template language. Default "no".'),
+        signature: z
+          .string()
+          .optional()
+          .describe("The signature to append, by name. Omit for the World's default; \"none\" appends none."),
+        subject: z.string().optional().describe('Subject line. Required when no templatePurpose is given.'),
+        bodyHtml: z
+          .string()
+          .optional()
+          .describe('The body as HTML. The ONLY input treated as markup — every value in `variables` is escaped.'),
+        variables: z.record(z.string()).optional().describe('Values for the {placeholders}. Each one is HTML-escaped.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        sent: z.boolean(),
+        senderEmail: z.string(),
+        toEmail: z.string(),
+        subject: z.string(),
+        messageId: z.string().nullable(),
+        basis: z.string(),
+        grantId: z.string().nullable(),
+        templateSource: z.string(),
+        signatureName: z.string().nullable(),
+        characters: z.number(),
+      },
+      // The one e-mail tool that reaches outside. Not destructive — nothing is lost — but not
+      // idempotent either: calling it twice sends two e-mails to a person.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await mail.sendEmail(env, { ...args, actor, clientId: auth?.clientId || null })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `SENT to ${result.toEmail} from ${result.senderEmail}.\nSubject: ${result.subject}\n` +
+          `Signature: ${result.signatureName || 'none'}${result.messageId ? ` · id ${result.messageId}` : ''}\n` +
+          'This cannot be recalled.',
       )
     },
   )
@@ -2670,6 +2769,7 @@ export const TOOL_NAMES = [
   'create_group_invite',
   'list_email_senders',
   'preview_email',
+  'send_email',
   'get_fulltext_elements',
   'get_image_guide',
   'generate_node_image',

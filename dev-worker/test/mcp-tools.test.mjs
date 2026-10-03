@@ -120,7 +120,7 @@ describe('18. tools/list', () => {
   // They are a separate set because they spell their subject `toEmail` rather than `email`, so the
   // assertion below is about what they must NOT carry. Relying on that spelling to slip past the
   // ban loop is exactly the accident this file exists to prevent.
-  const ADDRESS_TOOLS = new Set(['preview_email', 'list_email_senders'])
+  const ADDRESS_TOOLS = new Set(['preview_email', 'send_email', 'list_email_senders'])
 
   test('no tool lets a model ask to be someone else', async () => {
     const { env } = freshDb()
@@ -157,6 +157,14 @@ describe('18. tools/list', () => {
         assert.equal(props.includes(forbidden), false, `${name} exposes ${forbidden}`)
       }
     }
+    const send = tools.find((x) => x.name === 'send_email')
+    assert.match(send.description, /CANNOT BE UNDONE OR RECALLED/)
+    assert.match(send.description, /preview_email first/)
+    assert.match(send.description, /Superadmin grants nothing/i)
+    assert.equal(send.annotations.openWorldHint, true)
+    assert.equal(send.annotations.idempotentHint, false, 'calling it twice sends two e-mails')
+    assert.ok(send.inputSchema.required.includes('toEmail'), 'a send must name its recipient')
+
     const preview = tools.find((x) => x.name === 'preview_email')
     assert.ok(Object.keys(preview.inputSchema.properties).includes('fromEmail'))
     // A preview must say, in the text a model reads, that it does not send.
@@ -699,6 +707,9 @@ describe('annotations tell the client the truth about each tool', () => {
       'add_group_member',
       'remove_group_member',
       'create_group_invite',
+      // Added 2026-10-03. The only e-mail tool that reaches outside: preview_email renders and
+      // list_email_senders reads, but this one delivers to a person and cannot be recalled.
+      'send_email',
       // Added 2026-10-01. The only tool that sends the user's own pictures to a third party:
       // compose_node_image fetches reference images and hands them to OpenAI. Nothing else here
       // leaves Cloudflare with content attached.
@@ -1105,6 +1116,7 @@ describe('publish_html_node is the one tool that reaches the public internet', (
       'publish_html_node',
       'register_user',
       'remove_group_member',
+      'send_email',
       'set_group_member_role',
     ])
     const t = tools.find((x) => x.name === 'publish_html_node')
@@ -2105,6 +2117,7 @@ describe('post_chat_message is gated harder than everything else', () => {
       'publish_html_node',
       'register_user',
       'remove_group_member',
+      'send_email',
       'set_group_member_role',
     ])
   })
@@ -2190,6 +2203,7 @@ describe('read_chat_messages is gated apart from posting', () => {
       'publish_html_node',
       'register_user',
       'remove_group_member',
+      'send_email',
       'set_group_member_role',
     ])
     // The property that makes adding another one safe: no such scope is advertised, so every

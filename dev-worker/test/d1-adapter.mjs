@@ -479,3 +479,29 @@ export function seedEmailGraph(raw, domain, { brand = null, templates = [], sign
     .prepare('INSERT INTO knowledge_graphs (id, title, created_by, data) VALUES (?,?,?,?)')
     .run(id || `g-email-${domain}`, `Email Templates — ${domain}`, `post@${domain}`, data)
 }
+
+/**
+ * email-worker's /send-cf-email, faked.
+ *
+ * Records HEADERS as well as bodies, because here the authorisation travels in `x-internal-caller`
+ * rather than in the body — a fake that kept only bodies would hide the one thing worth asserting.
+ */
+export class RecordingEmailWorker {
+  constructor({ ok = true, status = 200, error = null, messageId = 'msg-1' } = {}) {
+    this.calls = []
+    this.ok = ok; this.status = status; this.error = error; this.messageId = messageId
+  }
+  async fetch(url, init = {}) {
+    const headers = new Headers(init.headers)
+    this.calls.push({
+      url,
+      internalAuth: headers.get('x-internal-auth'),
+      internalCaller: headers.get('x-internal-caller'),
+      body: init.body ? JSON.parse(init.body) : null,
+    })
+    if (!this.ok) {
+      return new Response(JSON.stringify({ success: false, error: this.error }), { status: this.status })
+    }
+    return new Response(JSON.stringify({ success: true, result: { messageId: this.messageId } }), { status: 200 })
+  }
+}

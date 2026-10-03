@@ -817,6 +817,12 @@ export async function renderEmail(env, { fromEmail, toEmail, templatePurpose, la
   return {
     ok: true,
     senderEmail,
+    // The holder and the account are what sendEmail authenticates with. They are NOT part of what
+    // preview_email returns — the tool whitelists its payload against its outputSchema, because an
+    // accountId is exactly what email-worker's unauthenticated gmail route needs to impersonate a
+    // sender, and everything a tool returns lands in a model's context.
+    holderEmail: access.holderEmail,
+    account: access.account,
     fromName: brand.fromName || access.account.name || null,
     toEmail: normalizeEmail(toEmail),
     domain,
@@ -874,5 +880,165 @@ export async function logSend(env, row) {
       .run()
   } catch (e) {
     console.error('[email-service] send log failed:', e.message)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sending
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Sends per caller per day. Nothing on this path had a limit, and email-worker has none either. */
+const DAILY_SEND_CAP = 20
+
+async function sendsToday(env, actorEmail) {
+  const since = new Date(Date.now() - 86400000).toISOString()
+  const row = await env.vegvisr_org
+    .prepare("SELECT COUNT(*) AS n FROM email_send_log WHERE actor_email = ? AND outcome = 'SENT' AND ts > ?")
+    .bind(actorEmail, since)
+    .first()
+  return row?.n || 0
+}
+
+/**
+ * Send the e-mail renderEmail just built.
+ *
+ * THE INVARIANT, and the reason this function is worth reading carefully: the outgoing request's
+ * `x-internal-caller` is ALWAYS the holder's address and ALWAYS equal to the body's `userEmail`.
+ *
+ * email-worker computes `claimedOwner = userEmail || fromEmail` and then `requireOwnership`
+ * compares it against whoever `resolveCaller` says we are (index.js:1390-1402, :132-142). The
+ * internal branch returns no `role` field at all (index.js:76-94), so `isSuper` is false by
+ * construction and ownership can only pass on identity. Setting both to the holder is therefore
+ * what makes the Superadmin bypass unreachable from here — and if the two ever diverge we are
+ * leaning on that bypass without saying so. A test asserts they match on every success.
+ *
+ * It also means `requireOwnership` is a tautology for our calls: we supply the value it compares
+ * against. The real authorisation is resolveSenderAccess, above, and nothing downstream reviews
+ * it. Under-test this module and nothing else will catch you.
+ */
+export async function sendEmail(env, args) {
+  const { actor, clientId } = args
+  const draft = await renderEmail(env, args)
+
+  const logRefusal = (code, extra = {}) =>
+    logSend(env, {
+      actorEmail: actor?.email || 'unknown',
+      senderEmail: String(args.fromEmail || '').toLowerCase(),
+      toEmail: args.toEmail,
+      outcome: code,
+      surface: 'mcp',
+      clientId,
+      ...extra,
+    })
+
+  if (!draft.ok) {
+    await logRefusal(draft.code)
+    return draft
+  }
+
+  if (!draft.toEmail) {
+    await logRefusal(ERR.INVALID_INPUT)
+    return fail(ERR.INVALID_INPUT, 'toEmail is required to send, and must be a single valid address.')
+  }
+
+  // A literal "{name}" delivered to a person cannot be recalled, so this is a refusal rather than
+  // a warning. preview_email reports the same list without refusing, which is the point of it.
+  if (draft.unresolvedPlaceholders.length) {
+    await logRefusal(ERR.INVALID_INPUT, {
+      holderEmail: draft.holderEmail, basis: draft.basis, templateSource: draft.templateSource,
+    })
+    return fail(
+      ERR.INVALID_INPUT,
+      `Nothing was sent: ${draft.unresolvedPlaceholders.map((p) => `{${p}}`).join(', ')} had no value, and ` +
+        'a recipient must not receive a literal placeholder. Supply them in `variables`, or use a ' +
+        'template whose placeholders you can fill.',
+      { unresolvedPlaceholders: draft.unresolvedPlaceholders },
+    )
+  }
+
+  const sentToday = await sendsToday(env, actor.email)
+  if (sentToday >= DAILY_SEND_CAP) {
+    await logRefusal(ERR.RATE_LIMITED)
+    return fail(
+      ERR.RATE_LIMITED,
+      `You have sent ${sentToday} e-mails in the last 24 hours, which is the cap. Try again later.`,
+    )
+  }
+
+  if (!env.EMAIL_WORKER) {
+    await logRefusal(ERR.INTERNAL_ERROR)
+    return fail(ERR.INTERNAL_ERROR, 'The e-mail service is not configured on this worker.')
+  }
+  if (!env.INTERNAL_SHARED_SECRET) {
+    await logRefusal(ERR.INTERNAL_ERROR)
+    return fail(
+      ERR.INTERNAL_ERROR,
+      'INTERNAL_SHARED_SECRET is not set on this worker, so it cannot authenticate to the mail ' +
+        'service. Nothing was sent.',
+    )
+  }
+
+  // fromEmail is deliberately NOT sent: email-worker derives it from the account, which removes
+  // any chance of the address we name and the credential we use describing different senders.
+  const holder = draft.holderEmail
+  const res = await env.EMAIL_WORKER.fetch('https://email-worker/send-cf-email', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-internal-auth': env.INTERNAL_SHARED_SECRET,
+      'x-internal-caller': holder,
+    },
+    body: JSON.stringify({
+      userEmail: holder,
+      accountId: draft.account?.id || args.accountId,
+      toEmail: draft.toEmail,
+      subject: draft.subject,
+      html: draft.html,
+    }),
+  })
+
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || data.success === false) {
+    // Status only — the body can carry a provider message naming the recipient.
+    console.error('[email-service] send refused by the mail service, status', res.status)
+    const code =
+      res.status === 403 ? ERR.FORBIDDEN_GRAPH
+        : res.status === 404 ? ERR.GRAPH_NOT_FOUND
+          : res.status === 429 ? ERR.RATE_LIMITED
+            : res.status === 400 ? ERR.INVALID_INPUT
+              : ERR.INTERNAL_ERROR
+    await logSend(env, {
+      actorEmail: actor.email, senderEmail: draft.senderEmail, holderEmail: holder,
+      basis: draft.basis, grantId: draft.grantId, toEmail: draft.toEmail,
+      subjectChars: draft.subject.length, bodyChars: draft.html.length,
+      templateSource: draft.templateSource, signatureName: draft.signatureName,
+      outcome: code, surface: 'mcp', clientId,
+    })
+    return fail(code, data.error || `The mail service refused the send (status ${res.status}).`, {
+      senderEmail: draft.senderEmail,
+    })
+  }
+
+  const messageId = data?.result?.messageId || null
+  await logSend(env, {
+    actorEmail: actor.email, senderEmail: draft.senderEmail, holderEmail: holder,
+    basis: draft.basis, grantId: draft.grantId, toEmail: draft.toEmail,
+    subjectChars: draft.subject.length, bodyChars: draft.html.length,
+    templateSource: draft.templateSource, signatureName: draft.signatureName,
+    outcome: 'SENT', messageId, surface: 'mcp', clientId,
+  })
+
+  return {
+    ok: true,
+    sent: true,
+    senderEmail: draft.senderEmail,
+    toEmail: draft.toEmail,
+    subject: draft.subject,
+    messageId,
+    basis: draft.basis,
+    grantId: draft.grantId,
+    templateSource: draft.templateSource,
+    signatureName: draft.signatureName,
+    characters: draft.characters,
   }
 }

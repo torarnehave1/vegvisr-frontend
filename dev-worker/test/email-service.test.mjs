@@ -12,7 +12,7 @@
 // Run:  node --test test/email-service.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { freshDb, seedSenders, seedGrants, seedEmailGraph } from './d1-adapter.mjs'
+import { freshDb, seedSenders, seedGrants, seedEmailGraph, RecordingEmailWorker } from './d1-adapter.mjs'
 import * as gs from '../graph-service.js'
 import * as email from '../email-service.js'
 
@@ -552,4 +552,178 @@ test('the log records the attempt without copying the message into it', async ()
 test('a failed log write never breaks the call', async () => {
   const { env } = freshDb()
   await email.logSend(env, { actorEmail: 'a@b.no', senderEmail: 'c@d.no', outcome: 'SENT' })
+})
+
+// ── Sending ─────────────────────────────────────────────────────────────────
+//
+// email-worker's requireOwnership is a tautology for these calls: it compares the sender we name
+// against the identity we assert, and we supply both. So the assertions below are not belt and
+// braces — resolveSenderAccess is the ONLY authorisation on this path, and `calls.length === 0`
+// is the proof that a refusal happened before anything left this worker.
+
+function sendWorld(grants = [], workerOpts = {}) {
+  const { env, raw } = worldWithGraph(grants)
+  const worker = new RecordingEmailWorker(workerOpts)
+  env.EMAIL_WORKER = worker
+  env.INTERNAL_SHARED_SECRET = 'shared-secret-never-logged'
+  return { env, raw, worker }
+}
+
+const draft = (over = {}) => ({
+  fromEmail: NIBI, toEmail: 'inger@example.com', subject: 'Hei', bodyHtml: '<p>Tekst</p>', ...over,
+})
+
+test('the holder can send, and the call authenticates AS the holder', async () => {
+  const { env, worker } = sendWorld()
+  const r = await email.sendEmail(env, { ...draft(), actor: asHolder() })
+  assert.equal(r.ok, true)
+  assert.equal(r.sent, true)
+  assert.equal(r.messageId, 'msg-1')
+  assert.equal(worker.calls.length, 1)
+})
+
+// THE INVARIANT. email-worker computes claimedOwner = userEmail and compares it against whoever
+// resolveCaller says we are; the internal branch carries no role, so isSuper is false by
+// construction and ownership can only pass on identity. If these two ever diverge we are leaning
+// on the Superadmin bypass without saying so.
+test('x-internal-caller always equals the body userEmail, and is never the graph-alert identity', async () => {
+  const { env, worker } = sendWorld([liveGrantRow()])
+  await email.sendEmail(env, { ...draft(), actor: asHolder() })
+  await email.sendEmail(env, { ...draft(), actor: actorFor('torarne@example.com') })
+  assert.equal(worker.calls.length, 2)
+  for (const call of worker.calls) {
+    assert.equal(call.internalCaller, call.body.userEmail, 'the asserted identity must match the claimed owner')
+    assert.match(call.internalCaller, /^[^@\s]+@[^@\s]+$/, 'it must be an address, not a service name')
+    assert.notEqual(call.internalCaller, 'knowledge-graph-worker', 'that branch pins the identity to post@nibi.no')
+    assert.equal(call.body.fromEmail, undefined, 'the sender is derived from the account, not claimed twice')
+  }
+})
+
+test('a grant holder sends as the HOLDER, not as themselves', async () => {
+  const { env, worker } = sendWorld([liveGrantRow()])
+  const r = await email.sendEmail(env, { ...draft(), actor: actorFor('torarne@example.com') })
+  assert.equal(r.ok, true)
+  assert.equal(r.basis, 'grant')
+  assert.equal(worker.calls[0].internalCaller, NIBI, "the credential belongs to NIBI, so the call is NIBI's")
+})
+
+test('a Superadmin with no grant sends nothing at all', async () => {
+  const { env, worker } = sendWorld()
+  const r = await email.sendEmail(env, { ...draft(), actor: actorFor('boss@example.com', 'Superadmin') })
+  assert.equal(r.ok, false)
+  assert.equal(r.code, gs.ERR.FORBIDDEN_GRAPH)
+  assert.equal(worker.calls.length, 0, 'refused before anything left this worker')
+})
+
+// The acceptance test. A send that works proves plumbing; a refusal that works proves the grant
+// is load-bearing.
+test('revoking the grant stops the send', async () => {
+  const { env, worker } = sendWorld([liveGrantRow()])
+  const before = await email.sendEmail(env, { ...draft(), actor: actorFor('torarne@example.com') })
+  assert.equal(before.ok, true)
+
+  await email.revokeSenderGrant(env, { grantId: 'g-live', actor: asHolder() })
+
+  const after = await email.sendEmail(env, { ...draft(), actor: actorFor('torarne@example.com') })
+  assert.equal(after.ok, false)
+  assert.equal(after.code, gs.ERR.FORBIDDEN_GRAPH)
+  assert.equal(worker.calls.length, 1, 'only the first send ever reached the mail service')
+})
+
+// A literal "{name}" in somebody's inbox cannot be recalled, so this is a refusal where the
+// preview is only a warning.
+test('an unfilled placeholder is refused rather than delivered', async () => {
+  const { env, worker } = sendWorld()
+  const r = await email.sendEmail(env, {
+    ...draft({ bodyHtml: '<p>Hei {navn}</p>' }), actor: asHolder(),
+  })
+  assert.equal(r.ok, false)
+  assert.equal(r.code, gs.ERR.INVALID_INPUT)
+  assert.match(r.message, /\{navn\}/)
+  assert.equal(worker.calls.length, 0)
+
+  // The same draft previews happily — that difference is the whole point of having both.
+  const p = await email.renderEmail(env, { ...draft({ bodyHtml: '<p>Hei {navn}</p>' }), actor: asHolder() })
+  assert.equal(p.ok, true)
+  assert.deepEqual(p.unresolvedPlaceholders, ['navn'])
+})
+
+test('a send with no recipient is refused', async () => {
+  const { env, worker } = sendWorld()
+  const r = await email.sendEmail(env, { ...draft({ toEmail: undefined }), actor: asHolder() })
+  assert.equal(r.code, gs.ERR.INVALID_INPUT)
+  assert.equal(worker.calls.length, 0)
+})
+
+test('a missing shared secret is said plainly, and nothing is sent', async () => {
+  const { env, worker } = sendWorld()
+  delete env.INTERNAL_SHARED_SECRET
+  const r = await email.sendEmail(env, { ...draft(), actor: asHolder() })
+  assert.equal(r.code, gs.ERR.INTERNAL_ERROR)
+  assert.match(r.message, /INTERNAL_SHARED_SECRET/)
+  assert.equal(worker.calls.length, 0)
+})
+
+test('the mail service’s own refusal is passed through, not swallowed', async () => {
+  const { env } = sendWorld([], { ok: false, status: 403, error: 'caller cannot act on behalf of x' })
+  const r = await email.sendEmail(env, { ...draft(), actor: asHolder() })
+  assert.equal(r.ok, false)
+  assert.equal(r.code, gs.ERR.FORBIDDEN_GRAPH)
+  assert.match(r.message, /cannot act on behalf/)
+})
+
+test('preview and send produce byte-identical subject and html', async () => {
+  const { env } = sendWorld()
+  const args = draft({ templatePurpose: 'nyhetsbrev', subject: undefined, bodyHtml: undefined, variables: { name: 'Inger', message: 'Hei' } })
+  const preview = await email.renderEmail(env, { ...args, actor: asHolder() })
+  const sent = await email.sendEmail(env, { ...args, actor: asHolder() })
+  assert.equal(sent.subject, preview.subject)
+  const { env: e2, worker } = sendWorld()
+  await email.sendEmail(e2, { ...args, actor: asHolder() })
+  assert.equal(worker.calls[0].body.html, preview.html, 'a preview nobody can trust is worse than none')
+})
+
+// ── The log, on the send path ───────────────────────────────────────────────
+
+test('a send writes one row; a refusal writes one too', async () => {
+  const { env, raw } = sendWorld()
+  await email.sendEmail(env, { ...draft(), actor: asHolder() })
+  await email.sendEmail(env, { ...draft(), actor: actorFor('boss@example.com', 'Superadmin') })
+
+  const rows = raw.prepare('SELECT * FROM email_send_log ORDER BY outcome').all()
+  assert.equal(rows.length, 2)
+  const sent = rows.find((r) => r.outcome === 'SENT')
+  const refused = rows.find((r) => r.outcome === gs.ERR.FORBIDDEN_GRAPH)
+  assert.ok(sent && refused, JSON.stringify(rows.map((r) => r.outcome)))
+  assert.equal(sent.message_id, 'msg-1')
+  assert.equal(sent.recipient_domain, 'example.com')
+  assert.equal(refused.actor_email, 'boss@example.com')
+
+  const all = JSON.stringify(rows).toLowerCase()
+  assert.equal(all.includes('tekst'), false, 'the body is never copied into the log')
+  assert.equal(all.includes('inger@'), false, 'the recipient local part is never stored')
+})
+
+test('the daily cap refuses before anything leaves', async () => {
+  const { env, raw, worker } = sendWorld()
+  const ins = raw.prepare(
+    "INSERT INTO email_send_log (id, ts, actor_email, sender_email, outcome, surface) VALUES (?,?,?,?,'SENT','mcp')",
+  )
+  for (let i = 0; i < 20; i++) ins.run(`r${i}`, new Date().toISOString(), NIBI, NIBI)
+  const r = await email.sendEmail(env, { ...draft(), actor: asHolder() })
+  assert.equal(r.code, gs.ERR.RATE_LIMITED)
+  assert.equal(worker.calls.length, 0)
+})
+
+// The holder and the account id exist on the render result because sendEmail authenticates with
+// them. preview_email whitelists its payload rather than spreading, so neither reaches a model —
+// an accountId is precisely what email-worker's unauthenticated gmail route needs to impersonate
+// a sender. This pins the service side of that contract.
+test('the render result carries the holder and account for the send, and nothing else needs them', async () => {
+  const { env } = sendWorld([liveGrantRow()])
+  const r = await email.renderEmail(env, { ...draft(), actor: actorFor('torarne@example.com') })
+  assert.equal(r.holderEmail, NIBI, 'sendEmail authenticates as the holder')
+  assert.ok(r.account?.id, 'and resolves the credential by the account id')
+  // The tool must not spread this. If someone changes preview_email back to a spread, the
+  // mcp-tools pin on its outputSchema is what should fail — this comment is the pointer to why.
 })
