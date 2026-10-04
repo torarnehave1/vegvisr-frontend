@@ -866,3 +866,63 @@ test('the result reports who ended up owning the graph', async () => {
   assert.equal(r.owner, 'post@nibi.no')
   assert.equal(r.signatureName, 'tor-arne')
 })
+
+// ── The sent copy ───────────────────────────────────────────────────────────
+//
+// Cloudflare Email Sending delivers to the recipient and never touches the sender's mailbox, so
+// without this the mail exists nowhere its sender can see it. The filer is injected because
+// imap-service.js imports cloudflare:sockets and Node cannot load it — injecting keeps the
+// behaviour under test rather than silently absent.
+
+test('a successful send files a copy, and says where', async () => {
+  const { env, worker } = sendWorld()
+  const calls = []
+  const r = await email.sendEmail(env, {
+    ...draft(), actor: asHolder(),
+    fileSentCopy: async (_e, a) => { calls.push(a); return { filed: true, sentFolder: 'INBOX.Sent', bytes: 900 } },
+  })
+  assert.equal(r.ok, true)
+  assert.equal(r.sentCopy, 'filed in INBOX.Sent')
+  assert.equal(worker.calls.length, 1, 'the mail still went out exactly once')
+
+  // The copy must be of what was actually delivered, addressed from the sender, not the caller.
+  assert.equal(calls[0].address, NIBI)
+  assert.equal(calls[0].toEmail, 'inger@example.com')
+  assert.equal(calls[0].subject, 'Hei')
+  assert.equal(calls[0].messageId, 'msg-1', 'the Message-ID ties the copy to the delivered mail')
+})
+
+// THE ONE THAT MATTERS. The mail is already delivered by the time the copy is attempted, so a
+// failure here must never present as a failed send — the recipient has it either way.
+test('a failed copy does not fail the send', async () => {
+  const { env, worker } = sendWorld()
+  const r = await email.sendEmail(env, {
+    ...draft(), actor: asHolder(),
+    fileSentCopy: async () => ({ filed: false, reason: 'no Sent folder found' }),
+  })
+  assert.equal(r.ok, true, 'the send succeeded and must be reported as such')
+  assert.equal(r.sent, true)
+  assert.equal(r.sentCopy, 'not filed: no Sent folder found')
+  assert.equal(worker.calls.length, 1)
+})
+
+test('a filer that throws is caught, and the send still succeeds', async () => {
+  const { env } = sendWorld()
+  const r = await email.sendEmail(env, {
+    ...draft(), actor: asHolder(),
+    fileSentCopy: async () => { throw new Error('socket closed') },
+  })
+  assert.equal(r.ok, true)
+  assert.match(r.sentCopy, /^not filed: unexpected: socket closed/)
+})
+
+test('a refused send never attempts a copy — there is nothing to file', async () => {
+  const { env } = sendWorld()
+  let attempted = false
+  const r = await email.sendEmail(env, {
+    ...draft(), actor: actorFor('boss@example.com', 'Superadmin'),
+    fileSentCopy: async () => { attempted = true; return { filed: true } },
+  })
+  assert.equal(r.ok, false)
+  assert.equal(attempted, false)
+})

@@ -155,11 +155,14 @@ export default {
         }
 
         const password = await getUserApiKey(env, found[0].user_id, provider)
+        // keyName is returned raw; the caller parses it, so the host:port[:folder] format is
+        // understood in exactly one place rather than two that can drift.
         const [hostname, port] = String(found[0].key_name || '').split(':')
         return jsonResponse({
           success: true,
           address,
           password,
+          keyName: found[0].key_name || null,
           hostname: hostname || null,
           port: Number(port) || 993,
         })

@@ -63,3 +63,28 @@ export function buildRfc822({ fromEmail, fromName, toEmail, subject, html, messa
     html,
   ].join(CRLF)
 }
+
+/**
+ * The `key_name` column carries the mailbox's connection settings, because adding a column to
+ * user_api_keys for one feature would change a table five other workers read.
+ *
+ *   "mail.uniweb.no:993"              — written by set_mailbox_password
+ *   "mail.uniweb.no:993:INBOX.Sent"   — once the Sent folder has been measured
+ *
+ * The two-field form is the legacy one and must keep parsing: a mailbox stored before the folder
+ * was discovered still has to work, it just measures once more.
+ */
+export function parseKeyName(keyName) {
+  const parts = String(keyName || '').split(':')
+  return {
+    hostname: parts[0] || null,
+    port: Number(parts[1]) || 993,
+    // The folder may itself contain no colon (INBOX.Sent uses a dot), so the rest is the folder.
+    sentFolder: parts.length > 2 ? parts.slice(2).join(':') : null,
+  }
+}
+
+export function formatKeyName({ hostname, port, sentFolder }) {
+  const base = `${hostname}:${port || 993}`
+  return sentFolder ? `${base}:${sentFolder}` : base
+}

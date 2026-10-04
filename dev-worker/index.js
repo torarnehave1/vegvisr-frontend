@@ -25,7 +25,7 @@ import { listTemplates as gsListTemplates } from './templates-service.js'
 import { readPublishedDomainRegistry, mergePublishedDomains } from './published-domains.js'
 import { NODE_TYPES } from './node-types.js'
 import * as emailService from './email-service.js'
-import { imapProbe } from './imap-service.js'
+import { imapProbe, imapFindSentFolder, fileSentCopy } from './imap-service.js'
 import { OAuthProvider } from '@cloudflare/workers-oauth-provider'
 import { handleAuthorize, ISSUER, MCP_RESOURCE, SUPPORTED_SCOPES } from './oauth/authorize.js'
 import { mcpHandler } from './mcp/server.js'
@@ -5609,6 +5609,59 @@ const restHandler = {
           JSON.stringify(result.ok ? { success: true, ...result, ok: undefined } : { success: false, error: result.message, ...result }),
           { status: result.ok ? 200 : (result.status || 500), headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         )
+      }
+
+      // Which folder this mailbox calls Sent. Read-only: LIST and nothing else.
+      //
+      // Needed because the server advertises no SPECIAL-USE, so it cannot be asked directly — and
+      // guessing is worse than it looks: APPEND to a name that does not exist does NOT fail, the
+      // server creates the folder and the copy lands where nobody opens it.
+      if (pathname === '/email/imap-sent-folder' && request.method === 'POST') {
+        const tv = await validateAuth(request, env)
+        if (!tv.valid) {
+          return new Response(JSON.stringify({ error: tv.error || 'Authentication required' }), {
+            status: tv.status || 401, headers: corsHeaders,
+          })
+        }
+        const actor = normalizeActor(tv)
+        if (!actor.isSuperadmin) {
+          return new Response(JSON.stringify({ error: 'Superadmin only.' }), { status: 403, headers: corsHeaders })
+        }
+        const body = await request.json().catch(() => ({}))
+        const result = await imapFindSentFolder(env, { address: body.address })
+        return new Response(
+          JSON.stringify(result.ok ? { success: true, ...result, ok: undefined } : { success: false, error: result.message }),
+          { status: result.ok ? 200 : (result.status || 500), headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+      }
+
+      // File one test copy in a mailbox's Sent folder. Superadmin only.
+      //
+      // Exists so the APPEND path can be exercised without sending a real e-mail to anybody — the
+      // send path reaches this same function, and per L154 a tool is not delivered until it has
+      // been run against the deployed path.
+      if (pathname === '/email/imap-test-append' && request.method === 'POST') {
+        const tv = await validateAuth(request, env)
+        if (!tv.valid) {
+          return new Response(JSON.stringify({ error: tv.error || 'Authentication required' }), {
+            status: tv.status || 401, headers: corsHeaders,
+          })
+        }
+        if (!normalizeActor(tv).isSuperadmin) {
+          return new Response(JSON.stringify({ error: 'Superadmin only.' }), { status: 403, headers: corsHeaders })
+        }
+        const body = await request.json().catch(() => ({}))
+        const result = await fileSentCopy(env, {
+          address: body.address,
+          toEmail: body.toEmail || body.address,
+          subject: body.subject || 'IMAP APPEND test',
+          html: body.html || '<p>Test copy filed by the sent-copy path.</p>',
+          fromName: body.fromName || null,
+          messageId: null,
+        })
+        return new Response(JSON.stringify({ success: !!result.filed, ...result }), {
+          status: result.filed ? 200 : 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
       }
 
       // ── E-mail sender grants ────────────────────────────────────────────────

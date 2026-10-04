@@ -1032,6 +1032,32 @@ export async function sendEmail(env, args) {
   }
 
   const messageId = data?.result?.messageId || null
+
+  // File a copy in the sender's own Sent folder. Cloudflare Email Sending delivers straight to the
+  // recipient and never touches the sender's mailbox, so without this the mail exists nowhere the
+  // sender can see it. Best-effort by contract: the mail is already delivered, so a failure here
+  // is a missing copy and never a failed send — it is reported beside the result, not thrown.
+  //
+  // The filer is INJECTED rather than imported at the top of this file. imap-service.js imports
+  // `cloudflare:sockets`, which Node cannot load, so a static import here made every test in this
+  // module unloadable — 65 assertions gone, caught before deploy. Injecting it keeps the behaviour
+  // testable: a test passes a fake and asserts the copy was attempted, instead of the feature
+  // being silently absent because the import failed.
+  let sentCopy = { filed: false, reason: 'not attempted' }
+  try {
+    const filer = args.fileSentCopy || (await import('./imap-service.js')).fileSentCopy
+    sentCopy = await filer(env, {
+      address: draft.senderEmail,
+      toEmail: draft.toEmail,
+      subject: draft.subject,
+      html: draft.html,
+      fromName: draft.fromName,
+      messageId,
+    })
+  } catch (e) {
+    sentCopy = { filed: false, reason: `unexpected: ${e.message}` }
+  }
+
   await logSend(env, {
     actorEmail: actor.email, senderEmail: draft.senderEmail, holderEmail: holder,
     basis: draft.basis, grantId: draft.grantId, toEmail: draft.toEmail,
@@ -1043,6 +1069,7 @@ export async function sendEmail(env, args) {
   return {
     ok: true,
     sent: true,
+    sentCopy: sentCopy.filed ? `filed in ${sentCopy.sentFolder}` : `not filed: ${sentCopy.reason}`,
     senderEmail: draft.senderEmail,
     toEmail: draft.toEmail,
     subject: draft.subject,

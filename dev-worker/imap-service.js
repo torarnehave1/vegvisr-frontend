@@ -27,10 +27,10 @@
 
 import { connect } from 'cloudflare:sockets'
 import { ERR, statusForCode } from './graph-service.js'
-import { CRLF, parseListLine, chooseSentFolder, buildRfc822 } from './imap-protocol.js'
+import { CRLF, parseListLine, chooseSentFolder, buildRfc822, parseKeyName, formatKeyName } from './imap-protocol.js'
 
 // Re-exported so callers have one import for the whole surface.
-export { parseListLine, chooseSentFolder, buildRfc822 }
+export { parseListLine, chooseSentFolder, buildRfc822, parseKeyName, formatKeyName }
 
 function fail(code, message, extra = {}) {
   return { ok: false, code, status: statusForCode(code), message, ...extra }
@@ -176,7 +176,16 @@ async function mailboxCredential(env, address) {
     // Status and the service's own words; never anything that could echo the secret.
     return { ok: false, reason: data.error || `the key service refused (status ${res.status})` }
   }
-  return { ok: true, password: data.password, hostname: data.hostname || 'mail.uniweb.no', port: data.port || 993 }
+  // key_name carries host:port and, once measured, the Sent folder. The service returns it raw so
+  // the parsing lives in one place.
+  const parsed = parseKeyName(data.keyName || `${data.hostname || ''}:${data.port || 993}`)
+  return {
+    ok: true,
+    password: data.password,
+    hostname: parsed.hostname || data.hostname || 'mail.uniweb.no',
+    port: parsed.port || data.port || 993,
+    sentFolder: parsed.sentFolder,
+  }
 }
 
 /** One IMAP session: connect, LOGIN, run `work`, LOGOUT. The password is never logged. */
@@ -258,3 +267,64 @@ export async function imapAppendSent(env, { address, sentFolder, rfc822 }) {
   })
 }
 
+
+/** Write the measured Sent folder back into key_name, so the next send skips the LIST. */
+async function rememberSentFolder(env, address, { hostname, port, sentFolder }) {
+  try {
+    await env.vegvisr_org
+      .prepare('UPDATE user_api_keys SET key_name = ?, updated_at = CURRENT_TIMESTAMP WHERE provider = ?')
+      .bind(formatKeyName({ hostname, port, sentFolder }), `imap:${String(address).toLowerCase()}`)
+      .run()
+  } catch (e) {
+    // A send that could not cache the folder still filed its copy; it just measures again next time.
+    console.error('[imap] could not remember the sent folder:', e.message)
+  }
+}
+
+/**
+ * File a copy of a just-sent message in the sender's own Sent folder.
+ *
+ * BEST-EFFORT BY CONTRACT. The e-mail has already been delivered by the time this runs, so every
+ * failure path here returns a reason and none of them throws — a missing copy must never present
+ * as a failed send.
+ *
+ * The folder is measured once and remembered in key_name. If the remembered name stops working —
+ * the mailbox moved provider, the folder was renamed — one re-measure is attempted before giving
+ * up, because the alternative is a silent stop that nobody notices until they look for an e-mail
+ * that is not there.
+ */
+export async function fileSentCopy(env, { address, toEmail, subject, html, fromName, messageId }) {
+  const cred = await mailboxCredential(env, address)
+  if (!cred.ok) return { filed: false, reason: cred.reason }
+
+  const rfc822 = buildRfc822({ fromEmail: address, fromName, toEmail, subject, html, messageId })
+
+  let folder = cred.sentFolder
+  let measured = false
+  if (!folder) {
+    const found = await imapFindSentFolder(env, { address })
+    if (!found.ok) return { filed: false, reason: `could not list folders: ${found.message}` }
+    if (!found.sentFolder) {
+      return { filed: false, reason: `no Sent folder found among: ${found.folders.join(', ')}` }
+    }
+    folder = found.sentFolder
+    measured = true
+  }
+
+  let res = await imapAppendSent(env, { address, sentFolder: folder, rfc822 })
+
+  // A remembered name that no longer works earns exactly one re-measure.
+  if (!res.ok && !measured) {
+    const found = await imapFindSentFolder(env, { address })
+    if (found.ok && found.sentFolder && found.sentFolder !== folder) {
+      folder = found.sentFolder
+      measured = true
+      res = await imapAppendSent(env, { address, sentFolder: folder, rfc822 })
+    }
+  }
+
+  if (!res.ok) return { filed: false, reason: res.message, sentFolder: folder }
+
+  if (measured) await rememberSentFolder(env, address, { hostname: cred.hostname, port: cred.port, sentFolder: folder })
+  return { filed: true, sentFolder: folder, bytes: res.bytes }
+}

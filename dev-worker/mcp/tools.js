@@ -1245,6 +1245,7 @@ export function registerTools(server, getContext) {
         templateSource: z.string(),
         signatureName: z.string().nullable(),
         characters: z.number(),
+        sentCopy: z.string(),
       },
       // The one e-mail tool that reaches outside. Not destructive — nothing is lost — but not
       // idempotent either: calling it twice sends two e-mails to a person.

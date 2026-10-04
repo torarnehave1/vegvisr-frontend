@@ -8,7 +8,7 @@
 // Run:  node --test test/imap-protocol.test.mjs
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseListLine, chooseSentFolder, buildRfc822 } from '../imap-protocol.js'
+import { parseListLine, chooseSentFolder, buildRfc822, parseKeyName, formatKeyName } from '../imap-protocol.js'
 
 // ── Parsing what the server says ────────────────────────────────────────────
 
@@ -135,4 +135,43 @@ test('with no messageId the header is omitted rather than left empty', () => {
 test('the body is carried verbatim, including characters a header would have to encode', () => {
   const html = '<p>Hei Tor Arne — hilsen Inger &amp; Maiken</p>'
   assert.ok(buildRfc822({ ...SAMPLE, html }).endsWith(html))
+})
+
+// ── Where the connection settings live ──────────────────────────────────────
+//
+// They ride in user_api_keys.key_name rather than in a new column, because that table is read by
+// five other workers and this is one feature. The format has to tolerate the form written before
+// the Sent folder was ever measured.
+
+test('the legacy two-field form still parses, with no folder', () => {
+  const r = parseKeyName('mail.uniweb.no:993')
+  assert.equal(r.hostname, 'mail.uniweb.no')
+  assert.equal(r.port, 993)
+  assert.equal(r.sentFolder, null, 'a mailbox stored before the probe must still work')
+})
+
+test('the three-field form carries the measured folder', () => {
+  const r = parseKeyName('mail.uniweb.no:993:INBOX.Sent')
+  assert.equal(r.hostname, 'mail.uniweb.no')
+  assert.equal(r.port, 993)
+  assert.equal(r.sentFolder, 'INBOX.Sent')
+})
+
+test('a folder name containing a colon survives the round trip', () => {
+  const name = formatKeyName({ hostname: 'mail.example.no', port: 993, sentFolder: 'Odd:Name' })
+  assert.equal(parseKeyName(name).sentFolder, 'Odd:Name')
+})
+
+test('a missing port falls back to 993 rather than NaN', () => {
+  assert.equal(parseKeyName('mail.uniweb.no').port, 993)
+  assert.equal(parseKeyName('mail.uniweb.no:abc').port, 993)
+})
+
+test('formatting without a folder yields the legacy form', () => {
+  assert.equal(formatKeyName({ hostname: 'mail.uniweb.no', port: 993 }), 'mail.uniweb.no:993')
+})
+
+test('garbage in gives nulls, not a crash', () => {
+  assert.equal(parseKeyName('').hostname, null)
+  assert.equal(parseKeyName(null).sentFolder, null)
 })
