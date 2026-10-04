@@ -25,6 +25,7 @@ import { listTemplates as gsListTemplates } from './templates-service.js'
 import { readPublishedDomainRegistry, mergePublishedDomains } from './published-domains.js'
 import { NODE_TYPES } from './node-types.js'
 import * as emailService from './email-service.js'
+import { imapProbe } from './imap-service.js'
 import { OAuthProvider } from '@cloudflare/workers-oauth-provider'
 import { handleAuthorize, ISSUER, MCP_RESOURCE, SUPPORTED_SCOPES } from './oauth/authorize.js'
 import { mcpHandler } from './mcp/server.js'
@@ -5574,6 +5575,40 @@ const restHandler = {
           status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
+      }
+
+      // ── IMAP reachability probe ─────────────────────────────────────────────
+      //
+      // Stage one of putting a sent copy in the real mailbox. Nothing here has ever opened a raw
+      // TCP socket from a Worker, and no document can tell us whether one reaches port 993 from
+      // this account — so this measures it. Takes no credentials and sends none, which is what
+      // makes it safe to point at a live mail server.
+      //
+      // Superadmin only. It is an outbound connection to an arbitrary host, so it is not something
+      // an ordinary token should be able to aim.
+      if (pathname === '/email/imap-probe' && request.method === 'POST') {
+        const tv = await validateAuth(request, env)
+        if (!tv.valid) {
+          return new Response(JSON.stringify({ error: tv.error || 'Authentication required' }), {
+            status: tv.status || 401, headers: corsHeaders,
+          })
+        }
+        const actor = normalizeActor(tv)
+        if (!actor.isSuperadmin) {
+          return new Response(JSON.stringify({ error: 'Superadmin only.', code: 'FORBIDDEN_GRAPH' }), {
+            status: 403, headers: corsHeaders,
+          })
+        }
+        const body = await request.json().catch(() => ({}))
+        const result = await imapProbe(env, {
+          hostname: body.hostname,
+          port: body.port,
+          starttls: body.starttls === true,
+        })
+        return new Response(
+          JSON.stringify(result.ok ? { success: true, ...result, ok: undefined } : { success: false, error: result.message, ...result }),
+          { status: result.ok ? 200 : (result.status || 500), headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
       }
 
       // ── E-mail sender grants ────────────────────────────────────────────────
