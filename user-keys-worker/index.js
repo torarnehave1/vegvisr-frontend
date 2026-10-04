@@ -71,11 +71,24 @@ export default {
           return jsonResponse({ error: 'Missing apiKey' }, 400)
         }
 
-        // Validate provider
+        // Validate provider.
+        //
+        // The six names are AI providers, one key each. `imap:<address>` is a second, deliberately
+        // narrower shape, added 2026-10-04: a mailbox password for sending a copy of outgoing mail
+        // to the sender's own Sent folder. The address is IN the provider string because
+        // UNIQUE(user_id, provider) is what keeps one row per credential, and a person can hold
+        // several mailboxes.
+        //
+        // It is kept as a shape rather than a free string because this validation is the only
+        // thing stopping arbitrary values from accumulating in the table — and worth saying
+        // plainly: an IMAP password is a far more powerful credential than any of the six. Those
+        // buy a model call; this one reads and writes every message in a mailbox.
         const validProviders = ['openai', 'anthropic', 'google', 'grok', 'perplexity', 'proff']
-        if (!validProviders.includes(provider.toLowerCase())) {
+        const lowered = provider.toLowerCase()
+        const isMailbox = /^imap:[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lowered)
+        if (!validProviders.includes(lowered) && !isMailbox) {
           return jsonResponse({
-            error: `Invalid provider. Must be one of: ${validProviders.join(', ')}`
+            error: `Invalid provider. Must be one of: ${validProviders.join(', ')} — or "imap:<address>" for a mailbox password.`
           }, 400)
         }
 
