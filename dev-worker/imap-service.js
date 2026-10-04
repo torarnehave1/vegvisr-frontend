@@ -27,12 +27,15 @@
 
 import { connect } from 'cloudflare:sockets'
 import { ERR, statusForCode } from './graph-service.js'
+import { CRLF, parseListLine, chooseSentFolder, buildRfc822 } from './imap-protocol.js'
+
+// Re-exported so callers have one import for the whole surface.
+export { parseListLine, chooseSentFolder, buildRfc822 }
 
 function fail(code, message, extra = {}) {
   return { ok: false, code, status: statusForCode(code), message, ...extra }
 }
 
-const CRLF = '\r\n'
 
 /**
  * Read CRLF-delimited lines until `done(line)` says to stop, or the budget runs out.
@@ -142,3 +145,116 @@ export async function imapProbe(_env, { hostname, port = 993, starttls = false }
     return fail(ERR.INTERNAL_ERROR, `${host}:${p} — ${e.message}`, { ...result, ms: Date.now() - started })
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Authenticated IMAP — login, find the Sent folder, append a copy
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The mailbox password, fetched over the service binding.
+ *
+ * NOT decrypted here. The first attempt copied the AES-GCM/PBKDF2 routine into this worker and
+ * gave it ENCRYPTION_MASTER_KEY against `user_api_keys` — which would have let the MCP server
+ * decrypt every row in that table, thirteen of them, when it needs one mailbox password.
+ * user-keys-worker keeps the crypto and answers only for `imap:` providers, only over a binding.
+ */
+async function mailboxCredential(env, address) {
+  if (!env.USER_KEYS_WORKER?.fetch) {
+    return { ok: false, reason: 'the USER_KEYS_WORKER binding is not configured on this worker' }
+  }
+  let res
+  let data
+  try {
+    res = await env.USER_KEYS_WORKER.fetch(
+      `https://user-keys-worker/mailbox-password?address=${encodeURIComponent(String(address).toLowerCase())}`,
+    )
+    data = await res.json().catch(() => ({}))
+  } catch (e) {
+    return { ok: false, reason: `could not reach the key service: ${e.message}` }
+  }
+  if (!res.ok || !data.password) {
+    // Status and the service's own words; never anything that could echo the secret.
+    return { ok: false, reason: data.error || `the key service refused (status ${res.status})` }
+  }
+  return { ok: true, password: data.password, hostname: data.hostname || 'mail.uniweb.no', port: data.port || 993 }
+}
+
+/** One IMAP session: connect, LOGIN, run `work`, LOGOUT. The password is never logged. */
+async function withImap({ hostname, port, user, password }, work) {
+  const socket = connect({ hostname, port }, { secureTransport: 'on', allowHalfOpen: false })
+  const reader = socket.readable.getReader()
+  const writer = socket.writable.getWriter()
+  const encoder = new TextEncoder()
+  let tag = 0
+  const send = (s) => writer.write(encoder.encode(s + CRLF))
+  const command = async (text, { budgetMs = 15000 } = {}) => {
+    const t = `a${++tag}`
+    await send(`${t} ${text}`)
+    const { lines } = await readLines(reader, (l) => l.startsWith(`${t} `), { budgetMs, maxLines: 400 })
+    const final = lines[lines.length - 1] || ''
+    return { lines, ok: /^a\d+ OK/i.test(final), final }
+  }
+
+  try {
+    const greet = await readLines(reader, (l) => /^\*\s+(OK|PREAUTH)/i.test(l), { budgetMs: 8000 })
+    if (!greet.lines.length) return fail(ERR.INTERNAL_ERROR, `${hostname}:${port} gave no IMAP greeting.`)
+
+    // A literal, not a quoted string: a password may contain characters that would need escaping,
+    // and getting that wrong presents as "wrong password" rather than as a syntax error.
+    const pwBytes = encoder.encode(password).length
+    const login = await command(`LOGIN "${user}" {${pwBytes}+}\r\n${password}`)
+    if (!login.ok) {
+      return fail(ERR.FORBIDDEN_GRAPH, `IMAP login failed for ${user}: ${login.final.replace(/^a\d+\s+/, '')}`)
+    }
+
+    const result = await work(command)
+    await command('LOGOUT', { budgetMs: 4000 }).catch(() => {})
+    return result
+  } catch (e) {
+    return fail(ERR.INTERNAL_ERROR, `IMAP error against ${hostname}:${port}: ${e.message}`)
+  } finally {
+    try { reader.releaseLock(); writer.releaseLock() } catch { /* already released */ }
+    try { await socket.close() } catch { /* the server may have closed first */ }
+  }
+}
+
+export async function imapFindSentFolder(env, { address }) {
+  const cred = await mailboxCredential(env, address)
+  if (!cred.ok) return fail(ERR.FORBIDDEN_GRAPH, cred.reason, { address })
+
+  return withImap({ hostname: cred.hostname, port: cred.port, user: address, password: cred.password }, async (command) => {
+    const list = await command('LIST "" "*"')
+    if (!list.ok) return fail(ERR.INTERNAL_ERROR, `LIST failed: ${list.final}`)
+    const folders = list.lines.map(parseListLine).filter(Boolean)
+    const chosen = chooseSentFolder(folders)
+    return {
+      ok: true,
+      address,
+      hostname: cred.hostname,
+      sentFolder: chosen.name,
+      how: chosen.how,
+      folders: folders.map((f) => f.name),
+    }
+  })
+}
+
+/**
+ * File a copy of a sent message in the mailbox's own Sent folder.
+ *
+ * Best-effort BY CONTRACT: the e-mail has already been delivered by the time this runs, so a
+ * failure here is a missing copy and never a failed send. It returns a reason instead of throwing.
+ */
+export async function imapAppendSent(env, { address, sentFolder, rfc822 }) {
+  if (!sentFolder) return fail(ERR.INVALID_INPUT, 'sentFolder is required.')
+  const cred = await mailboxCredential(env, address)
+  if (!cred.ok) return fail(ERR.FORBIDDEN_GRAPH, cred.reason, { address })
+
+  return withImap({ hostname: cred.hostname, port: cred.port, user: address, password: cred.password }, async (command) => {
+    const bytes = new TextEncoder().encode(rfc822).length
+    // \Seen because the sender has by definition already read what they sent.
+    const res = await command(`APPEND "${sentFolder}" (\\Seen) {${bytes}+}\r\n${rfc822}`, { budgetMs: 25000 })
+    if (!res.ok) return fail(ERR.INTERNAL_ERROR, `APPEND to "${sentFolder}" failed: ${res.final}`, { address, sentFolder })
+    return { ok: true, address, sentFolder, bytes }
+  })
+}
+

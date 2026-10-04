@@ -18,7 +18,7 @@
  * - GET /health - Health check
  */
 
-import { storeUserApiKey, deleteUserApiKey, listUserApiKeys } from './src/utils/secretsManager.js'
+import { storeUserApiKey, getUserApiKey, deleteUserApiKey, listUserApiKeys } from './src/utils/secretsManager.js'
 
 // CORS configuration (matches api-worker and anthropic-worker)
 const CORS_HEADERS = {
@@ -117,6 +117,51 @@ export default {
           userId,
           keys,
           count: keys.length
+        })
+      }
+
+      // GET /mailbox-password?address=... - the ONLY route that returns a decrypted secret.
+      //
+      // Added 2026-10-04 so dev-worker can file a sent copy over IMAP. Deliberately narrow on two
+      // axes, because the first attempt was to copy the decryption into dev-worker and give it the
+      // master key — which would have let the MCP server decrypt every row in this table, when it
+      // needs one mailbox password.
+      //
+      //   1. Service bindings only. A binding addresses this worker by its BINDING NAME, and that
+      //      hostname is not routable from the internet — Cloudflare only delivers public requests
+      //      on this worker's own routes, which always carry the public hostname. The signal
+      //      cannot be forged from outside. (Same reasoning as dev-worker's validateAuth.)
+      //   2. `imap:` providers only. An OpenAI or Anthropic key is not reachable here at any price.
+      if (path === '/mailbox-password' && request.method === 'GET') {
+        if (new URL(request.url).hostname !== 'user-keys-worker') {
+          return jsonResponse({ error: 'This route is reachable only over a service binding.' }, 403)
+        }
+        const address = (url.searchParams.get('address') || '').trim().toLowerCase()
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
+          return jsonResponse({ error: 'address must be a mailbox address' }, 400)
+        }
+        const provider = `imap:${address}`
+
+        // The table is UNIQUE(user_id, provider), so two people could each hold a password for the
+        // same mailbox. Refuse rather than guess which one the caller meant.
+        const rows = await env.DB
+          .prepare('SELECT user_id, key_name FROM user_api_keys WHERE provider = ?1 AND enabled = 1')
+          .bind(provider)
+          .all()
+        const found = rows.results || []
+        if (found.length === 0) return jsonResponse({ error: `No mailbox password stored for ${address}` }, 404)
+        if (found.length > 1) {
+          return jsonResponse({ error: `${found.length} users hold a password for ${address}; pass userId to disambiguate` }, 409)
+        }
+
+        const password = await getUserApiKey(env, found[0].user_id, provider)
+        const [hostname, port] = String(found[0].key_name || '').split(':')
+        return jsonResponse({
+          success: true,
+          address,
+          password,
+          hostname: hostname || null,
+          port: Number(port) || 993,
         })
       }
 
