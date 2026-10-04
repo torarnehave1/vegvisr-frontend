@@ -705,15 +705,57 @@ test('a send writes one row; a refusal writes one too', async () => {
   assert.equal(all.includes('inger@'), false, 'the recipient local part is never stored')
 })
 
-test('the daily cap refuses before anything leaves', async () => {
-  const { env, raw, worker } = sendWorld()
+// The cap is configuration, not a constant — it was raised from 20 to 100 the day after
+// shipping, which is the usual fate of a number guessed before anyone used the thing. The test
+// therefore sets its own cap rather than hard-coding whichever value production currently holds.
+const fillLog = (raw, n, actor = NIBI) => {
   const ins = raw.prepare(
     "INSERT INTO email_send_log (id, ts, actor_email, sender_email, outcome, surface) VALUES (?,?,?,?,'SENT','mcp')",
   )
-  for (let i = 0; i < 20; i++) ins.run(`r${i}`, new Date().toISOString(), NIBI, NIBI)
+  for (let i = 0; i < n; i++) ins.run(`r${i}-${Math.random()}`, new Date().toISOString(), actor, NIBI)
+}
+
+test('the daily cap refuses before anything leaves, and names the number', async () => {
+  const { env, raw, worker } = sendWorld()
+  env.MCP_DAILY_SEND_CAP = '3'
+  fillLog(raw, 3)
   const r = await email.sendEmail(env, { ...draft(), actor: asHolder() })
   assert.equal(r.code, gs.ERR.RATE_LIMITED)
+  assert.match(r.message, /cap of 3/)
   assert.equal(worker.calls.length, 0)
+})
+
+test('under the cap, the send goes through', async () => {
+  const { env, raw, worker } = sendWorld()
+  env.MCP_DAILY_SEND_CAP = '3'
+  fillLog(raw, 2)
+  const r = await email.sendEmail(env, { ...draft(), actor: asHolder() })
+  assert.equal(r.ok, true)
+  assert.equal(worker.calls.length, 1)
+})
+
+// A missing or nonsense var must not become a cap of zero — that would stop every send on this
+// path with a rate-limit message, which is the worst way for a config typo to present.
+test('an absent or unusable cap falls back to the default rather than to zero', async () => {
+  for (const value of [undefined, '', 'mange', '0', '-5']) {
+    const { env, worker } = sendWorld()
+    if (value !== undefined) env.MCP_DAILY_SEND_CAP = value
+    const r = await email.sendEmail(env, { ...draft(), actor: asHolder() })
+    assert.equal(r.ok, true, `cap "${value}" must not block a first send`)
+    assert.equal(worker.calls.length, 1)
+  }
+})
+
+// The cap is per CALLER, not per sending address: one person's volume must not spend another's.
+test('the cap counts the caller, not the address', async () => {
+  const { env, raw, worker } = sendWorld([liveGrantRow()])
+  env.MCP_DAILY_SEND_CAP = '2'
+  fillLog(raw, 2, NIBI)
+  const blocked = await email.sendEmail(env, { ...draft(), actor: asHolder() })
+  assert.equal(blocked.code, gs.ERR.RATE_LIMITED)
+  const other = await email.sendEmail(env, { ...draft(), actor: actorFor('torarne@example.com') })
+  assert.equal(other.ok, true, 'a different caller has their own allowance')
+  assert.equal(worker.calls.length, 1)
 })
 
 // The holder and the account id exist on the render result because sendEmail authenticates with

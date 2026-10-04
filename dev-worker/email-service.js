@@ -887,8 +887,19 @@ export async function logSend(env, row) {
 // Sending
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Sends per caller per day. Nothing on this path had a limit, and email-worker has none either. */
-const DAILY_SEND_CAP = 20
+/**
+ * Sends per caller per day. Nothing on this path had a limit, and email-worker has none either.
+ *
+ * Read from `MCP_DAILY_SEND_CAP` in wrangler.toml so raising it is a config change rather than a
+ * code deploy — the first raise (20 → 100, 2026-10-04) came within a day of shipping, which is
+ * the signal that the number was never going to be right on the first guess.
+ */
+const DEFAULT_DAILY_SEND_CAP = 100
+
+function dailySendCap(env) {
+  const n = Number(env?.MCP_DAILY_SEND_CAP)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_DAILY_SEND_CAP
+}
 
 async function sendsToday(env, actorEmail) {
   const since = new Date(Date.now() - 86400000).toISOString()
@@ -956,12 +967,13 @@ export async function sendEmail(env, args) {
     )
   }
 
+  const cap = dailySendCap(env)
   const sentToday = await sendsToday(env, actor.email)
-  if (sentToday >= DAILY_SEND_CAP) {
+  if (sentToday >= cap) {
     await logRefusal(ERR.RATE_LIMITED)
     return fail(
       ERR.RATE_LIMITED,
-      `You have sent ${sentToday} e-mails in the last 24 hours, which is the cap. Try again later.`,
+      `You have sent ${sentToday} e-mails in the last 24 hours, which is the cap of ${cap}. Try again later.`,
     )
   }
 

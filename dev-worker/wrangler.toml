@@ -87,6 +87,10 @@ service = "sms-gateway"
 # that arrives on this origin.
 [vars]
 MCP_PUBLIC_ORIGIN = "https://knowledge.vegvisr.org"
+# Sends per caller per 24h on the MCP e-mail path. Raised 20 -> 100 on 2026-10-04, a day after
+# shipping — hence a var rather than a constant. Counted from email_send_log, so it is a cap on
+# what actually went out, not on attempts.
+MCP_DAILY_SEND_CAP = "100"
 
 # The chat bot every AI-posted message appears as. Adding this bot to a group is what permits
 # post_chat_message to post there, so a group's bot list is the access control — set and revoked
