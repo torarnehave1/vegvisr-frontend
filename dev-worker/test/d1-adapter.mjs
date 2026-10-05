@@ -486,6 +486,43 @@ export function seedEmailGraph(raw, domain, { brand = null, templates = [], sign
  * Records HEADERS as well as bodies, because here the authorisation travels in `x-internal-caller`
  * rather than in the body — a fake that kept only bodies would hide the one thing worth asserting.
  */
+/** Creates sms_send_log. The SMS tests seed no rows — the log IS what they assert on. */
+export function seedSmsLog(raw) {
+  raw.exec(`
+    CREATE TABLE IF NOT EXISTS sms_send_log (
+      id TEXT PRIMARY KEY, ts TEXT NOT NULL, actor_email TEXT NOT NULL, sender_id TEXT,
+      recipient_cc TEXT, recipient_hash TEXT, body_chars INTEGER, segments INTEGER,
+      outcome TEXT NOT NULL, refusal_code TEXT, message_id TEXT, price REAL, currency TEXT,
+      surface TEXT NOT NULL, client_id TEXT
+    );
+  `)
+}
+
+/**
+ * Stands in for the SMS_GATEWAY service binding. `calls` is the assertion surface: a correct
+ * refusal leaves it empty, which is the only proof that nothing was spent.
+ */
+export class RecordingSmsGateway {
+  constructor({ ok = true, status = 200, error = null, messageIds = ['sms-1'], totalPrice = 0.35, currency = 'NOK' } = {}) {
+    this.calls = []
+    this.ok = ok; this.status = status; this.error = error
+    this.messageIds = messageIds; this.totalPrice = totalPrice; this.currency = currency
+  }
+  async fetch(url, init = {}) {
+    this.calls.push({ url, body: init.body ? JSON.parse(init.body) : null })
+    if (!this.ok) {
+      return new Response(JSON.stringify({ success: false, error: this.error }), { status: this.status })
+    }
+    return new Response(
+      JSON.stringify({
+        success: true, totalRecipients: 1, successfulSends: 1,
+        messageIds: this.messageIds, totalPrice: this.totalPrice, currency: this.currency,
+      }),
+      { status: 200 },
+    )
+  }
+}
+
 export class RecordingEmailWorker {
   constructor({ ok = true, status = 200, error = null, messageId = 'msg-1' } = {}) {
     this.calls = []

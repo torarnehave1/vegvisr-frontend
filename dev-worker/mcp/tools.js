@@ -31,6 +31,7 @@ import * as sites from '../published-domains.js'
 import * as publish from '../publish-service.js'
 import { NODE_TYPES, DEFAULT_NODE_TYPE, suggestNodeType } from '../node-types.js'
 import * as users from '../users-service.js'
+import * as sms from '../sms-service.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared schemas
@@ -1335,6 +1336,138 @@ export function registerTools(server, getContext) {
         { success: true, ...payload },
         `SENT to ${result.toEmail} from ${result.senderEmail}.\nSubject: ${result.subject}\n` +
           `Signature: ${result.signatureName || 'none'}${result.messageId ? ` · id ${result.messageId}` : ''}\n` +
+          'This cannot be recalled.',
+      )
+    },
+  )
+
+  // ── preview_sms ───────────────────────────────────────────────────────────
+  //
+  // The only place a human sees an SMS before it leaves, for the same reason preview_email
+  // exists: no connected MCP client declares `elicitation`, so the server cannot ask anything.
+  // A refusal here is the same refusal send_sms gives, one step earlier and with nothing spent.
+  server.registerTool(
+    'preview_sms',
+    {
+      title: 'Preview an SMS without sending it',
+      description:
+        'Compose exactly what send_sms would transmit, and transmit nothing. Reports the ' +
+        'normalised recipient, the sender string as the handset will show it, the character ' +
+        'count, the encoding, and the SEGMENT count — which is what is billed, and which drops ' +
+        'from 160 to 70 characters per segment the moment the text contains one character ' +
+        'outside the GSM-7 set. Show the user this output and send only after they confirm it. ' +
+        'Norwegian (+47) numbers only. `sent` is always false. Requires the chat:write scope.',
+      inputSchema: {
+        toPhone: z
+          .string()
+          .min(5)
+          .describe('The recipient, a Norwegian mobile number: 8 digits, 0047…, or +47…. One only.'),
+        message: z.string().min(1).describe('The message text, exactly as it should arrive.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        sent: z.boolean(),
+        toPhone: z.string(),
+        toMasked: z.string(),
+        senderId: z.string(),
+        message: z.string(),
+        chars: z.number(),
+        encoding: z.string(),
+        segments: z.number(),
+        estimatedPrice: z.number().nullable(),
+        estimatedCurrency: z.string().nullable(),
+        basis: z.string(),
+        warnings: z.array(z.string()),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = sms.previewSms(env, { ...args, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `NOT SENT — preview only.
+To: ${result.toPhone}
+From: ${result.senderId}
+` +
+          `${result.segments} segment(s), ${result.chars} chars, ${result.encoding}` +
+          `${result.estimatedPrice === null ? '' : ` · ~${result.estimatedPrice} ${result.estimatedCurrency}`}
+` +
+          `
+${result.message}
+` +
+          (result.warnings.length ? `
+${result.warnings.join('\n')}` : ''),
+      )
+    },
+  )
+
+  // ── send_sms ──────────────────────────────────────────────────────────────
+  //
+  // openWorldHint: the effect lands on somebody's handset and costs money. Not destructive —
+  // it creates, it does not overwrite — but emphatically not idempotent: twice is two texts and
+  // two charges.
+  server.registerTool(
+    'send_sms',
+    {
+      title: 'Send an SMS',
+      description:
+        'Send an SMS. THIS DELIVERS A TEXT TO A REAL PHONE, COSTS MONEY, AND CANNOT BE UNDONE ' +
+        'OR RECALLED. Call preview_sms first, show the user what it returns, and send only after ' +
+        'they have confirmed that text — this server cannot ask them anything itself. Takes the ' +
+        'same arguments as preview_sms and composes identically. Sending is limited to an ' +
+        'explicit allow-list of e-mail addresses; platform Superadmin grants nothing here. There ' +
+        'is no way to choose the sender string — it comes from server config. Norwegian (+47) ' +
+        'numbers only, one recipient per call. Requires the chat:write scope.',
+      inputSchema: {
+        toPhone: z
+          .string()
+          .min(5)
+          .describe('The recipient, a Norwegian mobile number: 8 digits, 0047…, or +47…. One only.'),
+        message: z.string().min(1).describe('The message text, exactly as it should arrive.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        sent: z.boolean(),
+        toMasked: z.string(),
+        senderId: z.string(),
+        segments: z.number(),
+        encoding: z.string(),
+        messageId: z.string().nullable(),
+        price: z.number().nullable(),
+        currency: z.string().nullable(),
+        segmentsUsedToday: z.number(),
+        dailyCap: z.number(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await sms.sendSms(env, { ...args, actor, clientId: auth?.clientId || null })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `SENT to ${result.toMasked} from ${result.senderId}. ${result.segments} segment(s)` +
+          `${result.price === null ? '' : ` · ${result.price} ${result.currency}`}` +
+          `${result.messageId ? ` · id ${result.messageId}` : ''}
+` +
+          `${result.segmentsUsedToday}/${result.dailyCap} segments used in the last 24 hours.
+` +
           'This cannot be recalled.',
       )
     },
@@ -2955,6 +3088,8 @@ export const TOOL_NAMES = [
   'list_email_senders',
   'preview_email',
   'send_email',
+  'preview_sms',
+  'send_sms',
   'set_email_template',
   'get_fulltext_elements',
   'get_image_guide',

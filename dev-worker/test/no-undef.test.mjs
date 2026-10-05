@@ -60,6 +60,7 @@ test('no module calls a name that does not exist', async () => {
     new URL('../chat-service.js', import.meta.url).pathname,
     new URL('../chat-members.js', import.meta.url).pathname,
     new URL('../email-service.js', import.meta.url).pathname,
+    new URL('../sms-service.js', import.meta.url).pathname,
     new URL('../email-templates-service.js', import.meta.url).pathname,
     new URL('../imap-service.js', import.meta.url).pathname,
     new URL('../imap-protocol.js', import.meta.url).pathname,

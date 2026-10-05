@@ -91,5 +91,22 @@ console.log('— live smoke —')
   check('an empty mailbox password is refused', body.success === false && /password is required/i.test(body.error || ''), JSON.stringify(body).slice(0, 140))
 }
 
+// 7. The SMS log table exists in production. Nothing here sends an SMS — a live send costs money
+//    and lands on a real handset, so the send path is exercised by hand, once, with the owner's
+//    go. What a smoke test CAN prove is that the migration landed and the table is queryable,
+//    which is the half that silently breaks.
+{
+  let ok = false
+  try {
+    const out = execFileSync('npx', [
+      'wrangler', 'd1', 'execute', 'vegvisr_org', '--remote', '--json',
+      '--command', 'SELECT COUNT(*) AS n FROM sms_send_log',
+    ], { cwd: new URL('..', import.meta.url).pathname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    const json = JSON.parse(out.slice(out.indexOf('[')))
+    ok = Number.isInteger(json[0].results[0].n)
+  } catch { ok = false }
+  check('sms_send_log exists and is queryable in production', ok)
+}
+
 console.log(failures === 0 ? '\nLIVE SMOKE GREEN' : `\n${failures} live check(s) FAILED`)
 process.exit(failures === 0 ? 0 : 1)

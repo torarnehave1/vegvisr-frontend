@@ -141,6 +141,35 @@ describe('18. tools/list', () => {
     }
   })
 
+  // The SMS pair names a NUMBER, never a sender and never a person. The absence of any sender
+  // field IS the rule "the caller does not choose the sender string", expressed so a model has
+  // nowhere to ask — the same move as forUserEmail's absence from the e-mail tools. The
+  // downstream gateway WOULD honour body.sender from anyone, so this is the only thing stopping
+  // a text going out as another brand.
+  test('the SMS tools cannot ask to choose a sender or a recipient list', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    for (const name of ['preview_sms', 'send_sms']) {
+      const t = tools.find((x) => x.name === name)
+      assert.ok(t, `${name} should be registered`)
+      const props = Object.keys(t.inputSchema.properties || {}).sort()
+      assert.deepEqual(props, ['message', 'toPhone'], `${name} takes nothing else`)
+      for (const forbidden of ['sender', 'senderId', 'source', 'from', 'recipients', 'listId', 'userEmail']) {
+        assert.equal(props.includes(forbidden), false, `${name} exposes ${forbidden}`)
+      }
+    }
+    const send = tools.find((x) => x.name === 'send_sms')
+    assert.match(send.description, /CANNOT BE UNDONE OR RECALLED/)
+    assert.match(send.description, /preview_sms first/)
+    assert.match(send.description, /Superadmin grants nothing/i)
+    assert.equal(send.annotations.openWorldHint, true)
+    assert.equal(send.annotations.idempotentHint, false, 'twice is two texts and two charges')
+    const preview = tools.find((x) => x.name === 'preview_sms')
+    assert.equal(preview.annotations.readOnlyHint, true)
+    assert.equal(preview.annotations.openWorldHint, false, 'a preview must not be flagged outward')
+  })
+
   // Decision of 2026-10-03, as a protocol fact rather than a promise: the right to send as an
   // address is own-profile or an explicit grant, and Superadmin is neither. Agent-Builder's
   // send_email has `forUserEmail`, which is its Superadmin override; its ABSENCE here is what makes
@@ -701,6 +730,10 @@ describe('annotations tell the client the truth about each tool', () => {
       'post_chat_message',
       'publish_html_node',
       'register_user',
+      // Added 2026-10-05. send_sms puts a text on somebody's handset and spends money doing it.
+      // preview_sms is deliberately NOT here — it composes the identical message and transmits
+      // nothing, which is the whole reason it exists.
+      'send_sms',
       // Added 2026-09-30. Each one's effect lands on ANOTHER PERSON: someone gains access to a
       // group and can read what is said there, loses that access, or gets a link that lets
       // anyone holding it walk in. list_group_members is deliberately not here — it reads this
@@ -1118,6 +1151,7 @@ describe('publish_html_node is the one tool that reaches the public internet', (
       'register_user',
       'remove_group_member',
       'send_email',
+      'send_sms',
       'set_group_member_role',
     ])
     const t = tools.find((x) => x.name === 'publish_html_node')
@@ -2285,6 +2319,7 @@ describe('post_chat_message is gated harder than everything else', () => {
       'register_user',
       'remove_group_member',
       'send_email',
+      'send_sms',
       'set_group_member_role',
     ])
   })
@@ -2371,6 +2406,7 @@ describe('read_chat_messages is gated apart from posting', () => {
       'register_user',
       'remove_group_member',
       'send_email',
+      'send_sms',
       'set_group_member_role',
     ])
     // The property that makes adding another one safe: no such scope is advertised, so every
