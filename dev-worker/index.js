@@ -25,6 +25,7 @@ import { listTemplates as gsListTemplates } from './templates-service.js'
 import { readPublishedDomainRegistry, mergePublishedDomains } from './published-domains.js'
 import { NODE_TYPES } from './node-types.js'
 import * as emailService from './email-service.js'
+import * as smsService from './sms-service.js'
 import { imapProbe, imapFindSentFolder, fileSentCopy } from './imap-service.js'
 import { OAuthProvider } from '@cloudflare/workers-oauth-provider'
 import { handleAuthorize, ISSUER, MCP_RESOURCE, SUPPORTED_SCOPES } from './oauth/authorize.js'
@@ -5586,6 +5587,50 @@ const restHandler = {
       //
       // Superadmin only. It is an outbound connection to an arbitrary host, so it is not something
       // an ordinary token should be able to aim.
+      // ── SMS over REST, beside the MCP tools ──────────────────────────────
+      //
+      // Exists because of L158: a just-deployed MCP tool is invisible to an already-connected
+      // client, which fetched tools/list at connect time. So the tool that was shipped cannot be
+      // exercised in the session that shipped it, and L154 ("run it yourself before handing it
+      // over") becomes unsatisfiable for anything MCP-only. These routes are the self-serve path,
+      // the same role /email/world-template plays for its tool.
+      //
+      // THE GATE IS THE SERVICE'S, NOT THIS ROUTE'S. There is deliberately no isSuperadmin check
+      // here: resolveSmsAccess refuses anybody not on MCP_SMS_ALLOWED, Superadmin included, and a
+      // Superadmin shortcut on this route would be a second door past the fence — which is the
+      // one thing this design exists to prevent. What the route DOES require is a full signed-in
+      // session: a narrowly scoped API token minted for graph writes has no business spending
+      // money on texts.
+      if (pathname === '/sms/preview' || pathname === '/sms/send') {
+        if (request.method !== 'POST') {
+          return new Response(JSON.stringify({ error: 'POST only' }), { status: 405, headers: corsHeaders })
+        }
+        const tv = await validateAuth(request, env)
+        if (!tv.valid) {
+          return new Response(JSON.stringify({ error: tv.error || 'Authentication required' }), {
+            status: tv.status || 401, headers: corsHeaders,
+          })
+        }
+        if (!hasScope(tv.scopes, 'all')) {
+          return new Response(JSON.stringify({
+            error: 'Sending SMS needs a signed-in session, not a scoped API token.',
+            code: 'INSUFFICIENT_SCOPE',
+          }), { status: 403, headers: corsHeaders })
+        }
+        const actor = normalizeActor(tv)
+        const body = await request.json().catch(() => ({}))
+        const args = { toPhone: body.toPhone, message: body.message, actor, clientId: 'rest' }
+        const result = pathname === '/sms/preview'
+          ? smsService.previewSms(env, args)
+          : await smsService.sendSms(env, args)
+        return new Response(
+          JSON.stringify(result.ok
+            ? { success: true, ...result, ok: undefined }
+            : { success: false, error: result.message, code: result.code }),
+          { status: result.ok ? 200 : (result.status || 500), headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+      }
+
       if (pathname === '/email/imap-probe' && request.method === 'POST') {
         const tv = await validateAuth(request, env)
         if (!tv.valid) {

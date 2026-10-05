@@ -108,5 +108,30 @@ console.log('— live smoke —')
   check('sms_send_log exists and is queryable in production', ok)
 }
 
+// 8. The SMS REST routes, which exist so the SMS tools are exercisable at all (L158). Read-only
+//    in effect: preview transmits nothing, and the unauthenticated checks cannot send either.
+{
+  const { status } = await json(`${MCP}/sms/preview`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ toPhone: '98765432', message: 'x' }),
+  })
+  check('sms/preview refuses no token', status === 401, `HTTP ${status}`)
+}
+{
+  const { status } = await json(`${MCP}/sms/send`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ toPhone: '98765432', message: 'x' }),
+  })
+  check('sms/send refuses no token', status === 401, `HTTP ${status}`)
+}
+{
+  const { status, body } = await json(`${MCP}/sms/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Token': TOKEN },
+    body: JSON.stringify({ toPhone: '+46701234567', message: 'x' }),
+  })
+  check('sms/preview refuses a non-Norwegian number', status !== 200 && /\+47/.test(body.error || ''), `HTTP ${status} ${JSON.stringify(body).slice(0, 120)}`)
+}
+
 console.log(failures === 0 ? '\nLIVE SMOKE GREEN' : `\n${failures} live check(s) FAILED`)
 process.exit(failures === 0 ? 0 : 1)

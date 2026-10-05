@@ -271,3 +271,22 @@ test('an unauthenticated caller is refused before anything else happens', async 
   assert.equal(r.code, gs.ERR.UNAUTHENTICATED)
   assert.equal(gw.calls.length, 0)
 })
+
+// ── The REST route must not be a second door ───────────────────────────────
+
+test('the /sms REST routes contain no Superadmin shortcut', async () => {
+  // A source-level pin, because the property is an ABSENCE and absence leaves no runtime trace.
+  // The neighbouring /email/imap-* routes DO gate on isSuperadmin, which is correct for them —
+  // so the shape was right there to be copied, and copying it would have put a second door past
+  // MCP_SMS_ALLOWED. The gate has to stay the service's.
+  const src = await import('node:fs/promises').then((fs) =>
+    fs.readFile(new URL('../index.js', import.meta.url), 'utf8'))
+  const start = src.indexOf("if (pathname === '/sms/preview' || pathname === '/sms/send')")
+  assert.ok(start > 0, 'the SMS routes should exist in index.js')
+  const block = src.slice(start, src.indexOf("if (pathname === '/email/imap-probe'", start))
+  assert.ok(block.length > 200, 'found the block, not an empty slice')
+  assert.equal(block.includes('isSuperadmin'), false, 'no Superadmin shortcut past the allow-list')
+  assert.ok(block.includes("hasScope(tv.scopes, 'all')"), 'but a full session IS required')
+  assert.ok(block.includes('smsService.previewSms'), 'and it delegates to the same executor')
+  assert.ok(block.includes('smsService.sendSms'))
+})
