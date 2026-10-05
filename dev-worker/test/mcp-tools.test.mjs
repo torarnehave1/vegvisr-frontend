@@ -1219,6 +1219,172 @@ describe('node types: a graph generated over MCP cannot carry a type that will n
   })
 })
 
+// Node metadata over the MCP. Until 1.23.0 a node had two content slots and the MCP could write
+// only one: `info` went through, `metadata` was silently dropped by zod, with no error. Every
+// structured field in graph_system_registry — binding names, openapi paths, the component
+// registry's graphId pointer — had therefore been written by agent-worker or by curl, and the
+// architecture graphs the MCP is supposed to maintain could not carry a kind or a review block.
+describe('node metadata: the second content slot, and what a model may not put in it', () => {
+  const REVIEW = { approvedBy: 'alice@example.com', approvedAt: '2026-10-05T10:00:00Z', contentHash: 'abc123' }
+
+  test('metadata is declared on both write tools, so a refactor cannot silently drop it again', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    // This pin exists because the ABSENCE of this field was the bug, and absence leaves no trace:
+    // zod strips an undeclared key without erroring, so the loss is invisible at the call site.
+    const add = tools.find((x) => x.name === 'add_node')
+    assert.ok(add.inputSchema.properties.node.properties.metadata, 'add_node must accept node metadata')
+    const upd = tools.find((x) => x.name === 'update_node')
+    assert.ok(upd.inputSchema.properties.fields.properties.metadata, 'update_node must accept metadata')
+    const create = tools.find((x) => x.name === 'create_graph')
+    assert.ok(create.inputSchema.properties.nodes.items.properties.metadata, 'create_graph too')
+  })
+
+  test('metadata round-trips through add_node', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'Layer', metaArea: '#ARCHITECTURE' })
+    await callOk(client, 'add_node', {
+      graphId: g.graphId,
+      node: { id: 'n1', label: 'Email gate', type: 'fulltext', info: 'own-profile or a grant', metadata: { kind: 'decision', layer: 'communication' } },
+    })
+    const after = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.deepEqual(after.nodes[0].metadata, { kind: 'decision', layer: 'communication' })
+  })
+
+  test('each reserved key is refused at the protocol, and nothing is written', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X' })
+    for (const key of ['createdBy', 'userId', 'actor', 'token', 'authToken', 'encrypted', 'review']) {
+      const r = await client.callTool({
+        name: 'add_node',
+        arguments: { graphId: g.graphId, node: { label: 'x', metadata: { [key]: 'v' } } },
+      })
+      assert.equal(r.isError, true, `metadata.${key} must be refused`)
+      assert.match(r.content[0].text, /reserved/i, `and the refusal must say why (${key})`)
+    }
+    const after = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(after.nodeCount, 0, 'not one of those calls stored anything')
+  })
+
+  test('the refusal is not defeated by spelling it differently', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X' })
+    // A ban list compared on the literal key is a ban list a model walks straight past.
+    for (const key of ['created_by', 'Created-By', 'CREATEDBY', 'user_id', 'Review', 'auth_token']) {
+      const r = await client.callTool({
+        name: 'add_node',
+        arguments: { graphId: g.graphId, node: { label: 'x', metadata: { [key]: 'v' } } },
+      })
+      assert.equal(r.isError, true, `${key} is the same key as its normalised form`)
+    }
+  })
+
+  test('a model cannot forge authorship through the new opening', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X' })
+    const r = await client.callTool({
+      name: 'add_node',
+      arguments: { graphId: g.graphId, node: { label: 'x', metadata: { createdBy: 'somebody-else@example.com' } } },
+    })
+    assert.equal(r.isError, true)
+    // The schema-wide ban loop above reads declared property NAMES, so it cannot see this one.
+    // That is why the guard has to live in the metadata schema itself.
+    const { tools } = await client.listTools()
+    const props = Object.keys(tools.find((x) => x.name === 'add_node').inputSchema.properties)
+    assert.equal(props.includes('createdBy'), false, 'the name pin still holds, and still is not enough')
+  })
+
+  test('update_node MERGES metadata — every other field replaces', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', {
+      title: 'T', metaArea: '#X',
+      nodes: [{ id: 'n1', label: 'p', type: 'fulltext', info: 'x', metadata: { kind: 'observed', layer: 'communication', owner: 'email' } }],
+    })
+    await callOk(client, 'update_node', {
+      graphId: g.graphId, nodeId: 'n1', fields: { metadata: { kind: 'decision' } }, expectedVersion: 1,
+    })
+    const after = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.deepEqual(after.nodes[0].metadata, { kind: 'decision', layer: 'communication', owner: 'email' },
+      'the keys not named must survive')
+  })
+
+  test('null removes exactly one key', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', {
+      title: 'T', metaArea: '#X',
+      nodes: [{ id: 'n1', label: 'p', type: 'fulltext', metadata: { kind: 'decision', stale: 'yes' } }],
+    })
+    await callOk(client, 'update_node', {
+      graphId: g.graphId, nodeId: 'n1', fields: { metadata: { stale: null } }, expectedVersion: 1,
+    })
+    const after = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.deepEqual(after.nodes[0].metadata, { kind: 'decision' })
+  })
+
+  // THE ONE THAT CARRIES THE DESIGN. Human Knowledge First means a human reviewed and approved the
+  // content. Every MCP caller is a model holding a human's OAuth token, so `review` is written by
+  // the UI — here simulated by calling the service directly, which is the door the UI uses — and
+  // the MCP can neither set it nor destroy it. If metadata REPLACED instead of merging, a model
+  // changing `kind` would silently delete the approval and the field would be decoration.
+  test('a model updating metadata cannot delete the approval a human wrote', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const actor = gs.normalizeActor({ valid: true, userId: 'alice@example.com', userEmail: 'alice@example.com', userRole: 'User', scopes: ['graph:write'] })
+    const g = await callOk(client, 'create_graph', {
+      title: 'T', metaArea: '#X',
+      nodes: [{ id: 'n1', label: 'p', type: 'fulltext', info: 'the decision', metadata: { kind: 'decision' } }],
+    })
+
+    // The human approves, through the service — the path the UI will use. The MCP has no such tool.
+    const planted = await gs.updateNode(env, {
+      graphId: g.graphId, nodeId: 'n1', fields: { metadata: { kind: 'decision', review: REVIEW } }, expectedVersion: 1, actor,
+    })
+    assert.equal(planted.ok, true, 'the UI path can write a review')
+
+    // Now the model touches the same node.
+    await callOk(client, 'update_node', {
+      graphId: g.graphId, nodeId: 'n1', fields: { metadata: { layer: 'communication' } }, expectedVersion: planted.newVersion,
+    })
+
+    const after = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.deepEqual(after.nodes[0].metadata.review, REVIEW, 'the approval survived a model write')
+    assert.equal(after.nodes[0].metadata.kind, 'decision')
+    assert.equal(after.nodes[0].metadata.layer, 'communication')
+
+    // And it cannot be overwritten head-on either.
+    const r = await client.callTool({
+      name: 'update_node',
+      arguments: { graphId: g.graphId, nodeId: 'n1', fields: { metadata: { review: { approvedBy: 'grok' } } }, expectedVersion: after.version },
+    })
+    assert.equal(r.isError, true, 'a model cannot claim an approval')
+    const unchanged = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.deepEqual(unchanged.nodes[0].metadata.review, REVIEW)
+  })
+
+  test('a metadata write still loses a version race', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', {
+      title: 'T', metaArea: '#X',
+      nodes: [{ id: 'n1', label: 'p', type: 'fulltext', metadata: { kind: 'decision' } }],
+    })
+    // The merge does a read of its own, so the guard has to be the SQL one, not that read.
+    const e = await callErr(client, 'update_node', {
+      graphId: g.graphId, nodeId: 'n1', fields: { metadata: { kind: 'observed' } }, expectedVersion: 99,
+    })
+    assert.equal(e.code, gs.ERR.VERSION_CONFLICT)
+    const after = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(after.nodes[0].metadata.kind, 'decision', 'nothing merged on a conflict')
+  })
+})
+
 
 describe('register_user creates a login for a real person', () => {
   const REG = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'graph:write', 'user:register'] } }

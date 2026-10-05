@@ -36,6 +36,43 @@ import * as users from '../users-service.js'
 // Shared schemas
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Reserved node-metadata keys.
+//
+// `metadata` is a passthrough object, which re-opens for ONE field the hole that the schema-wide
+// ban loop in test/mcp-tools.test.mjs closes everywhere else: that loop reads declared property
+// NAMES, so it cannot see a `createdBy` smuggled inside a free-form object. These keys are
+// therefore refused by the protocol, before anything is stored.
+//
+//   createdBy / userId / actor   would forge authorship — the graph already stamps the real caller
+//   token / authToken            a credential has no business in graph content
+//   encrypted                    addNode sets this when it encrypts a data-node's info; a model
+//                                setting it on plaintext makes the reader try to decrypt prose
+//   review                       under Human Knowledge First an approval is a HUMAN's act, and
+//                                every MCP caller is a model holding a human's token. The review
+//                                block is written by the UI; it is not askable from here.
+//
+// Compared on a normalised key, so created_by, Created-By and CREATEDBY are the same refusal.
+const RESERVED_NODE_METADATA = new Set([
+  'createdby', 'userid', 'actor', 'token', 'authtoken', 'encrypted', 'review',
+])
+
+const normaliseMetaKey = (k) => String(k).toLowerCase().replace(/[^a-z0-9]/g, '')
+
+const NodeMetadata = z
+  .object({})
+  .passthrough()
+  .superRefine((obj, ctx) => {
+    for (const key of Object.keys(obj || {})) {
+      if (RESERVED_NODE_METADATA.has(normaliseMetaKey(key))) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `metadata.${key} is reserved and cannot be set through the MCP.`,
+        })
+      }
+    }
+  })
+
 const NodeInput = z
   .object({
     id: z.string().min(1).optional().describe('Node id. A UUID v4 is generated when omitted.'),
@@ -59,6 +96,11 @@ const NodeInput = z
     bibl: z.array(z.string()).optional().describe('Source URLs or references.'),
     position: z.object({ x: z.number(), y: z.number() }).optional().describe('Canvas position.'),
     visible: z.boolean().optional(),
+    metadata: NodeMetadata.optional().describe(
+      'Structured fields for machines, beside the prose a human reads in `info` — a kind, a ' +
+        'binding name, a pointer to another graph. The viewer renders `info`; tools query this. ' +
+        'Reserved keys (createdBy, userId, token, encrypted, review) are refused.',
+    ),
   })
   .describe('A knowledge-graph node.')
 
@@ -545,8 +587,14 @@ export function registerTools(server, getContext) {
             path: z.string().nullable().optional().describe('New media path.'),
             bibl: z.array(z.string()).optional().describe('New source list — replaces the old one.'),
             visible: z.boolean().optional(),
+            metadata: NodeMetadata.optional().describe(
+              'Metadata keys to MERGE into the node. The one field here that does not replace: ' +
+                'keys you omit are kept, so changing `kind` cannot silently delete a `review` ' +
+                'block a human wrote. Pass null as a value to remove that one key. Reserved keys ' +
+                'are refused.',
+            ),
           })
-          .describe('The fields to change. Anything omitted is left untouched. Pass the whole new value for a field, not a fragment.'),
+          .describe('The fields to change. Anything omitted is left untouched. Pass the whole new value for a field, not a fragment — except metadata, which merges key by key.'),
         expectedVersion: z
           .number()
           .int()
@@ -585,7 +633,28 @@ export function registerTools(server, getContext) {
         return err(gs.ERR.INVALID_INPUT, 'fields must name at least one field to change.')
       }
 
-      const result = await gs.updateNode(env, { graphId, nodeId, fields, expectedVersion, actor })
+      // metadata MERGES while every other field replaces, and the asymmetry is deliberate: a
+      // model changing `kind` must not silently delete the `review` block a human wrote. The read
+      // below cannot race the write — gs.updateNode re-checks expectedVersion inside the SQL
+      // UPDATE, so a graph that moved after this read is refused rather than patched from stale
+      // metadata.
+      let patch = fields
+      if (fields.metadata) {
+        const read = await gs.getGraph(env, graphId)
+        if (!read.ok) return fromService(read)
+        const existing = (read.graph?.nodes || []).find((n) => n.id === nodeId)
+        if (!existing) {
+          return err(gs.ERR.GRAPH_NOT_FOUND, `Node ${nodeId} not found in graph ${graphId}.`)
+        }
+        const merged = { ...(existing.metadata || {}) }
+        for (const [k, v] of Object.entries(fields.metadata)) {
+          if (v === null) delete merged[k]
+          else merged[k] = v
+        }
+        patch = { ...fields, metadata: merged }
+      }
+
+      const result = await gs.updateNode(env, { graphId, nodeId, fields: patch, expectedVersion, actor })
       if (!result.ok) return fromService(result)
 
       const { ok: _o, ...payload } = result
