@@ -415,6 +415,16 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
+// Every recipient-list call must carry the signed-in user's token. Since 2026-10-06 the gateway
+// derives the list owner FROM the token and ignores userEmail/userId in the request — before that
+// it took the owner from the query string, which made one person's lists, and the phone numbers in
+// them, readable by anyone who knew an e-mail address. A field the caller sets is a field the
+// caller can lie in, so there is no longer anything to send instead.
+const listHeaders = (json = false) => ({
+  ...(json ? { 'Content-Type': 'application/json' } : {}),
+  'X-API-Token': userStore.emailVerificationToken || '',
+})
+
 // Reactive data
 const activeTab = ref('send')
 const shareContent = ref('')
@@ -549,7 +559,8 @@ const loadLists = async () => {
   loadingLists.value = true
   try {
     const response = await fetch(
-      `https://sms-gateway.torarnehave.workers.dev/api/lists?userEmail=${encodeURIComponent(userStore.email)}`
+      `https://sms-gateway.torarnehave.workers.dev/api/lists?userEmail=${encodeURIComponent(userStore.email)}`,
+      { headers: listHeaders() }
     )
     const result = await response.json()
     if (result.success) {
@@ -568,7 +579,7 @@ const createList = async () => {
   try {
     const response = await fetch('https://sms-gateway.torarnehave.workers.dev/api/lists', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: listHeaders(true),
       body: JSON.stringify({
         userEmail: userStore.email,
         userId: userStore.user_id || userStore.email,
@@ -593,7 +604,8 @@ const deleteList = async (listId) => {
 
   try {
     await fetch(`https://sms-gateway.torarnehave.workers.dev/api/lists/${listId}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: listHeaders()
     })
     await loadLists()
     if (selectedList.value?.id === listId) {
@@ -608,7 +620,8 @@ const selectList = async (list) => {
   selectedList.value = list
   try {
     const response = await fetch(
-      `https://sms-gateway.torarnehave.workers.dev/api/lists/${list.id}/recipients`
+      `https://sms-gateway.torarnehave.workers.dev/api/lists/${list.id}/recipients`,
+      { headers: listHeaders() }
     )
     const result = await response.json()
     if (result.success) {
@@ -627,7 +640,7 @@ const addRecipientToList = async () => {
       `https://sms-gateway.torarnehave.workers.dev/api/lists/${selectedList.value.id}/recipients`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: listHeaders(true),
         body: JSON.stringify({
           name: newRecipientName.value.trim(),
           phoneNumber: newRecipientPhone.value.trim()
@@ -652,7 +665,7 @@ const deleteRecipient = async (recipientId) => {
   try {
     await fetch(
       `https://sms-gateway.torarnehave.workers.dev/api/lists/${selectedList.value.id}/recipients/${recipientId}`,
-      { method: 'DELETE' }
+      { method: 'DELETE', headers: listHeaders() }
     )
     await selectList(selectedList.value)
   } catch (error) {
@@ -725,7 +738,7 @@ const importFile = async () => {
             `https://sms-gateway.torarnehave.workers.dev/api/lists/${selectedList.value.id}/recipients`,
             {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: listHeaders(true),
               body: JSON.stringify({
                 name: recipient.name || '',
                 phoneNumber: recipient.phone
@@ -858,7 +871,7 @@ const importFromPaste = async () => {
             `https://sms-gateway.torarnehave.workers.dev/api/lists/${selectedList.value.id}/recipients`,
             {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: listHeaders(true),
               body: JSON.stringify({
                 name: recipient.name || '',
                 phoneNumber: recipient.phone

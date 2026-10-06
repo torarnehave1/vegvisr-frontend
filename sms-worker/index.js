@@ -428,18 +428,64 @@ function handleCORS() {
 
 // ===== RECIPIENT LISTS HANDLERS =====
 
+// ===== OWNERSHIP FOR RECIPIENT LISTS =====
+//
+// Added 2026-10-06. Before this, all six list endpoints were open: GET /api/lists took the owner's
+// address from the QUERY STRING and used it as the lookup, GET /api/lists/<id>/recipients asked for
+// nothing but the id and returned name + phone_number + notes, and both DELETE handlers deleted by
+// id with no owner check at all. The two readers composed: an e-mail address is not a secret, step
+// one handed out the list ids, step two turned an id into other people's phone numbers. On a public
+// hostname, and the worker also has workers_dev = true, so there were two of them.
+//
+// THE IDENTITY COMES FROM THE TOKEN AND NEVER FROM THE REQUEST. `userEmail` and `userId` in a query
+// string or body are now ignored rather than validated — a field a caller can set is a field a
+// caller can lie in, and validating it only moves the question. Same rule as email-service.js:
+// the credential IS the authorisation, and there is nothing left for a caller to assert.
+
+/** The caller, resolved from X-API-Token against the config table. Null means not signed in. */
+async function resolveCaller(request, env) {
+  const token = request.headers.get('X-API-Token') || request.headers.get('x-api-token')
+  if (!token) return null
+  try {
+    const row = await env.VEGVISR_DB.prepare(
+      'SELECT email FROM config WHERE emailVerificationToken = ? LIMIT 1'
+    ).bind(token).first()
+    return row?.email ? String(row.email).toLowerCase() : null
+  } catch (error) {
+    console.error('resolveCaller failed:', error.message)
+    return null
+  }
+}
+
+const UNAUTHENTICATED = () =>
+  jsonResponse({ error: 'Sign in required. Send your X-API-Token with this request.' }, 401)
+
+/**
+ * The list, if this caller owns it. Otherwise null.
+ *
+ * A list that does not exist and a list belonging to somebody else both return null, and both
+ * produce the same 404 — so this cannot be used to discover whether an id is real.
+ */
+async function listOwnedBy(env, listId, email) {
+  if (!listId || !email) return null
+  const row = await env.DB.prepare(
+    'SELECT * FROM sms_recipient_lists WHERE id = ? AND user_email = ? LIMIT 1'
+  ).bind(listId, email).first()
+  return row || null
+}
+
+const NOT_YOURS = () => jsonResponse({ error: 'No such list.' }, 404)
+
 async function handleGetLists(request, env) {
   try {
-    const url = new URL(request.url)
-    const userEmail = url.searchParams.get('userEmail')
-
-    if (!userEmail) {
-      return jsonResponse({ error: 'userEmail parameter required' }, 400)
-    }
+    // The ?userEmail= parameter is deliberately IGNORED. It used to be the lookup key, which is
+    // what made every user's lists readable by anyone who knew an address.
+    const callerEmail = await resolveCaller(request, env)
+    if (!callerEmail) return UNAUTHENTICATED()
 
     const { results } = await env.DB.prepare(
       'SELECT * FROM sms_recipient_lists WHERE user_email = ? ORDER BY updated_at DESC'
-    ).bind(userEmail).all()
+    ).bind(callerEmail).all()
 
     return jsonResponse({ success: true, lists: results })
   } catch (error) {
@@ -450,11 +496,14 @@ async function handleGetLists(request, env) {
 
 async function handleCreateList(request, env) {
   try {
-    const body = await request.json()
-    const { userEmail, userId, name, description } = body
+    const callerEmail = await resolveCaller(request, env)
+    if (!callerEmail) return UNAUTHENTICATED()
 
-    if (!userEmail || !userId || !name) {
-      return jsonResponse({ error: 'userEmail, userId, and name are required' }, 400)
+    const body = await request.json()
+    const { name, description } = body
+    // userEmail and userId in the body are ignored: a list is owned by whoever created it.
+    if (!name) {
+      return jsonResponse({ error: 'name is required' }, 400)
     }
 
     const id = crypto.randomUUID()
@@ -462,7 +511,7 @@ async function handleCreateList(request, env) {
 
     await env.DB.prepare(
       'INSERT INTO sms_recipient_lists (id, user_id, user_email, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).bind(id, userId, userEmail, name, description || null, now, now).run()
+    ).bind(id, callerEmail, callerEmail, name, description || null, now, now).run()
 
     return jsonResponse({ success: true, id, name })
   } catch (error) {
@@ -480,7 +529,13 @@ async function handleDeleteList(request, env) {
       return jsonResponse({ error: 'List ID required' }, 400)
     }
 
-    await env.DB.prepare('DELETE FROM sms_recipient_lists WHERE id = ?').bind(listId).run()
+    const callerEmail = await resolveCaller(request, env)
+    if (!callerEmail) return UNAUTHENTICATED()
+    if (!(await listOwnedBy(env, listId, callerEmail))) return NOT_YOURS()
+
+    // Scoped by owner as well as id, so a race cannot delete somebody else's list.
+    await env.DB.prepare('DELETE FROM sms_recipient_lists WHERE id = ? AND user_email = ?')
+      .bind(listId, callerEmail).run()
 
     return jsonResponse({ success: true })
   } catch (error) {
@@ -497,6 +552,10 @@ async function handleGetRecipients(request, env) {
     if (!listId) {
       return jsonResponse({ error: 'List ID required' }, 400)
     }
+
+    const callerEmail = await resolveCaller(request, env)
+    if (!callerEmail) return UNAUTHENTICATED()
+    if (!(await listOwnedBy(env, listId, callerEmail))) return NOT_YOURS()
 
     const { results } = await env.DB.prepare(
       'SELECT * FROM sms_recipients WHERE list_id = ? ORDER BY created_at DESC'
@@ -520,6 +579,10 @@ async function handleAddRecipient(request, env) {
       return jsonResponse({ error: 'List ID and phoneNumber are required' }, 400)
     }
 
+    const callerEmail = await resolveCaller(request, env)
+    if (!callerEmail) return UNAUTHENTICATED()
+    if (!(await listOwnedBy(env, listId, callerEmail))) return NOT_YOURS()
+
     const id = crypto.randomUUID()
     const now = Math.floor(Date.now() / 1000)
 
@@ -538,13 +601,20 @@ async function handleDeleteRecipient(request, env) {
   try {
     const url = new URL(request.url)
     const parts = url.pathname.split('/')
+    const listId = parts[3]
     const recipientId = parts[5]
 
     if (!recipientId) {
       return jsonResponse({ error: 'Recipient ID required' }, 400)
     }
 
-    await env.DB.prepare('DELETE FROM sms_recipients WHERE id = ?').bind(recipientId).run()
+    const callerEmail = await resolveCaller(request, env)
+    if (!callerEmail) return UNAUTHENTICATED()
+    if (!(await listOwnedBy(env, listId, callerEmail))) return NOT_YOURS()
+
+    // Scoped by list as well as recipient id: the id alone would delete a row out of anyone's list.
+    await env.DB.prepare('DELETE FROM sms_recipients WHERE id = ? AND list_id = ?')
+      .bind(recipientId, listId).run()
 
     return jsonResponse({ success: true })
   } catch (error) {
@@ -1831,14 +1901,17 @@ function getOpenAPISpec(url) {
           summary: 'Get recipient lists',
           description: 'Get all recipient lists for a user',
           operationId: 'getLists',
+          security: [{ apiToken: [] }],
           tags: ['Recipient Lists'],
           parameters: [
             {
               name: 'userEmail',
               in: 'query',
-              required: true,
+              required: false,
               schema: { type: 'string', format: 'email' },
-              description: 'User email address'
+              description:
+                'IGNORED since 2026-10-06. The owner comes from X-API-Token. Kept so existing ' +
+                'callers do not break; sending somebody else\'s address has no effect.'
             }
           ],
           responses: {
@@ -1865,6 +1938,7 @@ function getOpenAPISpec(url) {
           summary: 'Create recipient list',
           description: 'Create a new recipient list',
           operationId: 'createList',
+          security: [{ apiToken: [] }],
           tags: ['Recipient Lists'],
           requestBody: {
             required: true,
@@ -1907,6 +1981,7 @@ function getOpenAPISpec(url) {
           summary: 'Delete recipient list',
           description: 'Delete a recipient list by ID',
           operationId: 'deleteList',
+          security: [{ apiToken: [] }],
           tags: ['Recipient Lists'],
           parameters: [
             {
@@ -1934,6 +2009,7 @@ function getOpenAPISpec(url) {
           summary: 'Get recipients',
           description: 'Get all recipients in a list',
           operationId: 'getRecipients',
+          security: [{ apiToken: [] }],
           tags: ['Recipient Lists'],
           parameters: [
             {
@@ -1968,6 +2044,7 @@ function getOpenAPISpec(url) {
           summary: 'Add recipient',
           description: 'Add a recipient to a list',
           operationId: 'addRecipient',
+          security: [{ apiToken: [] }],
           tags: ['Recipient Lists'],
           parameters: [
             {
@@ -2017,6 +2094,7 @@ function getOpenAPISpec(url) {
           summary: 'Delete recipient',
           description: 'Delete a recipient from a list',
           operationId: 'deleteRecipient',
+          security: [{ apiToken: [] }],
           tags: ['Recipient Lists'],
           parameters: [
             {
@@ -2204,6 +2282,17 @@ function getOpenAPISpec(url) {
       }
     },
     components: {
+      securitySchemes: {
+        apiToken: {
+          type: 'apiKey',
+          in: 'header',
+          name: 'X-API-Token',
+          description:
+            "The signed-in user's token. Required on every recipient-list endpoint since " +
+            '2026-10-06: the list owner is derived FROM this token, and userEmail/userId in a ' +
+            'query string or body are ignored.',
+        },
+      },
       schemas: {
         SMSResponse: {
           type: 'object',
