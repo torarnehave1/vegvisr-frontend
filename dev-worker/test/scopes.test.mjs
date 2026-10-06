@@ -140,10 +140,13 @@ describe('chat:read is consented to separately from chat:write', () => {
       'and must say that Superadmin alone grants no address')
     assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /meldingskanaler generelt/,
       'must say the scope covers the class, so a future tool does not need a new scope')
-    // Added 2026-10-05 with send_sms, and the cost is the part that makes SMS different from
-    // every other tool in this class: a person ticking the box is agreeing to spend money.
+    // Added 2026-10-05 with send_sms. The consent screen names the channel and the limits; the
+    // actual price belongs in preview_sms, which reports segments and cost per message before
+    // anything is sent. A shouted warning on a one-time grant screen is worse than a real figure
+    // at the moment of sending — the architect's call, 2026-10-06.
     assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /SMS/, 'the copy must name SMS')
-    assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /KOSTER PENGER/, 'and must say it costs money')
+    assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /Forhåndsvisningen viser/,
+      'and must point at where the real cost appears')
   })
 
   // MECHANISM, not another hand-added assertion. The E-POST check above passed for two days

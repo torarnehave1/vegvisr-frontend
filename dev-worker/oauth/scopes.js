@@ -158,10 +158,10 @@ export const OPT_IN_SCOPE_DETAIL = {
     'medlem av, E-POST OG SMS. E-post: den kan sende fra adresser som står på din egen profil, ' +
     'eller som noen uttrykkelig har gitt deg lov til å bruke — aldri fra en adresse du bare er ' +
     'Superadmin over, og en sendt e-post kan ikke kalles tilbake. SMS: den kan sende tekstmelding ' +
-    'til norske mobilnummer, og DETTE KOSTER PENGER per melding — betalt av plattformen, med en ' +
-    'daglig grense. SMS er dessuten begrenset til en uttrykkelig liste over hvem som får sende i ' +
-    'det hele tatt, så Superadmin alene gir ingenting her heller, og avsendernavnet velges av ' +
-    'serveren og ikke av assistenten. En sendt SMS kan ikke kalles tilbake. Scopen dekker ' +
+    'til norske mobilnummer, begrenset til en uttrykkelig liste over hvem som får sende, med en ' +
+    'daglig grense. Superadmin alene gir ingenting her heller, avsendernavnet velges av serveren, ' +
+    'og en sendt SMS kan ikke kalles tilbake. Forhåndsvisningen viser melding, antall segmenter og ' +
+    'pris før sending. Scopen dekker ' +
     'meldingskanaler generelt, så et framtidig verktøy i samme klasse ' +
     'vil bruke den i stedet for å be deg autorisere på nytt. Meldingene postes av ' +
     'assistentens egen bot og merkes alltid med at en AI skrev dem på dine vegne. Den kan bare ' +
