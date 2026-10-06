@@ -94,7 +94,96 @@ export function maskPhone(e164) {
 // GSM 03.38 basic set plus its extension table. Anything outside forces UCS-2, which cuts a
 // segment from 160 characters to 70 — the single biggest surprise in SMS billing, and the reason
 // preview reports segments rather than characters.
-const GSM7 = /^[@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞ\u001bÆæßÉ !"#¤%&'()*+,\-./0-9:;<=>?¡A-ZÄÖÑÜ§¿a-zäöñüà\f^{}\\\[~\]|€]*$/
+//
+// ONE class body, two regexes derived from it. They were separate literals for about an hour and
+// that is exactly how the whole-string test and the per-character test drift apart: a character
+// allowed by one and rejected by the other produces a warning naming a character that is fine, or
+// silence about one that is not.
+const GSM7_BODY = '@£$¥èéùìòÇ\\nØø\\rÅåΔ_ΦΓΛΩΠΨΣΘΞ\\u001bÆæßÉ !"#¤%&\'()*+,\\-./0-9:;<=>?¡A-ZÄÖÑÜ§¿a-zäöñüà\\f^{}\\\\\\[~\\]|€'
+const GSM7 = new RegExp(`^[${GSM7_BODY}]*$`)
+const GSM7_CHAR = new RegExp(`^[${GSM7_BODY}]$`)
+
+// Names for the characters that actually turn up in Norwegian business prose. The invisible ones
+// are why this exists at all: a non-breaking space or a soft hyphen doubles the price of a message
+// with nothing on screen to see, and "contains a character outside the GSM-7 set" is useless
+// advice when the character cannot be seen.
+const CHAR_NAMES = {
+  '—': 'em dash (long dash, often auto-inserted)',
+  '–': 'en dash',
+  '‘': 'left single quote',
+  '’': 'right single quote / curly apostrophe',
+  '“': 'left double quote',
+  '”': 'right double quote',
+  '…': 'ellipsis (one character, not three dots)',
+  ' ': 'NON-BREAKING SPACE — invisible',
+  '­': 'SOFT HYPHEN — invisible',
+  '​': 'ZERO-WIDTH SPACE — invisible',
+  '•': 'bullet',
+  '−': 'minus sign (not a hyphen)',
+  '´': 'acute accent',
+  '′': 'prime',
+  '°': 'degree sign',
+  '←': 'left arrow',
+  '→': 'right arrow',
+  '«': 'left guillemet',
+  '»': 'right guillemet',
+}
+
+const INVISIBLE = new Set([' ', '­', '​', '‌', '‍', '﻿'])
+
+/**
+ * Every distinct character in `text` that forces UCS-2, in order of first appearance.
+ *
+ * Returns `{ char, codePoint, name, invisible }` so a caller can print something a human can act
+ * on. An invisible character is rendered as its name and code point only — printing the character
+ * itself would show nothing, which is how it got into the message in the first place.
+ */
+export function nonGsmChars(text) {
+  const seen = new Map()
+  for (const ch of String(text || '')) {
+    if (GSM7_CHAR.test(ch) || seen.has(ch)) continue
+    const cp = `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`
+    seen.set(ch, {
+      char: ch,
+      codePoint: cp,
+      name: CHAR_NAMES[ch] || null,
+      invisible: INVISIBLE.has(ch),
+    })
+  }
+  return [...seen.values()]
+}
+
+/** How each offender should appear in a message to a human. */
+export function describeChar(c) {
+  if (c.invisible) return `${c.name || 'invisible character'} (${c.codePoint})`
+  return c.name ? `"${c.char}" — ${c.name} (${c.codePoint})` : `"${c.char}" (${c.codePoint})`
+}
+
+/**
+ * The warning, with the two things that make it actionable: WHICH characters, and what removing
+ * them would save. A saving is only claimed when the segment count actually drops — on a short
+ * message the downgrade costs nothing, and promising a saving that is not there is worse than
+ * saying nothing.
+ */
+export function gsmWarning(text) {
+  const offenders = nonGsmChars(text)
+  if (offenders.length === 0) return null
+
+  const shown = offenders.slice(0, 5).map(describeChar).join(', ')
+  const more = offenders.length > 5 ? `, and ${offenders.length - 5} more` : ''
+
+  const now = segmentsFor(text).segments
+  const stripped = [...String(text)].filter((ch) => GSM7_CHAR.test(ch)).join('')
+  const after = segmentsFor(stripped).segments
+  const saving = after < now
+    ? ` Replacing ${offenders.length === 1 ? 'it' : 'them'} would make this ${after} segment(s) instead of ${now}.`
+    : ` The segment count is ${now} either way, so this costs nothing here — but it would on a longer message.`
+
+  return (
+    `${offenders.length} character${offenders.length === 1 ? '' : 's'} outside the GSM-7 set ` +
+    `(${shown}${more}), so each segment holds 70 characters instead of 160.${saving}`
+  )
+}
 
 export function segmentsFor(text) {
   const s = String(text || '')
@@ -224,9 +313,7 @@ export function previewSms(env, { toPhone, message, actor }) {
     estimatedPrice: estimate,
     estimatedCurrency: estimate === null ? null : String(env?.MCP_SMS_CURRENCY || 'NOK'),
     basis: access.basis,
-    warnings: seg.encoding === 'UCS-2'
-      ? ['The text contains a character outside the GSM-7 set, so each segment holds 70 characters instead of 160.']
-      : [],
+    warnings: [gsmWarning(body)].filter(Boolean),
   }
 }
 

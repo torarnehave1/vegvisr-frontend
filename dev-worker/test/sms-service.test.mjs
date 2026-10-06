@@ -290,3 +290,76 @@ test('the /sms REST routes contain no Superadmin shortcut', async () => {
   assert.ok(block.includes('smsService.previewSms'), 'and it delegates to the same executor')
   assert.ok(block.includes('smsService.sendSms'))
 })
+
+// ── Naming the character that doubles the price ────────────────────────────
+
+test('the two GSM-7 regexes cannot drift — agreement over every BMP character', () => {
+  // Derived from one class body for exactly this reason. Tested through the public API because
+  // neither regex is exported: a character the whole-string test allows but the per-character
+  // test rejects would produce a warning naming a character that is fine, and the reverse would
+  // produce silence about one that is not. 65,536 characters, both directions.
+  let disagreements = 0
+  for (let cp = 0; cp < 0x10000; cp++) {
+    const ch = String.fromCharCode(cp)
+    const whole = sms.segmentsFor(ch).encoding === 'GSM-7'
+    const perChar = sms.nonGsmChars(ch).length === 0
+    if (whole !== perChar) disagreements++
+  }
+  assert.equal(disagreements, 0, 'the two tests must classify every character identically')
+})
+
+test('Norwegian text produces no warning at all', () => {
+  assert.equal(sms.gsmWarning('Blåbær på Vestlandet, æøå ÆØÅ. Pris: 100 kr!'), null)
+  assert.equal(sms.gsmWarning(''), null)
+})
+
+test('the offending character is named, with its code point', () => {
+  const w = sms.gsmWarning('Pris: 100 kr — ca.')
+  assert.match(w, /em dash/)
+  assert.match(w, /U\+2014/)
+  assert.match(w, /70 characters instead of 160/)
+})
+
+test('an INVISIBLE offender is named and never printed raw', () => {
+  // The case the whole feature exists for: a non-breaking space doubles the price with nothing on
+  // screen to see, so printing the character would show an empty pair of quotes.
+  for (const [ch, label] of [['\u00A0', /NON-BREAKING SPACE/], ['\u00AD', /SOFT HYPHEN/], ['\u200B', /ZERO-WIDTH SPACE/]]) {
+    const w = sms.gsmWarning(`Hei${ch}der`)
+    assert.match(w, label)
+    assert.match(w, /invisible/)
+    assert.equal(w.includes(`"${ch}"`), false, 'the raw character must not be quoted into the text')
+  }
+})
+
+test('distinct offenders only, in order of first appearance', () => {
+  const found = sms.nonGsmChars('— a — b – c —').map((c) => c.char)
+  assert.deepEqual(found, ['\u2014', '\u2013'], 'the em dash appears three times and is listed once')
+})
+
+test('more than five offenders are summarised rather than listed', () => {
+  const w = sms.gsmWarning('— – ‘ ’ “ ” … •')
+  assert.match(w, /8 characters outside/)
+  assert.match(w, /and 3 more/)
+})
+
+test('a saving is claimed ONLY when the segment count actually drops', () => {
+  // Short message: the downgrade is free, and promising a saving that is not there is worse than
+  // saying nothing.
+  const cheap = sms.gsmWarning('Hei — du')
+  assert.match(cheap, /costs nothing here/)
+  assert.equal(/Replacing/.test(cheap), false)
+
+  // 100 GSM-7 characters plus one em dash: one segment as GSM-7, two as UCS-2.
+  const costly = sms.gsmWarning('a'.repeat(100) + '—')
+  assert.match(costly, /Replacing it would make this 1 segment\(s\) instead of 2/)
+})
+
+test('the warning reaches preview through the live code path', () => {
+  const { env } = world()
+  const p = sms.previewSms(env, { toPhone: PHONE, message: 'a'.repeat(100) + '—', actor: actorFor(MINE) })
+  assert.equal(p.encoding, 'UCS-2')
+  assert.equal(p.segments, 2)
+  assert.equal(p.warnings.length, 1)
+  assert.match(p.warnings[0], /em dash/)
+  assert.match(p.warnings[0], /instead of 2/)
+})
