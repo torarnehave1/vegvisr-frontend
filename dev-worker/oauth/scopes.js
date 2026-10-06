@@ -155,9 +155,13 @@ export const OPT_IN_SCOPE_DETAIL = {
   'chat:write':
     'Lar assistenten sende meldinger som når andre mennesker, på dine vegne, og endre hvem som ' +
     'er med i chattegrupper DU eier eller er admin i. I dag betyr det chattegrupper du er ' +
-    'medlem av OG E-POST: den kan sende e-post fra adresser som står på din egen profil, eller ' +
-    'som noen uttrykkelig har gitt deg lov til å bruke — aldri fra en adresse du bare er ' +
-    'Superadmin over, og en sendt e-post kan ikke kalles tilbake. Scopen dekker ' +
+    'medlem av, E-POST OG SMS. E-post: den kan sende fra adresser som står på din egen profil, ' +
+    'eller som noen uttrykkelig har gitt deg lov til å bruke — aldri fra en adresse du bare er ' +
+    'Superadmin over, og en sendt e-post kan ikke kalles tilbake. SMS: den kan sende tekstmelding ' +
+    'til norske mobilnummer, og DETTE KOSTER PENGER per melding — betalt av plattformen, med en ' +
+    'daglig grense. SMS er dessuten begrenset til en uttrykkelig liste over hvem som får sende i ' +
+    'det hele tatt, så Superadmin alene gir ingenting her heller, og avsendernavnet velges av ' +
+    'serveren og ikke av assistenten. En sendt SMS kan ikke kalles tilbake. Scopen dekker ' +
     'meldingskanaler generelt, så et framtidig verktøy i samme klasse ' +
     'vil bruke den i stedet for å be deg autorisere på nytt. Meldingene postes av ' +
     'assistentens egen bot og merkes alltid med at en AI skrev dem på dine vegne. Den kan bare ' +

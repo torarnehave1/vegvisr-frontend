@@ -10,6 +10,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { CONNECT_SCOPES, KNOWN_SCOPES, SCOPE_TEXT, OPT_IN_SCOPES, OPT_IN_SCOPE_DETAIL, sanitizeOptIns, grantableScopes } from '../oauth/scopes.js'
+import { TOOL_NAMES } from '../mcp/tools.js'
 
 describe('advertised scopes', () => {
   test('a normal connection is offered read and write only', () => {
@@ -139,6 +140,28 @@ describe('chat:read is consented to separately from chat:write', () => {
       'and must say that Superadmin alone grants no address')
     assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /meldingskanaler generelt/,
       'must say the scope covers the class, so a future tool does not need a new scope')
+    // Added 2026-10-05 with send_sms, and the cost is the part that makes SMS different from
+    // every other tool in this class: a person ticking the box is agreeing to spend money.
+    assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /SMS/, 'the copy must name SMS')
+    assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /KOSTER PENGER/, 'and must say it costs money')
+  })
+
+  // MECHANISM, not another hand-added assertion. The E-POST check above passed for two days
+  // while send_sms shipped into this same scope and the copy still said "chattegrupper OG
+  // E-POST" — narrower than what was granted, which the test right above this one explicitly
+  // forbids. A per-channel assertion only catches the channel somebody remembered to add, so
+  // this derives the requirement from the tool list instead.
+  test('the consent copy names every channel chat:write actually reaches', () => {
+    const CHANNEL_WORD = { sms: 'SMS', email: 'E-POST', mail: 'E-POST', chat: 'CHATTEGRUPPER' }
+    const detail = OPT_IN_SCOPE_DETAIL['chat:write'].toUpperCase()
+    const missing = []
+    for (const name of TOOL_NAMES) {
+      for (const [fragment, word] of Object.entries(CHANNEL_WORD)) {
+        if (name.includes(fragment) && !detail.includes(word)) missing.push(`${name} -> ${word}`)
+      }
+    }
+    assert.deepEqual(missing, [],
+      'a tool exists whose channel the consent screen never names, so the grant is wider than the copy')
   })
 
   test('every opt-in stays out of the advertised set', () => {
