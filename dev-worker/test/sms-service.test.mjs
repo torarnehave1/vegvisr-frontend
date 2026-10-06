@@ -363,3 +363,83 @@ test('the warning reaches preview through the live code path', () => {
   assert.match(p.warnings[0], /em dash/)
   assert.match(p.warnings[0], /instead of 2/)
 })
+
+// ── Addressing a person instead of a number ────────────────────────────────
+
+/** A registered person, seeded the way config actually stores one. */
+function seedPerson(raw, { email, name = null, phone = null, verified = false }) {
+  raw.exec(`CREATE TABLE IF NOT EXISTS config (
+    email TEXT PRIMARY KEY, Role TEXT, group_tags TEXT, display_name TEXT, data TEXT,
+    phone TEXT, phone_verified_at TEXT, emailVerificationToken TEXT
+  )`)
+  raw.prepare(
+    'INSERT OR REPLACE INTO config (email, Role, display_name, phone, phone_verified_at) VALUES (?,?,?,?,?)'
+  ).run(email, 'Admin', name, phone, verified ? '2026-09-01T10:00:00Z' : null)
+}
+
+const PERSON = 'inger@example.com'
+
+test('a person with a verified number can be previewed and sent to, and the number never comes back', async () => {
+  const w = world()
+  seedPerson(w.raw, { email: PERSON, name: 'Inger Hildrum', phone: '98765432', verified: true })
+
+  const p = await sms.previewSmsToUser(w.env, { recipientEmail: PERSON, message: 'Hei', actor: actorFor(MINE) })
+  assert.equal(p.ok, true, p.message)
+  assert.equal(p.sent, false)
+  assert.equal(p.recipientName, 'Inger Hildrum')
+  assert.equal(p.toMasked, '+47 ••••••32')
+  // THE PROPERTY: list_users withholds numbers, so a tool that handed one back would undo that.
+  assert.equal(JSON.stringify(p).includes('98765432'), false, 'the full number must not be in the reply')
+  assert.equal('toPhone' in p, false, 'and the field must not exist at all')
+
+  const sent = await sms.sendSmsToUser(w.env, { recipientEmail: PERSON, message: 'Hei', actor: actorFor(MINE) })
+  assert.equal(sent.ok, true, sent.message)
+  assert.equal(w.gw.calls[0].body.to, '+4798765432', 'the gateway still gets the real number')
+  assert.equal(JSON.stringify(sent).includes('98765432'), false, 'but the caller does not')
+})
+
+test('an UNVERIFIED number is refused, and nothing is sent', async () => {
+  const w = world()
+  seedPerson(w.raw, { email: PERSON, name: 'Inger', phone: '98765432', verified: false })
+  const r = await sms.sendSmsToUser(w.env, { recipientEmail: PERSON, message: 'Hei', actor: actorFor(MINE) })
+  assert.equal(r.ok, false)
+  assert.match(r.message, /never been verified/)
+  assert.equal(w.gw.calls.length, 0)
+  assert.equal(JSON.stringify(r).includes('98765432'), false, 'a refusal must not leak it either')
+})
+
+test('a person with no number on file is refused with what to do about it', async () => {
+  const w = world()
+  seedPerson(w.raw, { email: PERSON, name: 'Inger', phone: null })
+  const r = await sms.previewSmsToUser(w.env, { recipientEmail: PERSON, message: 'Hei', actor: actorFor(MINE) })
+  assert.equal(r.ok, false)
+  assert.match(r.message, /no phone number on file/)
+  assert.match(r.message, /update_user_profile/)
+})
+
+test('an unregistered address is refused and points at list_users', async () => {
+  const w = world()
+  seedPerson(w.raw, { email: PERSON, phone: '98765432', verified: true })
+  const r = await sms.previewSmsToUser(w.env, { recipientEmail: 'nobody@example.com', message: 'Hei', actor: actorFor(MINE) })
+  assert.equal(r.ok, false)
+  assert.equal(r.code, gs.ERR.GRAPH_NOT_FOUND)
+  assert.match(r.message, /list_users/)
+})
+
+test('a non-Norwegian number on file is refused rather than attempted', async () => {
+  const w = world()
+  seedPerson(w.raw, { email: PERSON, phone: '+46701234567', verified: true })
+  const r = await sms.sendSmsToUser(w.env, { recipientEmail: PERSON, message: 'Hei', actor: actorFor(MINE) })
+  assert.equal(r.ok, false)
+  assert.match(r.message, /\+47/)
+  assert.equal(w.gw.calls.length, 0)
+})
+
+test('the allow-list gate applies here too — a listed recipient is not a licence to send', async () => {
+  const w = world({ allowed: 'somebody@else.com' })
+  seedPerson(w.raw, { email: PERSON, phone: '98765432', verified: true })
+  const r = await sms.sendSmsToUser(w.env, { recipientEmail: PERSON, message: 'Hei', actor: actorFor(MINE) })
+  assert.equal(r.ok, false)
+  assert.equal(r.code, gs.ERR.FORBIDDEN_GRAPH)
+  assert.equal(w.gw.calls.length, 0)
+})

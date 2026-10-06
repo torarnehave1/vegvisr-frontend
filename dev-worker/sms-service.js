@@ -43,6 +43,15 @@ function nowIso() {
   return new Date().toISOString()
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** Local copy. email-service.js has its own; neither imports the other, and the lint caught the
+ *  moment this one was assumed to exist rather than written. */
+function normalizeEmail(value) {
+  const t = String(value || '').trim().toLowerCase()
+  return EMAIL_RE.test(t) ? t : null
+}
+
 const DEFAULT_SENDER = 'VEGR.AI'
 const DEFAULT_DAILY_CAP = 20
 const SENDER_MAX = 11
@@ -440,5 +449,141 @@ export async function sendSms(env, args) {
     currency: data?.currency || null,
     segmentsUsedToday: used + draft.segments,
     dailyCap: cap,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Addressing a PERSON instead of a number
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `list_users` deliberately refuses to return phone numbers — "a phone book is not what was
+// asked for" (users-service.js:200). That is the right call: the directory's output lands in a
+// model's context. But it left the SMS tools unusable for the only audience they exist for, since
+// send_sms needs a number the caller must already know. Measured 2026-10-06: 8 people tagged
+// #NIBI, 7 with a verified phone, and no way to text any of them.
+//
+// So the number is resolved HERE, server-side, from an address the caller already knows, and it
+// never travels back. The responses below are built field by field rather than copied from the
+// number-addressed versions and filtered — a filter forgets the field somebody adds next year,
+// an explicit object cannot.
+//
+// A phone that has never been verified is REFUSED. `phone_verified_at` means the person completed
+// an SMS code, so the number demonstrably reaches them; an unverified one is a string somebody
+// typed, possibly an admin registering someone else, and the cost of being wrong lands on whoever
+// owns that number now.
+
+/**
+ * One registered person's number, or a refusal that says what to do about it.
+ *
+ * `phone` on the result is for internal use by the two functions below. Nothing that reaches a
+ * caller includes it.
+ */
+export async function resolveRecipientUser(env, { recipientEmail }) {
+  const email = normalizeEmail(recipientEmail)
+  if (!email) return fail(ERR.INVALID_INPUT, 'recipientEmail must be a valid e-mail address.')
+
+  const row = await env.vegvisr_org
+    .prepare(`
+      SELECT email,
+             COALESCE(json_extract(data, '$.profile.name'), display_name, '') AS name,
+             phone,
+             phone_verified_at
+      FROM config WHERE email = ? LIMIT 1
+    `)
+    .bind(email)
+    .first()
+
+  if (!row) {
+    return fail(ERR.GRAPH_NOT_FOUND, `Nobody is registered with the address ${email}. list_users will show the spelling.`)
+  }
+  const name = row.name || null
+  const who = name ? `${name} (${email})` : email
+
+  if (!row.phone || !String(row.phone).trim()) {
+    return fail(
+      ERR.INVALID_INPUT,
+      `${who} has no phone number on file, so there is nothing to send to. A Superadmin can add ` +
+        'one with update_user_profile.',
+      { recipientEmail: email, name },
+    )
+  }
+  if (!row.phone_verified_at) {
+    return fail(
+      ERR.INVALID_INPUT,
+      `${who} has a number on file, but it has never been verified by an SMS code — so there is ` +
+        'no evidence it reaches them, and a wrong number means texting a stranger. They can ' +
+        'verify it by signing in with an SMS code once.',
+      { recipientEmail: email, name },
+    )
+  }
+
+  const phone = normalizeNoPhone(row.phone)
+  if (!phone) {
+    return fail(
+      ERR.INVALID_INPUT,
+      `${who} has a number on file that is not a Norwegian mobile number, and this gateway sends ` +
+        'to +47 only.',
+      { recipientEmail: email, name },
+    )
+  }
+
+  return { ok: true, recipientEmail: email, name, phone, masked: maskPhone(phone) }
+}
+
+/** previewSms, addressed by person. Composes identically; returns no number. */
+export async function previewSmsToUser(env, { recipientEmail, message, actor }) {
+  const access = resolveSmsAccess(env, { actor })
+  if (!access.ok) return access
+
+  const who = await resolveRecipientUser(env, { recipientEmail })
+  if (!who.ok) return who
+
+  const draft = previewSms(env, { toPhone: who.phone, message, actor })
+  if (!draft.ok) return draft
+
+  // Built field by field. `draft.toPhone` is deliberately not among them.
+  return {
+    ok: true,
+    sent: false,
+    recipientEmail: who.recipientEmail,
+    recipientName: who.name,
+    toMasked: who.masked,
+    senderId: draft.senderId,
+    message: draft.message,
+    chars: draft.chars,
+    encoding: draft.encoding,
+    segments: draft.segments,
+    estimatedPrice: draft.estimatedPrice,
+    estimatedCurrency: draft.estimatedCurrency,
+    basis: draft.basis,
+    warnings: draft.warnings,
+  }
+}
+
+/** sendSms, addressed by person. */
+export async function sendSmsToUser(env, args) {
+  const access = resolveSmsAccess(env, { actor: args?.actor })
+  if (!access.ok) return access
+
+  const who = await resolveRecipientUser(env, { recipientEmail: args?.recipientEmail })
+  if (!who.ok) return who
+
+  const result = await sendSms(env, { ...args, toPhone: who.phone })
+  if (!result.ok) return result
+
+  return {
+    ok: true,
+    sent: true,
+    recipientEmail: who.recipientEmail,
+    recipientName: who.name,
+    toMasked: result.toMasked,
+    senderId: result.senderId,
+    segments: result.segments,
+    encoding: result.encoding,
+    messageId: result.messageId,
+    price: result.price,
+    currency: result.currency,
+    segmentsUsedToday: result.segmentsUsedToday,
+    dailyCap: result.dailyCap,
   }
 }

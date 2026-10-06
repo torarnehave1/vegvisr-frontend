@@ -170,6 +170,35 @@ describe('18. tools/list', () => {
     assert.equal(preview.annotations.openWorldHint, false, 'a preview must not be flagged outward')
   })
 
+  // `recipientEmail`, NOT `userEmail`. The e-mail tools forbid `userEmail` because there it would
+  // mean "send AS this person"; on these it would mean "send TO this person". Same spelling,
+  // opposite meaning, and reusing it would make the forbidden-field pin unreadable.
+  //
+  // The absence of `toPhone` is the point of the pair: list_users withholds phone numbers on
+  // purpose, so these tools resolve one server-side and must offer no way to supply or receive it.
+  test('the person-addressed SMS tools take an address and never a number', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    for (const name of ['preview_sms_to_user', 'send_sms_to_user']) {
+      const t = tools.find((x) => x.name === name)
+      assert.ok(t, `${name} should be registered`)
+      const props = Object.keys(t.inputSchema.properties || {}).sort()
+      assert.deepEqual(props, ['message', 'recipientEmail'], `${name} takes nothing else`)
+      for (const forbidden of ['toPhone', 'phone', 'userEmail', 'sender', 'senderId']) {
+        assert.equal(props.includes(forbidden), false, `${name} exposes ${forbidden}`)
+      }
+      const out = Object.keys(t.outputSchema?.properties || {})
+      assert.equal(out.includes('toPhone'), false, `${name} must not RETURN a number either`)
+      assert.ok(out.includes('toMasked'), `${name} returns the masked form instead`)
+    }
+    const send = tools.find((x) => x.name === 'send_sms_to_user')
+    assert.match(send.description, /CANNOT BE UNDONE OR RECALLED/)
+    assert.match(send.description, /preview_sms_to_user first/)
+    assert.match(send.description, /Superadmin grants nothing/i)
+    assert.equal(send.annotations.openWorldHint, true)
+  })
+
   // Decision of 2026-10-03, as a protocol fact rather than a promise: the right to send as an
   // address is own-profile or an explicit grant, and Superadmin is neither. Agent-Builder's
   // send_email has `forUserEmail`, which is its Superadmin override; its ABSENCE here is what makes
@@ -734,6 +763,8 @@ describe('annotations tell the client the truth about each tool', () => {
       // preview_sms is deliberately NOT here — it composes the identical message and transmits
       // nothing, which is the whole reason it exists.
       'send_sms',
+      // Added 2026-10-06. Same effect, addressed by person rather than by number.
+      'send_sms_to_user',
       // Added 2026-09-30. Each one's effect lands on ANOTHER PERSON: someone gains access to a
       // group and can read what is said there, loses that access, or gets a link that lets
       // anyone holding it walk in. list_group_members is deliberately not here — it reads this
@@ -1152,6 +1183,7 @@ describe('publish_html_node is the one tool that reaches the public internet', (
       'remove_group_member',
       'send_email',
       'send_sms',
+      'send_sms_to_user',
       'set_group_member_role',
     ])
     const t = tools.find((x) => x.name === 'publish_html_node')
@@ -2320,6 +2352,7 @@ describe('post_chat_message is gated harder than everything else', () => {
       'remove_group_member',
       'send_email',
       'send_sms',
+      'send_sms_to_user',
       'set_group_member_role',
     ])
   })
@@ -2407,6 +2440,7 @@ describe('read_chat_messages is gated apart from posting', () => {
       'remove_group_member',
       'send_email',
       'send_sms',
+      'send_sms_to_user',
       'set_group_member_role',
     ])
     // The property that makes adding another one safe: no such scope is advertised, so every

@@ -5619,10 +5619,17 @@ const restHandler = {
         }
         const actor = normalizeActor(tv)
         const body = await request.json().catch(() => ({}))
-        const args = { toPhone: body.toPhone, message: body.message, actor, clientId: 'rest' }
-        const result = pathname === '/sms/preview'
-          ? smsService.previewSms(env, args)
-          : await smsService.sendSms(env, args)
+        // Either address form. `recipientEmail` resolves the number server-side and never returns
+        // it, which is the only way to text a registered person — list_users withholds numbers on
+        // purpose. `toPhone` stays for a number the caller already has.
+        const preview = pathname === '/sms/preview'
+        const result = body.recipientEmail
+          ? preview
+            ? await smsService.previewSmsToUser(env, { recipientEmail: body.recipientEmail, message: body.message, actor })
+            : await smsService.sendSmsToUser(env, { recipientEmail: body.recipientEmail, message: body.message, actor, clientId: 'rest' })
+          : preview
+            ? smsService.previewSms(env, { toPhone: body.toPhone, message: body.message, actor })
+            : await smsService.sendSms(env, { toPhone: body.toPhone, message: body.message, actor, clientId: 'rest' })
         return new Response(
           JSON.stringify(result.ok
             ? { success: true, ...result, ok: undefined }

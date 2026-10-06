@@ -1473,6 +1473,134 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── preview_sms_to_user / send_sms_to_user ────────────────────────────────
+  //
+  // `recipientEmail`, NOT `userEmail`. The e-mail tools forbid `userEmail` because there it would
+  // mean "send AS this person"; here it means "send TO this person". Same spelling, opposite
+  // meaning, and reusing it would make the forbidden-field pin unreadable.
+  //
+  // The number is resolved server-side and never returned. list_users withholds numbers on
+  // purpose, so a tool that handed one back would undo that in one call.
+  server.registerTool(
+    'preview_sms_to_user',
+    {
+      title: 'Preview an SMS to a registered person',
+      description:
+        'Compose an SMS to someone already registered on the platform, found by their e-mail ' +
+        'address, and transmit nothing. Use this when you know WHO should get the message but ' +
+        'not their number — list_users will give you addresses and never numbers, which is why ' +
+        'this tool exists. The number is looked up on the server and is NOT returned: the reply ' +
+        'shows the person, a masked number, the text, the segment count and the encoding. A ' +
+        'person with no number on file, or whose number has never been verified by an SMS code, ' +
+        'is refused with the reason. `sent` is always false. Requires the chat:write scope.',
+      inputSchema: {
+        recipientEmail: z
+          .string()
+          .min(3)
+          .describe("The recipient's e-mail address, as list_users shows it. Their phone number is looked up from it."),
+        message: z.string().min(1).describe('The message text, exactly as it should arrive.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        sent: z.boolean(),
+        recipientEmail: z.string(),
+        recipientName: z.string().nullable(),
+        toMasked: z.string(),
+        senderId: z.string(),
+        message: z.string(),
+        chars: z.number(),
+        encoding: z.string(),
+        segments: z.number(),
+        estimatedPrice: z.number().nullable(),
+        estimatedCurrency: z.string().nullable(),
+        basis: z.string(),
+        warnings: z.array(z.string()),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await sms.previewSmsToUser(env, { ...args, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `NOT SENT — preview only.\nTo: ${result.recipientName || result.recipientEmail} ` +
+          `(${result.toMasked})\nFrom: ${result.senderId}\n` +
+          `${result.segments} segment(s), ${result.chars} chars, ${result.encoding}` +
+          `${result.estimatedPrice === null ? '' : ` · ~${result.estimatedPrice} ${result.estimatedCurrency}`}\n` +
+          `\n${result.message}\n` +
+          (result.warnings.length ? `\n${result.warnings.join('\n')}` : ''),
+      )
+    },
+  )
+
+  server.registerTool(
+    'send_sms_to_user',
+    {
+      title: 'Send an SMS to a registered person',
+      description:
+        'Send an SMS to someone registered on the platform, found by their e-mail address. THIS ' +
+        'DELIVERS A TEXT TO A REAL PHONE, COSTS MONEY, AND CANNOT BE UNDONE OR RECALLED. Call ' +
+        'preview_sms_to_user first, show the user what it returns, and send only after they have ' +
+        'confirmed — this server cannot ask them anything itself. The number is looked up on the ' +
+        'server, is never returned, and cannot be supplied: there is no way to send to an ' +
+        'arbitrary number with this tool, and no way to choose the sender. Sending is limited to ' +
+        'an explicit allow-list; platform Superadmin grants nothing here. One person per call. ' +
+        'Requires the chat:write scope.',
+      inputSchema: {
+        recipientEmail: z
+          .string()
+          .min(3)
+          .describe("The recipient's e-mail address, as list_users shows it. Their phone number is looked up from it."),
+        message: z.string().min(1).describe('The message text, exactly as it should arrive.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        sent: z.boolean(),
+        recipientEmail: z.string(),
+        recipientName: z.string().nullable(),
+        toMasked: z.string(),
+        senderId: z.string(),
+        segments: z.number(),
+        encoding: z.string(),
+        messageId: z.string().nullable(),
+        price: z.number().nullable(),
+        currency: z.string().nullable(),
+        segmentsUsedToday: z.number(),
+        dailyCap: z.number(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await sms.sendSmsToUser(env, { ...args, actor, clientId: auth?.clientId || null })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `SENT to ${result.recipientName || result.recipientEmail} (${result.toMasked}) from ` +
+          `${result.senderId}. ${result.segments} segment(s)` +
+          `${result.price === null ? '' : ` · ${result.price} ${result.currency}`}` +
+          `${result.messageId ? ` · id ${result.messageId}` : ''}\n` +
+          `${result.segmentsUsedToday}/${result.dailyCap} segments used in the last 24 hours.\n` +
+          'This cannot be recalled.',
+      )
+    },
+  )
+
   // ── set_email_template ────────────────────────────────────────────────────
   //
   // graph:write, the same scope add_node already needs — because add_node can write these nodes
@@ -3090,6 +3218,8 @@ export const TOOL_NAMES = [
   'send_email',
   'preview_sms',
   'send_sms',
+  'preview_sms_to_user',
+  'send_sms_to_user',
   'set_email_template',
   'get_fulltext_elements',
   'get_image_guide',
