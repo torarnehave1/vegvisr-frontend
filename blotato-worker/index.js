@@ -63,6 +63,24 @@ async function grantedAccountIds(email, env) {
 }
 
 /**
+ * Account ids granted to someone OTHER than this caller. A granted account
+ * belongs to its grantee: it is hidden from, and refused to, everyone else —
+ * including the workspace owner whose key can technically reach it.
+ * Returns null on a read error so the caller can fail closed.
+ */
+async function accountIdsGrantedToOthers(email, env) {
+  try {
+    const rs = await env.vegvisr_org
+      .prepare('SELECT DISTINCT account_id FROM blotato_account_grants WHERE email <> ?')
+      .bind(email)
+      .all()
+    return (rs.results || []).map((r) => String(r.account_id))
+  } catch {
+    return null
+  }
+}
+
+/**
  * The Blotato key this caller may use, and which accounts they may see:
  *  - their own row's key → their own workspace, all its accounts ('config')
  *  - Superadmin → worker secret, all accounts ('secret')
@@ -124,6 +142,14 @@ export default {
     const key = resolved.key
     const keySource = resolved.source
     const grants = resolved.grants || null
+    // Own-key / Superadmin callers see the whole workspace EXCEPT accounts
+    // granted to another user. A grantee's own filter (`grants`) already
+    // excludes everything else, so this only applies when there is none.
+    let reserved = []
+    if (!grants) {
+      reserved = await accountIdsGrantedToOthers(auth.email, env)
+      if (reserved === null) return json({ success: false, error: 'Could not read account grants' }, 503)
+    }
 
     if (isAccounts) {
       try {
@@ -132,6 +158,8 @@ export default {
         // the response leaves the worker.
         if (grants && r.ok && r.data && Array.isArray(r.data.items)) {
           r.data.items = r.data.items.filter((a) => grants.includes(a.id))
+        } else if (reserved.length > 0 && r.ok && r.data && Array.isArray(r.data.items)) {
+          r.data.items = r.data.items.filter((a) => !reserved.includes(String(a.id)))
         }
         return json({ success: r.ok, status: r.status, keySource, data: r.data }, r.ok ? 200 : r.status)
       } catch (e) {
@@ -154,6 +182,9 @@ export default {
     }
     if (grants && !grants.includes(body.post.accountId)) {
       return json({ success: false, error: 'This Instagram account is not granted to you' }, 403)
+    }
+    if (reserved.includes(String(body.post.accountId))) {
+      return json({ success: false, error: 'This account is granted to another user' }, 403)
     }
     try {
       const r = await blotato('https://backend.blotato.com/v2/posts', key, {
