@@ -119,10 +119,11 @@ export default {
     const auth = await authenticate(request, env)
     if (!auth.valid) return json({ success: false, error: auth.error || 'Unauthorized' }, 401)
 
-    const resolved = resolveBlotatoKey(auth, env)
+    const resolved = await resolveBlotatoKey(auth, env)
     if (resolved.error) return json({ success: false, error: resolved.error }, resolved.status)
     const key = resolved.key
     const keySource = resolved.source
+    const grants = resolved.grants || null
 
     if (isAccounts) {
       try {
