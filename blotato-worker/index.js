@@ -47,14 +47,35 @@ async function authenticate(request, env) {
 }
 
 /**
- * The Blotato key this caller may use: their own row's key, else the worker
- * secret but ONLY for a Superadmin. Returns { key } or { error, status }.
+ * Blotato account ids this caller has been granted on the shared workspace
+ * (`blotato_account_grants`). Fails closed: a read error yields no grants.
  */
-function resolveBlotatoKey(auth, env) {
+async function grantedAccountIds(email, env) {
+  try {
+    const rs = await env.vegvisr_org
+      .prepare('SELECT account_id FROM blotato_account_grants WHERE email = ?')
+      .bind(email)
+      .all()
+    return (rs.results || []).map((r) => r.account_id)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * The Blotato key this caller may use, and which accounts they may see:
+ *  - their own row's key → their own workspace, all its accounts ('config')
+ *  - Superadmin → worker secret, all accounts ('secret')
+ *  - granted accounts → worker secret, but ONLY the granted account ids ('grant')
+ * Anything else is refused. Returns { key, source, grants? } or { error, status }.
+ */
+async function resolveBlotatoKey(auth, env) {
   if (auth.blotatoKey) return { key: auth.blotatoKey, source: 'config' }
   if (auth.role === 'Superadmin' && env.BLOTATO_API_KEY) return { key: env.BLOTATO_API_KEY, source: 'secret' }
+  const grants = await grantedAccountIds(auth.email, env)
+  if (grants.length > 0 && env.BLOTATO_API_KEY) return { key: env.BLOTATO_API_KEY, source: 'grant', grants }
   return {
-    error: `No Blotato API key is configured for ${auth.email}. Store it in config.blotato_api_key.`,
+    error: `No Blotato API key or account grant is configured for ${auth.email}. Store a key in config.blotato_api_key or add a row to blotato_account_grants.`,
     status: 403,
   }
 }
@@ -106,6 +127,11 @@ export default {
     if (isAccounts) {
       try {
         const r = await blotato('https://backend.blotato.com/v2/users/me/accounts', key)
+        // Shared workspace: strip every account the caller was not granted before
+        // the response leaves the worker.
+        if (grants && r.ok && r.data && Array.isArray(r.data.items)) {
+          r.data.items = r.data.items.filter((a) => grants.includes(a.id))
+        }
         return json({ success: r.ok, status: r.status, keySource, data: r.data }, r.ok ? 200 : r.status)
       } catch (e) {
         return json({ success: false, error: e.message }, 502)
@@ -124,6 +150,9 @@ export default {
         success: false,
         error: 'Body must include { post: { accountId, content, target }, scheduledTime?, useNextFreeSlot? }',
       }, 400)
+    }
+    if (grants && !grants.includes(body.post.accountId)) {
+      return json({ success: false, error: 'This Instagram account is not granted to you' }, 403)
     }
     try {
       const r = await blotato('https://backend.blotato.com/v2/posts', key, {
