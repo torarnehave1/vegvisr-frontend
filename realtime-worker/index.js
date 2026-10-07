@@ -309,6 +309,38 @@ async function getMeetingOwnerCredentials(meetingId, env) {
   return getUserCloudflareCredentials(ownerEmail, env)
 }
 
+// ── Open rooms ────────────────────────────────────────────────────────────────
+// A row in realtime_open_rooms means "anyone holding the link may join this meeting as a guest,
+// no login". The row IS the switch: deleting it closes the room to new guests at once.
+// `room` is whatever the visitor put after ?openroom= — nothing (the platform default room), a
+// custom slug, or a meeting id. Returns { meetingId, ownerEmail, isDefault } or null. null covers
+// both "no such room" and "not open", so the public endpoints cannot be used to probe which
+// rooms exist. A database error is NOT turned into null — it throws, so "could not look" is never
+// reported as "closed".
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+async function resolveOpenRoom(room, env) {
+  const key = String(room || '').trim().toLowerCase()
+  let row
+  if (!key) {
+    row = await env.vegvisr_org
+      .prepare('SELECT meeting_id, owner_email, is_default FROM realtime_open_rooms WHERE is_default = 1 LIMIT 1')
+      .first()
+  } else if (UUID_RE.test(key)) {
+    row = await env.vegvisr_org
+      .prepare('SELECT meeting_id, owner_email, is_default FROM realtime_open_rooms WHERE meeting_id = ?')
+      .bind(key).first()
+  } else {
+    row = await env.vegvisr_org
+      .prepare(`SELECT o.meeting_id, o.owner_email, o.is_default
+                FROM custom_room_slugs s
+                JOIN realtime_open_rooms o ON o.meeting_id = s.meeting_id
+                WHERE s.slug = ? AND s.active = 1 LIMIT 1`)
+      .bind(key).first()
+  }
+  if (!row) return null
+  return { meetingId: row.meeting_id, ownerEmail: row.owner_email, isDefault: row.is_default === 1 }
+}
+
 // ── Per-owner KV (participant telemetry) via Cloudflare REST API ──────────────
 // The worker cannot bind a foreign account's KV namespace, so it reads/writes the
 // owner's namespace over REST using the owner's KV-edit token. `creds` comes from
@@ -998,6 +1030,18 @@ function buildRealtimeOpenApiSpec(origin) {
       '/realtime/my-rooms': {
         get: { operationId: 'getMyRooms', summary: 'List the authenticated user\'s realtime rooms', responses: okJson('Rooms list') },
       },
+      '/realtime/open-room/status': {
+        get: { operationId: 'getOpenRoomStatus', summary: 'The authenticated user\'s open rooms (joinable by guests without login) and the slugs pointing at them', responses: okJson('Open rooms, slugs by meeting id, canSetDefault') },
+      },
+      '/realtime/open-room/info': {
+        get: {
+          operationId: 'getOpenRoomInfo',
+          summary: 'Public: title and host of an open room. 404 when the room does not exist or is not open',
+          security: [],
+          parameters: [{ name: 'room', in: 'query', required: false, schema: { type: 'string' }, description: 'Slug or meeting id; omit for the platform default open room' }],
+          responses: okJson('Open room info'),
+        },
+      },
     },
     components: {
       securitySchemes: { apiToken: { type: 'apiKey', in: 'header', name: 'X-API-Token' } },
@@ -1361,6 +1405,151 @@ export default {
       }
     }
 
+    // ── GET /realtime/open-room/status ─────────────────────────────────────────
+    // The caller's own open rooms, plus the active slugs pointing at their meetings (so the UI
+    // can show a ?openroom=<slug> link instead of a bare meeting id).
+    if (pathname === '/realtime/open-room/status' && request.method === 'GET') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+        if (!auth.email || !env.vegvisr_org) return createResponse(JSON.stringify({ error: 'Could not resolve user email or database' }), 400)
+        const [open, slugRows] = await Promise.all([
+          env.vegvisr_org.prepare('SELECT meeting_id, is_default FROM realtime_open_rooms WHERE lower(owner_email) = lower(?)').bind(auth.email).all(),
+          env.vegvisr_org.prepare('SELECT slug, meeting_id FROM custom_room_slugs WHERE lower(owner_email) = lower(?) AND active = 1 ORDER BY slug').bind(auth.email).all(),
+        ])
+        const slugs = {}
+        for (const s of slugRows.results || []) (slugs[s.meeting_id] ||= []).push(s.slug)
+        return createResponse(JSON.stringify({
+          success: true,
+          rooms: (open.results || []).map((r) => ({ meetingId: r.meeting_id, isDefault: r.is_default === 1 })),
+          slugs,
+          canSetDefault: !!auth.isSystemOwner,
+        }))
+      } catch (e) {
+        console.error('Error in /realtime/open-room/status:', e)
+        return createResponse(JSON.stringify({ error: e.message }), 500)
+      }
+    }
+
+    // ── POST /realtime/open-room/toggle ────────────────────────────────────────
+    // Owner opens or closes one of their own meetings. `isDefault` makes it the room the bare
+    // ?openroom link resolves to — one per platform, so System Owner only.
+    if (pathname === '/realtime/open-room/toggle' && request.method === 'POST') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+        if (!auth.email || !env.vegvisr_org) return createResponse(JSON.stringify({ error: 'Could not resolve user email or database' }), 400)
+        const { meetingId, enabled, isDefault } = await request.json()
+        if (!meetingId || typeof enabled !== 'boolean') return createResponse(JSON.stringify({ error: 'meetingId and enabled (boolean) required' }), 400)
+
+        const own = await env.vegvisr_org
+          .prepare('SELECT 1 AS ok FROM meeting_ownership WHERE meeting_id = ? AND lower(owner_email) = lower(?) LIMIT 1')
+          .bind(meetingId, auth.email).first()
+        if (!own) return createResponse(JSON.stringify({ error: 'You can only open or close your own rooms' }), 403)
+
+        if (!enabled) {
+          await env.vegvisr_org.prepare('DELETE FROM realtime_open_rooms WHERE meeting_id = ?').bind(meetingId).run()
+          return createResponse(JSON.stringify({ success: true, meetingId, open: false, isDefault: false }))
+        }
+
+        const wantDefault = isDefault === true
+        if (wantDefault && !auth.isSystemOwner) return createResponse(JSON.stringify({ error: 'Only the System Owner can set the default open room' }), 403)
+
+        const upsert = env.vegvisr_org
+          .prepare(`INSERT INTO realtime_open_rooms (meeting_id, owner_email, is_default) VALUES (?, ?, ?)
+                    ON CONFLICT(meeting_id) DO UPDATE SET owner_email = excluded.owner_email, is_default = excluded.is_default`)
+          .bind(meetingId, auth.email, wantDefault ? 1 : 0)
+        if (wantDefault) {
+          // One default per platform (also enforced by a unique partial index); the batch is atomic.
+          await env.vegvisr_org.batch([
+            env.vegvisr_org.prepare('UPDATE realtime_open_rooms SET is_default = 0 WHERE is_default = 1 AND meeting_id != ?').bind(meetingId),
+            upsert,
+          ])
+        } else {
+          await upsert.run()
+        }
+        return createResponse(JSON.stringify({ success: true, meetingId, open: true, isDefault: wantDefault }))
+      } catch (e) {
+        console.error('Error in /realtime/open-room/toggle:', e)
+        return createResponse(JSON.stringify({ error: e.message }), 500)
+      }
+    }
+
+    // ── GET /realtime/open-room/info  (PUBLIC) ─────────────────────────────────
+    // What the guest's name screen shows. No auth by design.
+    if (pathname === '/realtime/open-room/info' && request.method === 'GET') {
+      try {
+        if (!env.vegvisr_org) return createResponse(JSON.stringify({ success: false, error: 'Database not available' }), 500)
+        const room = await resolveOpenRoom(url.searchParams.get('room'), env)
+        if (!room) return createResponse(JSON.stringify({ success: false, error: 'This room is not open' }), 404)
+
+        let hostName = null, meetingTitle = null
+        const owner = await env.vegvisr_org.prepare('SELECT display_name FROM config WHERE lower(email) = lower(?)').bind(room.ownerEmail).first()
+        hostName = owner?.display_name || room.ownerEmail.split('@')[0]
+        const { appId, accountId, apiToken } = await getUserCloudflareCredentials(room.ownerEmail, env)
+        if (appId && accountId && apiToken) {
+          try {
+            const r = await fetch(
+              `https://api.cloudflare.com/client/v4/accounts/${accountId}/realtime/kit/${appId}/meetings/${encodeURIComponent(room.meetingId)}`,
+              { headers: { Authorization: `Bearer ${apiToken}` } }
+            )
+            if (r.ok) { const d = await r.json(); meetingTitle = d?.data?.title || null }
+          } catch (e) { console.error('[open-room] title lookup failed:', e.message) }
+        }
+        return createResponse(JSON.stringify({ success: true, meetingId: room.meetingId, meetingTitle, hostName }))
+      } catch (e) {
+        console.error('Error in /realtime/open-room/info:', e)
+        return createResponse(JSON.stringify({ success: false, error: e.message }), 500)
+      }
+    }
+
+    // ── POST /realtime/open-room/join  (PUBLIC) ────────────────────────────────
+    // Mints a participant-preset token for an open room. No auth by design: the open-room row is
+    // the authorisation. Skips the World gate and the waiting room — that is what "open" means.
+    // The preset is fixed server-side; nothing the caller sends can raise it.
+    if (pathname === '/realtime/open-room/join' && request.method === 'POST') {
+      try {
+        if (!env.vegvisr_org) return createResponse(JSON.stringify({ success: false, error: 'Database not available' }), 500)
+        const body = await request.json().catch(() => ({}))
+        // eslint-disable-next-line no-control-regex
+        const name = String(body?.name || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60)
+        if (!name) return createResponse(JSON.stringify({ success: false, error: 'Please enter your name' }), 400)
+
+        const room = await resolveOpenRoom(body?.room, env)
+        if (!room) return createResponse(JSON.stringify({ success: false, error: 'This room is not open' }), 404)
+
+        const { appId, accountId, apiToken } = await getUserCloudflareCredentials(room.ownerEmail, env)
+        if (!appId || !accountId || !apiToken) return createResponse(JSON.stringify({ success: false, error: 'RealtimeKit not configured for room owner' }), 500)
+
+        const rtResponse = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${accountId}/realtime/kit/${appId}/meetings/${encodeURIComponent(room.meetingId)}/participants`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              custom_participant_id: `open-guest-${crypto.randomUUID()}`,
+              preset_name: env.REALTIMEKIT_PRESET_NAME || 'group_call_participant',
+              name,
+            }),
+          }
+        )
+        if (!rtResponse.ok) {
+          const errText = await rtResponse.text()
+          console.error('[open-room] RealtimeKit refused participant:', rtResponse.status, errText)
+          return createResponse(JSON.stringify({ success: false, error: 'RealtimeKit API error' }), 502)
+        }
+        const rtData = await rtResponse.json()
+        const authToken = rtData?.data?.token
+        if (!authToken) return createResponse(JSON.stringify({ success: false, error: 'No token in RealtimeKit response' }), 502)
+
+        console.log(`[open-room] guest "${name}" → ${room.meetingId} (owner ${room.ownerEmail})`)
+        return createResponse(JSON.stringify({ success: true, authToken, meetingId: room.meetingId, displayName: name }))
+      } catch (e) {
+        console.error('Error in /realtime/open-room/join:', e)
+        return createResponse(JSON.stringify({ success: false, error: e.message }), 500)
+      }
+    }
+
     // ── POST /realtime/create-meeting ──────────────────────────────────────────
     if (pathname === '/realtime/create-meeting' && request.method === 'POST') {
       try {
@@ -1537,7 +1726,23 @@ export default {
           } catch (e) { console.error('Preset lookup error (falling back to participant):', e) }
         }
 
-        if (clientPayload.presetName) presetName = clientPayload.presetName
+        // A caller-supplied preset is honoured only for the meeting's owner. Before 2026-10-07 it
+        // was honoured for anyone, so any signed-in user could ask for `group_call_host` on a
+        // meeting they did not own. Ownership is the personal/team match above OR a
+        // meeting_ownership row (ad-hoc meetings). The lookup fails CLOSED: no proof, no host.
+        if (clientPayload.presetName) {
+          let ownsMeeting = isOwner
+          if (!ownsMeeting && auth.email && env.vegvisr_org) {
+            try {
+              const own = await env.vegvisr_org
+                .prepare('SELECT 1 AS ok FROM meeting_ownership WHERE meeting_id = ? AND lower(owner_email) = lower(?) LIMIT 1')
+                .bind(meetingId, auth.email).first()
+              ownsMeeting = !!own
+            } catch (e) { console.error('[join-token] ownership lookup failed, preset override refused:', e.message) }
+          }
+          if (ownsMeeting) presetName = clientPayload.presetName
+          else console.log(`[join-token] ignored preset override "${clientPayload.presetName}" from non-owner ${auth.email || auth.userId} (${meetingId})`)
+        }
 
         const payload = {
           custom_participant_id: participantId,
