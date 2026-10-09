@@ -936,8 +936,12 @@ function parseAudioMime(mime) {
   }
 }
 
+// Målt mot denne nøkkelen 2026-10-09:
+//   gemini-3.8-flash-tts          -> 200, audio/wav direkte (ingen innpakking)
+//   gemini-2.5-pro-preview-tts    -> 200, rå PCM L16/24kHz (pakkes til WAV her)
+//   gemini-2.5-flash-preview-tts  -> 200 UTEN inlineData — gir ingen lyd, droppet
 const SPEECH_DEFAULT_MODELS = [
-  'gemini-2.5-flash-preview-tts',
+  'gemini-3.8-flash-tts',
   'gemini-2.5-pro-preview-tts',
 ]
 
