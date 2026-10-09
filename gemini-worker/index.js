@@ -978,6 +978,7 @@ async function handleSpeech(request, env, corsHeaders) {
   }
 
   const voice = typeof body.voice === 'string' && body.voice ? body.voice : 'Kore'
+  const style = typeof body.style === 'string' ? body.style.trim() : ''
   const geminiKey = await getGeminiApiKeyForUser(env, resolveUserId(body.userId, env))
   if (!geminiKey) {
     return new Response(JSON.stringify({ error: 'No Gemini API key available' }), {
@@ -985,43 +986,52 @@ async function handleSpeech(request, env, corsHeaders) {
     })
   }
 
-  const prompt = body.style ? `${body.style}: ${text}` : text
   const candidates = body.model ? [body.model] : SPEECH_DEFAULT_MODELS
   const attempts = []
 
   for (const model of candidates) {
+    // Interactions API: stilen er METADATA, ikke tekst. Legges den i teksten
+    // leser modellen den høyt — Gemini 3.8 behandler text som ordrett manus.
+    const content = { type: 'text', text }
+    if (style) content.annotations = [{ type: 'speech_metadata', style }]
+
     let res, data
     try {
-      res = await fetch(`${GEMINI_API_BASE}/models/${model}:generateContent?key=${geminiKey}`, {
+      res = await fetch(`${GEMINI_API_ROOT}/v1beta/interactions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            responseModalities: ['AUDIO'],
-            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
-          },
+          model,
+          input: [{ type: 'user_input', content: [content] }],
+          response_format: { type: 'audio' },
+          generation_config: { speech_config: [{ voice }] },
         }),
       })
       data = await res.json()
     } catch (e) {
-      attempts.push({ model, error: e.message })
+      attempts.push({ model, api: 'interactions', error: e.message })
       continue
     }
 
     if (!res.ok) {
-      attempts.push({ model, status: res.status, error: data?.error?.message || 'unknown' })
+      attempts.push({ model, api: 'interactions', status: res.status, error: data?.error?.message || 'unknown' })
       continue
     }
 
-    const part = data?.candidates?.[0]?.content?.parts?.find((p) => p.inlineData)
-    if (!part) {
-      attempts.push({ model, status: 200, error: 'response contained no inlineData audio' })
+    // steps[] -> model_output -> content[] -> type audio -> siste
+    let audio = null
+    for (const step of data?.steps || []) {
+      for (const c of step?.content || []) {
+        if (c?.type === 'audio' && c?.data) audio = c
+      }
+    }
+    if (!audio) {
+      attempts.push({ model, api: 'interactions', status: 200, error: 'no audio block in steps[]' })
       continue
     }
 
-    const mime = part.inlineData.mimeType || ''
-    const raw = Uint8Array.from(atob(part.inlineData.data), (c) => c.charCodeAt(0))
+    const mime = audio.mime_type || audio.mimeType || 'audio/wav'
+    const raw = Uint8Array.from(atob(audio.data), (c) => c.charCodeAt(0))
     const payload = /wav/i.test(mime)
       ? raw
       : (() => { const f = parseAudioMime(mime); return pcmToWav(raw, f.sampleRate, f.channels, f.bitsPerSample) })()
@@ -1032,6 +1042,8 @@ async function handleSpeech(request, env, corsHeaders) {
         'Content-Type': 'audio/wav',
         'Cache-Control': 'no-store',
         'X-Speech-Model': model,
+        'X-Speech-Api': 'interactions',
+        'X-Speech-Styled': style ? 'metadata' : 'none',
         'X-Speech-Source-Mime': mime,
       },
     })
