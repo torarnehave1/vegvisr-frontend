@@ -991,10 +991,13 @@ async function handleSpeech(request, env, corsHeaders) {
   }
 
   // Lydbibliotek: samme tekst + stemme + stil gir samme klipp, så det betales
-  // for én gang. Nøkkelen tar IKKE med modellnavnet — standardlista kan endres,
-  // og et bytte der skal ikke gjøre hele biblioteket ugyldig. Modellen lagres
-  // som metadata i stedet, slik at det er mulig å se hva som genererte hva.
-  const cacheKey = await speechCacheKey(text, voice, style)
+  // for én gang. På standardstien tar nøkkelen IKKE med modellnavnet — lista kan
+  // endres, og et bytte der skal ikke gjøre hele biblioteket ugyldig. Modellen
+  // lagres som metadata i stedet.
+  // Men pinner kalleren en modell, er modellen en del av bestillingen: uten den i
+  // nøkkelen fikk «gi meg 3.1» tilbake et klipp 3.8-lite hadde laget (målt 2026-10-09).
+  const pinnedModel = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : ''
+  const cacheKey = await speechCacheKey(text, voice, style, pinnedModel)
   const noCache = new URL(request.url).searchParams.get('nocache') === '1'
 
   if (env.SPEECH_CACHE && !noCache) {
@@ -1101,8 +1104,8 @@ async function handleSpeech(request, env, corsHeaders) {
   }), { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 }
 
-async function speechCacheKey(text, voice, style) {
-  const basis = `${text}|${voice}|${style || ''}`
+async function speechCacheKey(text, voice, style, pinnedModel) {
+  const basis = `${text}|${voice}|${style || ''}${pinnedModel ? `|model=${pinnedModel}` : ''}`
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(basis))
   const hex = [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('')
   return hex + '.wav'
