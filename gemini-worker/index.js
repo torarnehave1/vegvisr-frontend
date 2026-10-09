@@ -186,6 +186,10 @@ export default {
         return await handleSpeech(request, env, corsHeaders)
       }
 
+      if (pathname === '/speech/library' && request.method === 'GET') {
+        return await handleSpeechLibrary(request, env, corsHeaders)
+      }
+
       if (pathname === '/speech/voices' && request.method === 'GET') {
         return await handleSpeechModels(request, env, corsHeaders)
       }
@@ -986,6 +990,31 @@ async function handleSpeech(request, env, corsHeaders) {
     })
   }
 
+  // Lydbibliotek: samme tekst + stemme + stil gir samme klipp, så det betales
+  // for én gang. Nøkkelen tar IKKE med modellnavnet — standardlista kan endres,
+  // og et bytte der skal ikke gjøre hele biblioteket ugyldig. Modellen lagres
+  // som metadata i stedet, slik at det er mulig å se hva som genererte hva.
+  const cacheKey = await speechCacheKey(text, voice, style)
+  const noCache = new URL(request.url).searchParams.get('nocache') === '1'
+
+  if (env.SPEECH_CACHE && !noCache) {
+    try {
+      const hit = await env.SPEECH_CACHE.get(cacheKey)
+      if (hit) {
+        return new Response(hit.body, {
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'audio/wav',
+            'Cache-Control': 'public, max-age=31536000, immutable',
+            'X-Speech-Cache': 'hit',
+            'X-Speech-Key': cacheKey,
+            'X-Speech-Model': hit.customMetadata?.model || 'unknown',
+          },
+        })
+      }
+    } catch (e) { /* bibliotekfeil skal aldri hindre generering */ }
+  }
+
   const candidates = body.model ? [body.model] : SPEECH_DEFAULT_MODELS
   const attempts = []
 
@@ -1036,11 +1065,27 @@ async function handleSpeech(request, env, corsHeaders) {
       ? raw
       : (() => { const f = parseAudioMime(mime); return pcmToWav(raw, f.sampleRate, f.channels, f.bitsPerSample) })()
 
+    if (env.SPEECH_CACHE) {
+      try {
+        await env.SPEECH_CACHE.put(cacheKey, payload, {
+          httpMetadata: { contentType: 'audio/wav' },
+          customMetadata: {
+            model, voice,
+            styled: style ? '1' : '0',
+            textPreview: text.slice(0, 96),
+            createdAt: new Date().toISOString(),
+          },
+        })
+      } catch (e) { /* lagring som feiler skal ikke feile svaret */ }
+    }
+
     return new Response(payload, {
       headers: {
         ...corsHeaders,
         'Content-Type': 'audio/wav',
-        'Cache-Control': 'no-store',
+        'Cache-Control': 'public, max-age=31536000, immutable',
+        'X-Speech-Cache': 'miss',
+        'X-Speech-Key': cacheKey,
         'X-Speech-Model': model,
         'X-Speech-Api': 'interactions',
         'X-Speech-Styled': style ? 'metadata' : 'none',
@@ -1054,6 +1099,41 @@ async function handleSpeech(request, env, corsHeaders) {
     hint: 'GET /speech/voices lists the models this key can reach',
     attempts,
   }), { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+}
+
+async function speechCacheKey(text, voice, style) {
+  const basis = `${text}|${voice}|${style || ''}`
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(basis))
+  const hex = [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('')
+  return hex + '.wav'
+}
+
+/** GET /speech/library — hva ligger i lydbiblioteket? */
+async function handleSpeechLibrary(request, env, corsHeaders) {
+  const auth = await resolveSpeechCaller(request, env)
+  if (!auth.valid) {
+    return new Response(JSON.stringify({ error: auth.error }), {
+      status: auth.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
+  if (!env.SPEECH_CACHE) {
+    return new Response(JSON.stringify({ error: 'SPEECH_CACHE binding not configured' }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
+  const listed = await env.SPEECH_CACHE.list({ limit: 1000, include: ['customMetadata'] })
+  const items = listed.objects.map((o) => ({
+    key: o.key,
+    bytes: o.size,
+    text: o.customMetadata?.textPreview || null,
+    voice: o.customMetadata?.voice || null,
+    styled: o.customMetadata?.styled === '1',
+    model: o.customMetadata?.model || null,
+    createdAt: o.customMetadata?.createdAt || null,
+  }))
+  return new Response(JSON.stringify({ count: items.length, items }, null, 2), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  })
 }
 
 /** GET /speech/voices — hvilke modeller når denne nøkkelen? */
