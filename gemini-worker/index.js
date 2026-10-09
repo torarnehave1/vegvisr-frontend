@@ -182,6 +182,14 @@ export default {
       }
 
       // POST /live-config — Return Gemini API key for Live API (WebSocket) connections
+      if (pathname === '/speech' && request.method === 'POST') {
+        return await handleSpeech(request, env, corsHeaders)
+      }
+
+      if (pathname === '/speech/voices' && request.method === 'GET') {
+        return await handleSpeechModels(request, env, corsHeaders)
+      }
+
       if (pathname === '/live-config' && request.method === 'POST') {
         try {
           const body = await request.json().catch(() => ({}))
@@ -868,4 +876,196 @@ function handleApiDocs(corsHeaders) {
   return new Response(JSON.stringify(spec, null, 2), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' }
   })
+}
+
+
+/* ============================================================
+ * TEXT-TO-SPEECH  (lagt til for lipi.vegr.ai)
+ *
+ * De øvrige rutene i denne workeren har ingen innkallerautentisering.
+ * /speech bruker en Gemini-nøkkel som koster penger per kall, så den
+ * gates mot config.emailVerificationToken — samme token nettleseren
+ * allerede har fra <vegvisr-auth>, og samme ordning som anthropic-worker.
+ * ========================================================== */
+
+async function resolveSpeechCaller(request, env) {
+  const token = request.headers.get('X-API-Token')
+  if (!token) return { valid: false, error: 'Missing X-API-Token header', status: 401 }
+  if (!env.DB) return { valid: false, error: 'DB binding not configured', status: 500 }
+  try {
+    const row = await env.DB
+      .prepare('SELECT email, Role FROM config WHERE emailVerificationToken = ? LIMIT 1')
+      .bind(token)
+      .first()
+    if (!row) return { valid: false, error: 'Invalid X-API-Token', status: 401 }
+    return { valid: true, email: row.email, role: row.Role || row.role || null }
+  } catch (e) {
+    return { valid: false, error: 'Token validation failed', status: 500 }
+  }
+}
+
+// Gemini returnerer rå PCM (vanligvis 16-bit LE, mono) med samplingsrate i
+// mimeType, f.eks. "audio/L16;codec=pcm;rate=24000". Nettleseren kan ikke
+// spille det direkte, så vi legger på en RIFF/WAV-header.
+function pcmToWav(pcmBytes, sampleRate, channels, bitsPerSample) {
+  const blockAlign = (channels * bitsPerSample) / 8
+  const byteRate = sampleRate * blockAlign
+  const header = new ArrayBuffer(44)
+  const dv = new DataView(header)
+  const ascii = (off, str) => { for (let i = 0; i < str.length; i++) dv.setUint8(off + i, str.charCodeAt(i)) }
+  ascii(0, 'RIFF');  dv.setUint32(4, 36 + pcmBytes.length, true)
+  ascii(8, 'WAVE');  ascii(12, 'fmt ')
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true)
+  dv.setUint16(22, channels, true); dv.setUint32(24, sampleRate, true)
+  dv.setUint32(28, byteRate, true); dv.setUint16(32, blockAlign, true)
+  dv.setUint16(34, bitsPerSample, true)
+  ascii(36, 'data'); dv.setUint32(40, pcmBytes.length, true)
+  const out = new Uint8Array(44 + pcmBytes.length)
+  out.set(new Uint8Array(header), 0)
+  out.set(pcmBytes, 44)
+  return out
+}
+
+function parseAudioMime(mime) {
+  const rate = /rate=(\d+)/.exec(mime || '')
+  const bits = /L(\d+)/.exec(mime || '')
+  return {
+    sampleRate: rate ? parseInt(rate[1], 10) : 24000,
+    bitsPerSample: bits ? parseInt(bits[1], 10) : 16,
+    channels: 1,
+  }
+}
+
+const SPEECH_DEFAULT_MODELS = [
+  'gemini-2.5-flash-preview-tts',
+  'gemini-2.5-pro-preview-tts',
+]
+
+/**
+ * POST /speech
+ * Body: { text, voice?, style?, model?, userId? }
+ * Svar: audio/wav
+ *
+ * Modellnavnet er ikke verifisert mot denne nøkkelen enda. Derfor prøver
+ * ruten kandidatene i rekkefølge og returnerer Googles EGEN feilmelding
+ * hvis ingen av dem virker — da vet vi hva nøkkelen faktisk når i stedet
+ * for å gjette. GET /speech/voices lister modellene nøkkelen ser.
+ */
+async function handleSpeech(request, env, corsHeaders) {
+  const auth = await resolveSpeechCaller(request, env)
+  if (!auth.valid) {
+    return new Response(JSON.stringify({ error: auth.error }), {
+      status: auth.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
+
+  let body
+  try { body = await request.json() } catch { body = {} }
+  const text = typeof body.text === 'string' ? body.text.trim() : ''
+  if (!text) {
+    return new Response(JSON.stringify({ error: 'text is required' }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
+  if (text.length > 2000) {
+    return new Response(JSON.stringify({ error: 'text exceeds 2000 characters' }), {
+      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
+
+  const voice = typeof body.voice === 'string' && body.voice ? body.voice : 'Kore'
+  const geminiKey = await getGeminiApiKeyForUser(env, resolveUserId(body.userId, env))
+  if (!geminiKey) {
+    return new Response(JSON.stringify({ error: 'No Gemini API key available' }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
+
+  const prompt = body.style ? `${body.style}: ${text}` : text
+  const candidates = body.model ? [body.model] : SPEECH_DEFAULT_MODELS
+  const attempts = []
+
+  for (const model of candidates) {
+    let res, data
+    try {
+      res = await fetch(`${GEMINI_API_BASE}/models/${model}:generateContent?key=${geminiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
+          },
+        }),
+      })
+      data = await res.json()
+    } catch (e) {
+      attempts.push({ model, error: e.message })
+      continue
+    }
+
+    if (!res.ok) {
+      attempts.push({ model, status: res.status, error: data?.error?.message || 'unknown' })
+      continue
+    }
+
+    const part = data?.candidates?.[0]?.content?.parts?.find((p) => p.inlineData)
+    if (!part) {
+      attempts.push({ model, status: 200, error: 'response contained no inlineData audio' })
+      continue
+    }
+
+    const mime = part.inlineData.mimeType || ''
+    const raw = Uint8Array.from(atob(part.inlineData.data), (c) => c.charCodeAt(0))
+    const payload = /wav/i.test(mime)
+      ? raw
+      : (() => { const f = parseAudioMime(mime); return pcmToWav(raw, f.sampleRate, f.channels, f.bitsPerSample) })()
+
+    return new Response(payload, {
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'audio/wav',
+        'Cache-Control': 'no-store',
+        'X-Speech-Model': model,
+        'X-Speech-Source-Mime': mime,
+      },
+    })
+  }
+
+  return new Response(JSON.stringify({
+    error: 'No TTS model succeeded',
+    hint: 'GET /speech/voices lists the models this key can reach',
+    attempts,
+  }), { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+}
+
+/** GET /speech/voices — hvilke modeller når denne nøkkelen? */
+async function handleSpeechModels(request, env, corsHeaders) {
+  const auth = await resolveSpeechCaller(request, env)
+  if (!auth.valid) {
+    return new Response(JSON.stringify({ error: auth.error }), {
+      status: auth.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
+  const geminiKey = await getGeminiApiKeyForUser(env, resolveUserId(null, env))
+  if (!geminiKey) {
+    return new Response(JSON.stringify({ error: 'No Gemini API key available' }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
+  try {
+    const r = await fetch(`${GEMINI_API_ROOT}/v1beta/models?key=${geminiKey}`)
+    const d = await r.json()
+    const all = (d.models || []).map((m) => m.name)
+    return new Response(JSON.stringify({
+      tts: all.filter((n) => /tts|speech/i.test(n)),
+      total: all.length,
+      all,
+    }, null, 2), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e.message }), {
+      status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
 }
