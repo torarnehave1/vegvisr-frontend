@@ -310,6 +310,7 @@ const getSelectedMediaItems = async (sessionId) => {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              'X-API-Token': userStore.emailVerificationToken || '',
             },
             body: JSON.stringify({
               baseUrl: baseUrl,
@@ -385,6 +386,7 @@ const useSelectedPhoto = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-API-Token': userStore.emailVerificationToken || '',
       },
       body: JSON.stringify({
         baseUrl: highResUrl,

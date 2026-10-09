@@ -176,7 +176,7 @@ export const useUserStore = defineStore('user', {
 
         const response = await fetch('https://auth.vegvisr.org/picker/get-credentials', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-API-Token': this.emailVerificationToken || '' },
           body: JSON.stringify({ user_email: this.email }),
         })
 

@@ -44,6 +44,61 @@ const createResponse = (body, status = 200, headers = {}) => {
   })
 }
 
+// Picker credential routes hold a user's Google access token. Only the owner may
+// use them: the caller must send X-API-Token = that user's emailVerificationToken,
+// and it must belong to the same email in the `config` table (same check the
+// other workers use). Returns an error Response, or null when the caller is the user.
+const requireOwnerToken = async (request, env, userEmail) => {
+  const apiToken = request.headers.get('X-API-Token')
+  if (!apiToken || !userEmail) {
+    return createResponse(JSON.stringify({ error: 'X-API-Token and user_email required' }), 401)
+  }
+  const row = await env.VEGVISR_DB.prepare(
+    'SELECT email FROM config WHERE emailVerificationToken = ? AND email = ? LIMIT 1',
+  )
+    .bind(apiToken, userEmail)
+    .first()
+  if (!row) {
+    return createResponse(JSON.stringify({ error: 'Invalid token for this user' }), 401)
+  }
+  return null
+}
+
+// proxy-image sends the user's Google bearer token to the requested URL, so it
+// may only fetch Google Photos media hosts.
+const isGooglePhotosMediaUrl = (value) => {
+  try {
+    const u = new URL(value)
+    return u.protocol === 'https:' && u.hostname.endsWith('.googleusercontent.com')
+  } catch {
+    return false
+  }
+}
+
+// The picker flow may return to another Vegvisr app (e.g. photos.vegvisr.org) instead of
+// www. Only our own hosts — plus localhost for dev — are accepted, so the callback
+// cannot be used as an open redirect.
+const DEFAULT_PICKER_RETURN_URL = 'https://www.vegvisr.org/'
+const resolvePickerReturnUrl = (value) => {
+  if (!value) return DEFAULT_PICKER_RETURN_URL
+  try {
+    const u = new URL(value)
+    const isVegvisr =
+      u.protocol === 'https:' && (u.hostname === 'vegvisr.org' || u.hostname.endsWith('.vegvisr.org'))
+    const isLocalDev =
+      u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1')
+    return isVegvisr || isLocalDev ? u.toString() : DEFAULT_PICKER_RETURN_URL
+  } catch {
+    return DEFAULT_PICKER_RETURN_URL
+  }
+}
+
+const pickerReturnRedirect = (returnUrl, params) => {
+  const target = new URL(returnUrl)
+  for (const [key, value] of Object.entries(params)) target.searchParams.set(key, value)
+  return Response.redirect(target.toString(), 302)
+}
+
 export default {
   async fetch(request, env) {
     const clientId = env.GOOGLE_CLIENT_ID
@@ -269,7 +324,7 @@ export default {
             get: {
               summary: 'Start Google Photos Picker OAuth flow',
               operationId: 'pickerAuth',
-              description: 'Redirects to Google OAuth for Photos Picker read-only access.',
+              description: 'Redirects to Google OAuth for Photos Picker read-only access. Optional return_url query param (vegvisr.org hosts or localhost only) sets where /picker/callback redirects afterwards; defaults to https://www.vegvisr.org/.',
               responses: { '302': { description: 'Redirect to Google OAuth consent screen' } },
             },
           },
@@ -565,6 +620,7 @@ export default {
 
     // 5. Google Picker OAuth flow
     if (url.pathname === '/picker/auth' && request.method === 'GET') {
+      const returnUrl = resolvePickerReturnUrl(url.searchParams.get('return_url'))
       const params = new URLSearchParams({
         client_id: clientId,
         redirect_uri: 'https://auth.vegvisr.org/picker/callback',
@@ -572,6 +628,7 @@ export default {
         scope: 'email https://www.googleapis.com/auth/photospicker.mediaitems.readonly',
         access_type: 'offline',
         prompt: 'consent',
+        state: btoa(JSON.stringify({ returnUrl })),
       })
       return Response.redirect(
         `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
@@ -584,19 +641,24 @@ export default {
       const code = url.searchParams.get('code')
       const error = url.searchParams.get('error')
 
+      // Re-validated here: state comes back from the browser, not from us.
+      let returnUrl = DEFAULT_PICKER_RETURN_URL
+      try {
+        const state = url.searchParams.get('state')
+        if (state) returnUrl = resolvePickerReturnUrl(JSON.parse(atob(state)).returnUrl)
+      } catch {
+        returnUrl = DEFAULT_PICKER_RETURN_URL
+      }
+
       if (error) {
         const errorDescription = url.searchParams.get('error_description') || error
-        return Response.redirect(
-          `https://www.vegvisr.org/?picker_auth_error=${encodeURIComponent(errorDescription)}`,
-          302,
-        )
+        return pickerReturnRedirect(returnUrl, { picker_auth_error: errorDescription })
       }
 
       if (!code) {
-        return Response.redirect(
-          `https://www.vegvisr.org/?picker_auth_error=${encodeURIComponent('No authorization code received')}`,
-          302,
-        )
+        return pickerReturnRedirect(returnUrl, {
+          picker_auth_error: 'No authorization code received',
+        })
       }
 
       try {
@@ -654,16 +716,12 @@ export default {
         console.log('Stored credentials for user:', userEmail)
 
         // Redirect back to frontend with success (no token in URL anymore!)
-        const successUrl = new URL('https://www.vegvisr.org/')
-        successUrl.searchParams.set('picker_auth_success', 'true')
-        successUrl.searchParams.set('user_email', userEmail)
-
-        return Response.redirect(successUrl.toString(), 302)
+        return pickerReturnRedirect(returnUrl, {
+          picker_auth_success: 'true',
+          user_email: userEmail,
+        })
       } catch (error) {
-        return Response.redirect(
-          `https://www.vegvisr.org/?picker_auth_error=${encodeURIComponent(error.message)}`,
-          302,
-        )
+        return pickerReturnRedirect(returnUrl, { picker_auth_error: error.message })
       }
     }
 
@@ -678,6 +736,9 @@ export default {
             400,
           )
         }
+
+        const denied = await requireOwnerToken(request, env, user_email)
+        if (denied) return denied
 
         // Store credentials in KV with user email as key
         const credentials = {
@@ -709,6 +770,9 @@ export default {
         if (!user_email) {
           return createResponse(JSON.stringify({ error: 'User email required' }), 400)
         }
+
+        const denied = await requireOwnerToken(request, env, user_email)
+        if (denied) return denied
 
         // Get credentials from KV
         const storedCredentials = await env.GOOGLE_CREDENTIALS.get(user_email)
@@ -761,6 +825,9 @@ export default {
           return createResponse(JSON.stringify({ error: 'User email required' }), 400)
         }
 
+        const denied = await requireOwnerToken(request, env, user_email)
+        if (denied) return denied
+
         // Delete credentials from KV
         await env.GOOGLE_CREDENTIALS.delete(user_email)
 
@@ -784,6 +851,13 @@ export default {
           return createResponse(JSON.stringify({ error: 'Base URL and user email required' }), 400)
         }
 
+        const denied = await requireOwnerToken(request, env, user_email)
+        if (denied) return denied
+
+        if (!isGooglePhotosMediaUrl(baseUrl)) {
+          return createResponse(JSON.stringify({ error: 'baseUrl must be a Google Photos media URL' }), 400)
+        }
+
         // Get user's credentials
         const storedCredentials = await env.GOOGLE_CREDENTIALS.get(user_email)
         if (!storedCredentials) {
@@ -804,15 +878,17 @@ export default {
           throw new Error(`Failed to fetch image: ${imageResponse.status}`)
         }
 
-        // Return the image with proper headers
-        const imageData = await imageResponse.arrayBuffer()
+        // Stream the body through instead of buffering it: videos can be far larger
+        // than a Worker's memory. 'private' because this is the user's own media.
         const contentType = imageResponse.headers.get('content-type') || 'image/jpeg'
+        const contentLength = imageResponse.headers.get('content-length')
 
-        return new Response(imageData, {
+        return new Response(imageResponse.body, {
           status: 200,
           headers: {
             'Content-Type': contentType,
-            'Cache-Control': 'public, max-age=3600',
+            ...(contentLength ? { 'Content-Length': contentLength } : {}),
+            'Cache-Control': 'private, max-age=3600',
             ...corsHeaders,
           },
         })
