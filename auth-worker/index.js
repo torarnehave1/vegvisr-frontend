@@ -93,6 +93,11 @@ const resolvePickerReturnUrl = (value) => {
   }
 }
 
+// Picker credentials get their own KV key, like gmail: and calendar:. The bare email
+// is the LinkedIn/Pinterest record — sharing it meant a Google Photos sign-in erased the
+// LinkedIn connection, and a LinkedIn record read back as picker credentials with no token.
+const pickerKvKey = (email) => `picker:${email}`
+
 const pickerReturnRedirect = (returnUrl, params) => {
   const target = new URL(returnUrl)
   for (const [key, value] of Object.entries(params)) target.searchParams.set(key, value)
@@ -712,7 +717,7 @@ export default {
           expires_at: Date.now() + 3600 * 1000, // 1 hour from now
         }
 
-        await env.GOOGLE_CREDENTIALS.put(userEmail, JSON.stringify(credentials))
+        await env.GOOGLE_CREDENTIALS.put(pickerKvKey(userEmail), JSON.stringify(credentials))
         console.log('Stored credentials for user:', userEmail)
 
         // Redirect back to frontend with success (no token in URL anymore!)
@@ -749,7 +754,7 @@ export default {
           expires_at: Date.now() + 3600 * 1000, // 1 hour from now
         }
 
-        await env.GOOGLE_CREDENTIALS.put(user_email, JSON.stringify(credentials))
+        await env.GOOGLE_CREDENTIALS.put(pickerKvKey(user_email), JSON.stringify(credentials))
 
         return createResponse(
           JSON.stringify({
@@ -775,7 +780,7 @@ export default {
         if (denied) return denied
 
         // Get credentials from KV
-        const storedCredentials = await env.GOOGLE_CREDENTIALS.get(user_email)
+        const storedCredentials = await env.GOOGLE_CREDENTIALS.get(pickerKvKey(user_email))
 
         if (!storedCredentials) {
           return createResponse(
@@ -792,7 +797,7 @@ export default {
         // Check if credentials are still valid
         if (credentials.expires_at <= Date.now()) {
           // Remove expired credentials
-          await env.GOOGLE_CREDENTIALS.delete(user_email)
+          await env.GOOGLE_CREDENTIALS.delete(pickerKvKey(user_email))
           return createResponse(
             JSON.stringify({
               success: false,
@@ -829,7 +834,7 @@ export default {
         if (denied) return denied
 
         // Delete credentials from KV
-        await env.GOOGLE_CREDENTIALS.delete(user_email)
+        await env.GOOGLE_CREDENTIALS.delete(pickerKvKey(user_email))
 
         return createResponse(
           JSON.stringify({
@@ -859,7 +864,7 @@ export default {
         }
 
         // Get user's credentials
-        const storedCredentials = await env.GOOGLE_CREDENTIALS.get(user_email)
+        const storedCredentials = await env.GOOGLE_CREDENTIALS.get(pickerKvKey(user_email))
         if (!storedCredentials) {
           return createResponse(JSON.stringify({ error: 'No credentials found for user' }), 404)
         }
