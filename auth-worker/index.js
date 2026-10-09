@@ -98,6 +98,50 @@ const resolvePickerReturnUrl = (value) => {
 // LinkedIn connection, and a LinkedIn record read back as picker credentials with no token.
 const pickerKvKey = (email) => `picker:${email}`
 
+// The picker record keeps Google's refresh token, so the user signs in once and the worker
+// renews the one-hour access token itself. The refresh token never leaves the worker.
+// Returns { status: 'ok', credentials } | { status: 'missing' } | { status: 'expired' }.
+const getFreshPickerCredentials = async (env, userEmail) => {
+  const key = pickerKvKey(userEmail)
+  const stored = await env.GOOGLE_CREDENTIALS.get(key)
+  if (!stored) return { status: 'missing' }
+
+  const credentials = JSON.parse(stored)
+  // Renew a minute early so a token handed out is good for the request that follows.
+  if (credentials.expires_at > Date.now() + 60 * 1000) return { status: 'ok', credentials }
+
+  if (credentials.refresh_token) {
+    const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: env.GOOGLE_CLIENT_ID,
+        client_secret: env.GOOGLE_CLIENT_SECRET,
+        refresh_token: credentials.refresh_token,
+        grant_type: 'refresh_token',
+      }),
+    })
+    const refreshData = await refreshRes.json()
+    if (refreshData.access_token) {
+      const updated = {
+        ...credentials,
+        access_token: refreshData.access_token,
+        expires_at: Date.now() + (refreshData.expires_in || 3600) * 1000,
+      }
+      await env.GOOGLE_CREDENTIALS.put(key, JSON.stringify(updated))
+      return { status: 'ok', credentials: updated }
+    }
+    // Google answers invalid_grant once the user has revoked access or the token has
+    // lapsed: the record is dead. Anything else may be transient, so the record stays.
+    if (refreshData.error !== 'invalid_grant') {
+      throw new Error(refreshData.error_description || refreshData.error || 'Token refresh failed')
+    }
+  }
+
+  await env.GOOGLE_CREDENTIALS.delete(key)
+  return { status: 'expired' }
+}
+
 const pickerReturnRedirect = (returnUrl, params) => {
   const target = new URL(returnUrl)
   for (const [key, value] of Object.entries(params)) target.searchParams.set(key, value)
@@ -366,7 +410,7 @@ export default {
             post: {
               summary: 'Get Google Picker credentials',
               operationId: 'pickerGetCredentials',
-              description: 'Retrieves stored Picker credentials from KV. Returns 410 if expired.',
+              description: 'Retrieves stored Picker credentials from KV. An expired access token is renewed with the stored refresh token; 410 only when it cannot be renewed and the user has to sign in again.',
               requestBody: {
                 required: true,
                 content: { 'application/json': { schema: { type: 'object', required: ['user_email'], properties: { user_email: { type: 'string', format: 'email' } } } } },
@@ -708,13 +752,22 @@ export default {
           throw new Error('Could not retrieve user email from Google')
         }
 
+        // Google only sends a refresh token together with the consent screen. If this
+        // sign-in came without one, keep the one already stored.
+        let refreshToken = tokenData.refresh_token
+        if (!refreshToken) {
+          const previous = await env.GOOGLE_CREDENTIALS.get(pickerKvKey(userEmail))
+          if (previous) refreshToken = JSON.parse(previous).refresh_token
+        }
+
         // Store credentials in KV automatically
         const credentials = {
           api_key: env.GOOGLE_API_KEY,
           access_token: tokenData.access_token,
+          ...(refreshToken ? { refresh_token: refreshToken } : {}),
           client_id: clientId,
           stored_at: Date.now(),
-          expires_at: Date.now() + 3600 * 1000, // 1 hour from now
+          expires_at: Date.now() + (tokenData.expires_in || 3600) * 1000,
         }
 
         await env.GOOGLE_CREDENTIALS.put(pickerKvKey(userEmail), JSON.stringify(credentials))
@@ -745,10 +798,14 @@ export default {
         const denied = await requireOwnerToken(request, env, user_email)
         if (denied) return denied
 
+        const previous = await env.GOOGLE_CREDENTIALS.get(pickerKvKey(user_email))
+        const previousRefreshToken = previous ? JSON.parse(previous).refresh_token : undefined
+
         // Store credentials in KV with user email as key
         const credentials = {
           api_key: env.GOOGLE_API_KEY,
           access_token: access_token,
+          ...(previousRefreshToken ? { refresh_token: previousRefreshToken } : {}),
           client_id: clientId,
           stored_at: Date.now(),
           expires_at: Date.now() + 3600 * 1000, // 1 hour from now
@@ -779,10 +836,10 @@ export default {
         const denied = await requireOwnerToken(request, env, user_email)
         if (denied) return denied
 
-        // Get credentials from KV
-        const storedCredentials = await env.GOOGLE_CREDENTIALS.get(pickerKvKey(user_email))
+        // Get credentials from KV, renewing the access token when it has run out
+        const fresh = await getFreshPickerCredentials(env, user_email)
 
-        if (!storedCredentials) {
+        if (fresh.status === 'missing') {
           return createResponse(
             JSON.stringify({
               success: false,
@@ -792,12 +849,7 @@ export default {
           )
         }
 
-        const credentials = JSON.parse(storedCredentials)
-
-        // Check if credentials are still valid
-        if (credentials.expires_at <= Date.now()) {
-          // Remove expired credentials
-          await env.GOOGLE_CREDENTIALS.delete(pickerKvKey(user_email))
+        if (fresh.status === 'expired') {
           return createResponse(
             JSON.stringify({
               success: false,
@@ -806,6 +858,8 @@ export default {
             410,
           )
         }
+
+        const credentials = fresh.credentials
 
         // Return valid credentials
         return createResponse(
@@ -863,13 +917,13 @@ export default {
           return createResponse(JSON.stringify({ error: 'baseUrl must be a Google Photos media URL' }), 400)
         }
 
-        // Get user's credentials
-        const storedCredentials = await env.GOOGLE_CREDENTIALS.get(pickerKvKey(user_email))
-        if (!storedCredentials) {
+        // Get user's credentials, renewing the access token when it has run out
+        const fresh = await getFreshPickerCredentials(env, user_email)
+        if (fresh.status !== 'ok') {
           return createResponse(JSON.stringify({ error: 'No credentials found for user' }), 404)
         }
 
-        const credentials = JSON.parse(storedCredentials)
+        const credentials = fresh.credentials
 
         // Fetch image with authentication
         const imageResponse = await fetch(baseUrl, {
