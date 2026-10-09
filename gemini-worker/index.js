@@ -142,7 +142,7 @@ export default {
 
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-role, X-API-Token, x-user-email, X-Email'
     }
 
@@ -188,6 +188,10 @@ export default {
 
       if (pathname === '/speech/library' && request.method === 'GET') {
         return await handleSpeechLibrary(request, env, corsHeaders)
+      }
+
+      if (pathname === '/speech/library' && request.method === 'DELETE') {
+        return await handleSpeechPrune(request, env, corsHeaders)
       }
 
       if (pathname === '/speech/voices' && request.method === 'GET') {
@@ -861,9 +865,79 @@ function handleApiDocs(corsHeaders) {
           summary: 'List Gemini image models',
           responses: { 200: { description: 'Image model list' } }
         }
+      },
+      '/speech': {
+        post: {
+          summary: 'Tekst til tale (WAV)',
+          description:
+            'Returnerer ferdig WAV. Identisk tekst+stemme+stil serveres fra R2-bufferet ' +
+            '(X-Speech-Cache: hit) uten nytt modellkall. Bare gemini-3.8-flash-tts og ' +
+            'gemini-3.8-flash-lite-tts stoetter style; de oevrige TTS-modellene svarer 400. ' +
+            'gemini-3.8-flash-tts har 100 kall per doegn paa Tier 1.',
+          security: [{ apiToken: [] }],
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: {
+              type: 'object', required: ['text'],
+              properties: {
+                text: { type: 'string', maxLength: 2000 },
+                voice: { type: 'string', default: 'Kore' },
+                style: { type: 'string', description: 'Uttaleinstruksjon. Sendes som speech_metadata og leses ikke hoeyt.' },
+                model: { type: 'string', description: 'Pinner modellen. Inngaar da ogsaa i buffernoekkelen.' }
+              } } } }
+          },
+          parameters: [{ name: 'nocache', in: 'query', schema: { type: 'string', enum: ['1'] },
+            description: 'Hopp over bufferoppslaget og generer paa nytt.' }],
+          responses: {
+            200: { description: 'audio/wav. Headere: X-Speech-Cache (hit|miss), X-Speech-Model, X-Speech-Key' },
+            401: { description: 'Manglende eller ugyldig X-API-Token' },
+            502: { description: 'Ingen TTS-modell lyktes. Kroppen lister forsoekene med status og feilmelding per modell.' }
+          }
+        }
+      },
+      '/speech/library': {
+        get: {
+          summary: 'List lydbufferet',
+          security: [{ apiToken: [] }],
+          responses: { 200: { description: '{ count, items[] } med key, bytes, text, voice, styled, model, createdAt' } }
+        },
+        delete: {
+          summary: 'Rydd i lydbufferet (prune)',
+          description:
+            'Toerrkjoering som standard: uten confirm=1 rapporteres treffene uten at noe slettes. ' +
+            'Minst ett utvalgskriterium kreves. Krever Superadmin. Klipp som mangler createdAt ' +
+            'telles i skippedNoCreatedAt og slettes aldri paa et before-kriterium.',
+          security: [{ apiToken: [] }],
+          parameters: [
+            { name: 'key', in: 'query', schema: { type: 'string' }, description: 'Noeyaktige noekler, komma-separert.' },
+            { name: 'before', in: 'query', schema: { type: 'string', format: 'date-time' }, description: 'createdAt strengt foer dette.' },
+            { name: 'model', in: 'query', schema: { type: 'string' }, description: 'Bare klipp laget av denne modellen.' },
+            { name: 'unstyled', in: 'query', schema: { type: 'string', enum: ['1'] }, description: 'Bare klipp uten uttaleinstruksjon.' },
+            { name: 'all', in: 'query', schema: { type: 'string', enum: ['1'] }, description: 'Alt. Maa oppgis bevisst.' },
+            { name: 'confirm', in: 'query', schema: { type: 'string', enum: ['1'] }, description: 'Uten denne slettes ingenting.' },
+            { name: 'max', in: 'query', schema: { type: 'integer', default: 500, maximum: 1000 }, description: 'Tak paa antall. Flere treff gir 409.' }
+          ],
+          responses: {
+            200: { description: '{ dryRun, selector, scanned, matched, bytes, items[], deleted }' },
+            400: { description: 'Ingen utvalg oppgitt, eller ugyldig before' },
+            403: { description: 'Kalleren er ikke Superadmin' },
+            409: { description: 'Flere treff enn max — ingenting slettet' }
+          }
+        }
+      },
+      '/speech/voices': {
+        get: {
+          summary: 'Hvilke modeller naar denne noekkelen',
+          security: [{ apiToken: [] }],
+          responses: { 200: { description: '{ tts[], all[], total }' } }
+        }
       }
     },
     components: {
+      securitySchemes: {
+        apiToken: { type: 'apiKey', in: 'header', name: 'X-API-Token',
+          description: 'config.emailVerificationToken for brukeren.' }
+      },
       schemas: {
         Message: {
           type: 'object',
@@ -1112,6 +1186,129 @@ async function speechCacheKey(text, voice, style, pinnedModel) {
 }
 
 /** GET /speech/library — hva ligger i lydbiblioteket? */
+/**
+ * R2 list() gir hoeyst 1000 per kall. Uten markoer-loekka ville et bibliotek
+ * over 1000 klipp stille vist og prunet bare de foerste — verre enn aa feile.
+ */
+async function listAllSpeechObjects(env, maxObjects = 10000) {
+  const out = []
+  let cursor
+  do {
+    const page = await env.SPEECH_CACHE.list({ limit: 1000, cursor, include: ['customMetadata'] })
+    out.push(...page.objects)
+    cursor = page.truncated ? page.cursor : undefined
+  } while (cursor && out.length < maxObjects)
+  return out
+}
+
+function describeSpeechObject(o) {
+  return {
+    key: o.key,
+    bytes: o.size,
+    text: o.customMetadata?.textPreview || null,
+    voice: o.customMetadata?.voice || null,
+    styled: o.customMetadata?.styled === '1',
+    model: o.customMetadata?.model || null,
+    createdAt: o.customMetadata?.createdAt || null,
+  }
+}
+
+/**
+ * DELETE /speech/library — rydd i lydbufferet.
+ *
+ * Hvert klipp koster et kall mot en dagskvote paa 100, saa en feilrettet prune
+ * er dyr aa angre. Derfor:
+ *   - toerrkjoering er STANDARD; ekte sletting krever confirm=1
+ *   - minst ett utvalgskriterium kreves, ellers 400 (ingen «slett alt» ved uhell)
+ *   - bare Superadmin, der GET noeyer seg med en gyldig token
+ *   - et tak paa antall, saa en for vid spoerring stopper framfor aa toemme boetta
+ *
+ * Utvalg (kan kombineres, og virker som OG):
+ *   key=<k>[,<k>…]   noeyaktige noekler
+ *   before=<ISO>     createdAt strengt foer dette tidspunktet
+ *   model=<navn>     klipp laget av denne modellen
+ *   unstyled=1       klipp uten uttaleinstruksjon
+ *   all=1            alt (maa staa alene om det er ment)
+ * Styring: confirm=1, max=<n> (standard 500)
+ */
+async function handleSpeechPrune(request, env, corsHeaders) {
+  const json = (body, status = 200) => new Response(JSON.stringify(body, null, 2), {
+    status, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  })
+
+  const auth = await resolveSpeechCaller(request, env)
+  if (!auth.valid) return json({ error: auth.error }, auth.status)
+  if ((auth.role || '').toLowerCase() !== 'superadmin') {
+    return json({ error: 'Prune krever Superadmin', role: auth.role || null }, 403)
+  }
+  if (!env.SPEECH_CACHE) return json({ error: 'SPEECH_CACHE binding not configured' }, 500)
+
+  const q = new URL(request.url).searchParams
+  const keys = (q.get('key') || '').split(',').map((k) => k.trim()).filter(Boolean)
+  const before = q.get('before')
+  const model = q.get('model')
+  const unstyled = q.get('unstyled') === '1'
+  const all = q.get('all') === '1'
+  const confirm = q.get('confirm') === '1'
+  const max = Math.min(Number(q.get('max')) || 500, 1000)
+
+  if (!keys.length && !before && !model && !unstyled && !all) {
+    return json({
+      error: 'Ingen utvalg oppgitt',
+      hint: 'Bruk key=, before=, model=, unstyled=1 eller all=1. Uten confirm=1 er svaret en toerrkjoering.'
+    }, 400)
+  }
+  let beforeMs = null
+  if (before) {
+    beforeMs = Date.parse(before)
+    if (Number.isNaN(beforeMs)) return json({ error: `Ugyldig before: ${before}` }, 400)
+  }
+
+  const objects = await listAllSpeechObjects(env)
+  let udatert = 0
+  const treff = objects.filter((o) => {
+    if (keys.length && !keys.includes(o.key)) return false
+    if (model && o.customMetadata?.model !== model) return false
+    if (unstyled && o.customMetadata?.styled === '1') return false
+    if (beforeMs !== null) {
+      const t = Date.parse(o.customMetadata?.createdAt || '')
+      // Et klipp uten brukbar createdAt kan ikke vurderes mot before.
+      // Det skal ikke slettes paa gjetning — det telles og rapporteres.
+      if (Number.isNaN(t)) { udatert++; return false }
+      if (t >= beforeMs) return false
+    }
+    return true
+  })
+
+  const svar = {
+    dryRun: !confirm,
+    selector: { keys: keys.length ? keys : undefined, before, model, unstyled: unstyled || undefined, all: all || undefined },
+    scanned: objects.length,
+    matched: treff.length,
+    bytes: treff.reduce((a, o) => a + o.size, 0),
+    skippedNoCreatedAt: beforeMs !== null ? udatert : undefined,
+    items: treff.slice(0, 200).map(describeSpeechObject),
+  }
+  if (treff.length > 200) svar.itemsTruncated = treff.length - 200
+
+  if (treff.length > max) {
+    return json({ ...svar, deleted: 0, error: `Treff (${treff.length}) overstiger max (${max})`,
+      hint: 'Snevre inn utvalget, eller hev max bevisst.' }, 409)
+  }
+  if (!confirm) {
+    return json({ ...svar, deleted: 0, hint: 'Ingenting er slettet. Gjenta med confirm=1.' })
+  }
+
+  let slettet = 0
+  const feilet = []
+  for (const o of treff) {
+    try { await env.SPEECH_CACHE.delete(o.key); slettet++ }
+    catch (e) { feilet.push({ key: o.key, error: String(e && e.message || e) }) }
+  }
+  return json({ ...svar, deleted: slettet, failed: feilet.length ? feilet : undefined,
+    deletedBy: auth.email })
+}
+
 async function handleSpeechLibrary(request, env, corsHeaders) {
   const auth = await resolveSpeechCaller(request, env)
   if (!auth.valid) {
@@ -1124,8 +1321,8 @@ async function handleSpeechLibrary(request, env, corsHeaders) {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     })
   }
-  const listed = await env.SPEECH_CACHE.list({ limit: 1000, include: ['customMetadata'] })
-  const items = listed.objects.map((o) => ({
+  const objects = await listAllSpeechObjects(env)
+  const items = objects.map((o) => ({
     key: o.key,
     bytes: o.size,
     text: o.customMetadata?.textPreview || null,
