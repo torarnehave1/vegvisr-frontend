@@ -183,6 +183,18 @@ async function handleGetSessionImage(pathname, env) {
 
 async function handleUpsertSession(request, env, user, ctx) {
   requireUser(user)
+
+  // Samme oppslag som de seks andre handlerne gjoer. Uten det gikk user_id inn
+  // som null og D1 svarte NOT NULL constraint failed — en klient som bare har
+  // e-posten kunne lese historikken sin, men ikke opprette en samtale.
+  let userId = user.userId
+  if (!userId && user.email) {
+    userId = await resolveUserIdFromEmail(user.email, env)
+  }
+  if (!userId) {
+    throw new Error('Unable to determine user ID')
+  }
+
   const body = await parseJSON(request)
   const graphId = body.graphId || null
   const provider = body.provider || 'grok'
@@ -202,11 +214,11 @@ async function handleUpsertSession(request, env, user, ctx) {
   `
 
   await env.DB.prepare(statement)
-    .bind(sessionId, user.userId, graphId, provider, title, JSON.stringify(metadata))
+    .bind(sessionId, userId, graphId, provider, title, JSON.stringify(metadata))
     .run()
 
   const session = await env.DB.prepare('SELECT * FROM chat_sessions WHERE id = ? AND user_id = ?')
-    .bind(sessionId, user.userId)
+    .bind(sessionId, userId)
     .first()
 
   // Sync chat session count to Knowledge Graph metadata
