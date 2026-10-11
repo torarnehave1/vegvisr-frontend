@@ -24,6 +24,9 @@ export const VEGVISR_AUTH_COMPONENT = `/**
  *   <vegvisr-auth></vegvisr-auth>                     (login-only; invite worlds)
  *   <vegvisr-auth register-mode="open"></vegvisr-auth> (also offers email self-registration)
  *   <vegvisr-auth lang="en"></vegvisr-auth>            (English text; default is Norwegian)
+ *
+ * Gated pages (require-auth) float the signed-in bar at top-right by default. To place it in the
+ * page's own layout instead, mark one element:  <div data-vegvisr-auth-bar></div>
  */
 (function () {
   var AUTH = 'https://cookie.vegvisr.org';
@@ -353,8 +356,24 @@ export const VEGVISR_AUTH_COMPONENT = `/**
       var lo = root.getElementById('lo'); if (lo) lo.onclick = function () { self.doLogout(); };
     }
 
+    // A page may mark ONE element with data-vegvisr-auth-bar to host the signed-in controls
+    // (email + logout) inside its own layout, e.g. a menu bar. The controls are written into that
+    // element's light DOM (classes vegvisr-auth-email / vegvisr-auth-logout) so the page styles
+    // them. Without the marker the bar floats, as before.
+    pageBar() { try { return document.querySelector('[data-vegvisr-auth-bar]'); } catch (e) { return null; } }
+
     renderGate() {
       var self = this, root = this.shadowRoot;
+      var slot = this.pageBar();
+      if (slot && this.access !== 'granted') { slot.innerHTML = ''; slot.removeAttribute('data-vegvisr-auth-state'); }
+      if (this.access === 'granted' && slot) {
+        root.innerHTML = '';
+        slot.innerHTML = '<span class="vegvisr-auth-email">' + esc((this.me && this.me.email) || '') + '</span><button type="button" class="vegvisr-auth-logout">' + esc(this.t('logout')) + '</button>';
+        slot.setAttribute('data-vegvisr-auth-state', 'signedin');
+        var plo = slot.querySelector('.vegvisr-auth-logout'); if (plo) plo.onclick = function () { self.doLogout(); };
+        this.hidePageLoginControls();
+        return;
+      }
       if (this.access === 'granted') {
         // reveal the page; float a signed-in bar (email + logout) at top-right so it is visible
         // regardless of where the <vegvisr-auth> element sits in the DOM (gates inject at page end).
