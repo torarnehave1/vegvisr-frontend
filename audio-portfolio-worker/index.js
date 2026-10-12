@@ -405,6 +405,54 @@ var listPublicRecordings = async (env, tag, limit = 50, cursor = null) => {
     throw error;
   }
 };
+// Newest-first paged listing for ONE owner. Recording ids are `rec_<epoch ms>_<rand>`, so the
+// KV key names alone sort chronologically: list the names (no value reads), sort descending,
+// then read only the requested page in parallel. The older paths above read every value in
+// sequence and return the OLDEST `limit` records, which is both slow and wrong for "latest".
+var HEAVY_RECORDING_FIELDS = ["norwegianTranscription", "transcriptionText", "diarization", "conversationAnalysis"];
+var toLightRecording = (recording) => {
+  const light = { ...recording, hasTranscript: Boolean(recording.transcriptionText) };
+  for (const field of HEAVY_RECORDING_FIELDS) {
+    if (recording[field]) light[`has_${field}`] = true;
+    delete light[field];
+  }
+  return light;
+};
+var listNewestRecordings = async (env, ownerEmail, limit = 50, offset = 0, light = false) => {
+  if (!ownerEmail) {
+    throw new Error("User email is required");
+  }
+  const kv = await resolveKv(env, ownerEmail);
+  const prefix = `audio-recording:${ownerEmail}:`;
+  const names = [];
+  let cursor = void 0;
+  let listComplete = false;
+  while (!listComplete) {
+    const page = await kv.list({ prefix, cursor, limit: 1000 });
+    for (const key of page.keys) names.push(key.name);
+    cursor = page.cursor;
+    listComplete = page.list_complete || !cursor;
+  }
+  names.sort((a, b) => a < b ? 1 : a > b ? -1 : 0);
+  const pageNames = names.slice(offset, offset + limit);
+  const values = await Promise.all(pageNames.map((name) => kv.get(name)));
+  const recordings = [];
+  for (const value of values) {
+    if (!value) continue;
+    const recording = JSON.parse(value);
+    if (!recording.userEmail) recording.userEmail = ownerEmail;
+    recordings.push(light ? toLightRecording(recording) : recording);
+  }
+  recordings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const nextOffset = offset + pageNames.length;
+  return {
+    recordings,
+    total: names.length,
+    offset,
+    nextOffset,
+    hasMore: nextOffset < names.length
+  };
+};
 var listAllRecordings = async (env, limit = 50, cursor = null, ownerEmail = null) => {
   try {
     const normalizedOwner = ownerEmail ? String(ownerEmail).toLowerCase().trim() : null;
@@ -618,7 +666,9 @@ var index_default = {
                 { name: "offset", in: "query", schema: { type: "integer", default: 0 }, description: "Number of recordings to skip (non-superadmin only)" },
                 { name: "userRole", in: "query", schema: { type: "string", default: "user" }, description: 'User role. "superadmin" returns all recordings across users.' },
                 { name: "ownerEmail", in: "query", schema: { type: "string" }, description: "Filter by owner email (superadmin only)" },
-                { name: "cursor", in: "query", schema: { type: "string" }, description: "Pagination cursor (superadmin only)" }
+                { name: "cursor", in: "query", schema: { type: "string" }, description: "Pagination cursor (superadmin only)" },
+                { name: "order", in: "query", schema: { type: "string", enum: ["newest"] }, description: 'Set to "newest" for the fast newest-first listing of ONE owner (userEmail, or ownerEmail for a superadmin). Pages with offset/limit (limit max 500); response adds total, offset, nextOffset, hasMore. Without it the legacy behaviour applies, which returns the OLDEST `limit` records.' },
+                { name: "fields", in: "query", schema: { type: "string", enum: ["light"] }, description: 'With order=newest: "light" omits norwegianTranscription, transcriptionText, diarization and conversationAnalysis and adds hasTranscript / has_<field> flags. Fetch the full record from /get-recording.' }
               ],
               responses: {
                 "200": {
@@ -630,6 +680,24 @@ var index_default = {
                   }
                 },
                 "400": { $ref: "#/components/responses/BadRequest" },
+                "500": { $ref: "#/components/responses/InternalError" }
+              }
+            }
+          },
+          "/get-recording": {
+            get: {
+              summary: "Get one recording",
+              description: "Returns the full record (including transcripts) for one recording. Pair with /list-recordings?order=newest&fields=light.",
+              operationId: "getRecording",
+              parameters: [
+                { name: "userEmail", in: "query", required: true, schema: { type: "string" }, description: "Email of the caller / owner" },
+                { name: "recordingId", in: "query", required: true, schema: { type: "string" }, description: "Recording id" },
+                { name: "ownerEmail", in: "query", schema: { type: "string" }, description: "Owner of the recording when different from the caller (superadmin only)" }
+              ],
+              responses: {
+                "200": { description: "The recording", content: { "application/json": { schema: { type: "object", properties: { recording: { type: "object" } } } } } },
+                "400": { $ref: "#/components/responses/BadRequest" },
+                "404": { description: "Recording not found" },
                 "500": { $ref: "#/components/responses/InternalError" }
               }
             }
@@ -1214,6 +1282,14 @@ var index_default = {
           } catch {
           }
         }
+        if (url.searchParams.get("order") === "newest") {
+          const requestedOwner = url.searchParams.get("ownerEmail");
+          const owner = isSuperadminRole(userRole) && requestedOwner ? requestedOwner : userEmail;
+          const pageLimit = Math.min(Math.max(limit || 50, 1), 500);
+          const light = url.searchParams.get("fields") === "light";
+          const result3 = await listNewestRecordings(env, owner, pageLimit, Math.max(offset || 0, 0), light);
+          return createSuccessResponse(result3);
+        }
         if (isSuperadminRole(userRole)) {
           const ownerEmail = url.searchParams.get("ownerEmail");
           const cursor = url.searchParams.get("cursor");
@@ -1222,6 +1298,29 @@ var index_default = {
         }
         const result = await getUserRecordings(env, userEmail, limit, offset, userRole);
         return createSuccessResponse(result);
+      }
+      if (pathname === "/get-recording" && request.method === "GET") {
+        const userEmail = url.searchParams.get("userEmail");
+        const recordingId = url.searchParams.get("recordingId");
+        if (!userEmail || !recordingId) {
+          return createErrorResponse("userEmail and recordingId are required", 400);
+        }
+        let userRole = "user";
+        if (env.vegvisr_org) {
+          try {
+            const row = await env.vegvisr_org.prepare("SELECT Role FROM config WHERE email = ?").bind(userEmail).first();
+            if (row?.Role) userRole = row.Role;
+          } catch {
+          }
+        }
+        const requestedOwner = url.searchParams.get("ownerEmail");
+        const owner = isSuperadminRole(userRole) && requestedOwner ? requestedOwner : userEmail;
+        const kv = await resolveKv(env, owner);
+        const recordingData = await kv.get(`audio-recording:${owner}:${recordingId}`);
+        if (!recordingData) {
+          return createErrorResponse("Recording not found", 404);
+        }
+        return createSuccessResponse({ recording: JSON.parse(recordingData) });
       }
       if (pathname === "/search-recordings" && request.method === "GET") {
         const userEmail = url.searchParams.get("userEmail");
