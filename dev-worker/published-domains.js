@@ -10,6 +10,11 @@
  * metadata names the graph and the node it came from. That registry — not the node's own
  * publishedDomain field, which is stamped client-side and only when the graph happens to be
  * saved afterwards — is the authoritative answer to "which site does this graph publish?".
+ *
+ * A World on its OWN brand proxy keeps its pages in its own store, so brand-worker never writes
+ * an `html:` key for it and the site was invisible here (lipi.vegr.ai, 2026-10-12). Such a
+ * publish is recorded as `site:<hostname>` instead: the same metadata, no page. The page never
+ * comes into the platform store, so nothing here can serve it by accident.
  */
 
 import { ERR, statusForCode, graphLinks } from './graph-service.js'
@@ -17,6 +22,11 @@ import { ERR, statusForCode, graphLinks } from './graph-service.js'
 function fail(code, message, extra = {}) {
   return { ok: false, code, status: statusForCode(code), message, ...extra }
 }
+
+const HOSTNAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/
+// `html:` = a page in the platform store, written by brand-worker. `site:` = a publish that went
+// to a World's own brand proxy, written by recordPublishedSite below.
+const REGISTRY_PREFIXES = ['html:', 'site:']
 
 /** An empty registry in the shape every caller expects. */
 const emptyRegistry = () => ({ byGraph: new Map(), ownerOf: new Map() })
@@ -50,30 +60,38 @@ export async function readPublishedDomainRegistry(env) {
   const ownerOf = new Map()
   const details = new Map()
   try {
-    let cursor
-    do {
-      const page = await env.HTML_PAGES.list({ prefix: 'html:', cursor })
-      for (const key of page.keys || []) {
-        const hostname = String(key.name || '').slice(5).trim().toLowerCase()
-        // Skip malformed keys left by older publishes (pasted URLs, stray text).
-        if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(hostname)) {
-          continue
+    // `html:` first, then `site:`. A host normally has only one of the two; if it has both (a
+    // World that moved from the platform store to its own proxy), the later publish is the one
+    // serving it.
+    for (const prefix of REGISTRY_PREFIXES) {
+      let cursor
+      do {
+        const page = await env.HTML_PAGES.list({ prefix, cursor })
+        for (const key of page.keys || []) {
+          const hostname = String(key.name || '').slice(prefix.length).trim().toLowerCase()
+          // Skip malformed keys left by older publishes (pasted URLs, stray text).
+          if (!HOSTNAME_RE.test(hostname)) continue
+          const graphId = String(key.metadata?.graphId || '').trim()
+          if (!graphId) continue
+          const entry = {
+            hostname,
+            graphId,
+            nodeId: String(key.metadata?.nodeId || '').trim() || null,
+            publishedAt: key.metadata?.publishedAt || null,
+            publishedBy: String(key.metadata?.publishedBy || '').trim() || null,
+          }
+          const earlier = details.get(hostname)
+          if (earlier && String(earlier.publishedAt || '') >= String(entry.publishedAt || '')) continue
+          details.set(hostname, entry)
         }
-        const graphId = String(key.metadata?.graphId || '').trim()
-        if (!graphId) continue
-        if (!byGraph.has(graphId)) byGraph.set(graphId, new Set())
-        byGraph.get(graphId).add(hostname)
-        ownerOf.set(hostname, graphId)
-        details.set(hostname, {
-          hostname,
-          graphId,
-          nodeId: String(key.metadata?.nodeId || '').trim() || null,
-          publishedAt: key.metadata?.publishedAt || null,
-          publishedBy: String(key.metadata?.publishedBy || '').trim() || null,
-        })
-      }
-      cursor = page.list_complete ? null : page.cursor
-    } while (cursor)
+        cursor = page.list_complete ? null : page.cursor
+      } while (cursor)
+    }
+    for (const entry of details.values()) {
+      if (!byGraph.has(entry.graphId)) byGraph.set(entry.graphId, new Set())
+      byGraph.get(entry.graphId).add(entry.hostname)
+      ownerOf.set(entry.hostname, entry.graphId)
+    }
   } catch (error) {
     console.error('[Worker] Failed to read published domain registry:', error)
     return publishedDomainRegistryCache?.registry || emptyRegistry()
@@ -82,6 +100,28 @@ export async function readPublishedDomainRegistry(env) {
   const registry = { byGraph, ownerOf, details }
   publishedDomainRegistryCache = { at: now, registry }
   return registry
+}
+
+/**
+ * Record a publish that went to a World's own brand proxy, so the registry knows the site.
+ * Metadata only — the page stays in the World's store. Overwrites the previous record for the
+ * host, which is how a host that moves to another graph changes owner here.
+ */
+export async function recordPublishedSite(env, { hostname, graphId, nodeId = null, publishedBy = null } = {}) {
+  const host = String(hostname || '').trim().toLowerCase()
+  const graph = String(graphId || '').trim()
+  if (!HOSTNAME_RE.test(host)) return fail(ERR.INVALID_INPUT, 'hostname is not a valid host name.')
+  if (!graph) return fail(ERR.INVALID_INPUT, 'graphId is required.')
+  if (!env.HTML_PAGES) return fail(ERR.INTERNAL_ERROR, 'HTML_PAGES binding missing.')
+  const metadata = {
+    graphId: graph,
+    nodeId: String(nodeId || '').trim(),
+    publishedAt: new Date().toISOString(),
+    publishedBy: publishedBy ? String(publishedBy) : null,
+  }
+  await env.HTML_PAGES.put(`site:${host}`, '1', { metadata })
+  publishedDomainRegistryCache = null // the next listing must see this publish, not a minute-old view
+  return { ok: true, hostname: host, ...metadata }
 }
 
 /**

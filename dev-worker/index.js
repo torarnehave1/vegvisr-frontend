@@ -22,7 +22,7 @@ import {
   decryptDataNodeInfo,
 } from './graph-service.js'
 import { listTemplates as gsListTemplates } from './templates-service.js'
-import { readPublishedDomainRegistry, mergePublishedDomains } from './published-domains.js'
+import { readPublishedDomainRegistry, mergePublishedDomains, recordPublishedSite } from './published-domains.js'
 import { NODE_TYPES } from './node-types.js'
 import * as emailService from './email-service.js'
 import * as smsService from './sms-service.js'
@@ -7770,6 +7770,33 @@ const restHandler = {
       }
 
       // PATCH a single node's fields within a graph (without sending the entire graph)
+      // Records a publish that went to a World's own brand proxy (see published-domains.js).
+      // Service-binding callers only: the registry decides which graph owns a host, so an
+      // ordinary graph:write token must not be able to claim one. agent-worker calls this after
+      // it has verified the publish.
+      if (pathname === '/recordPublishedSite' && request.method === 'POST') {
+        const tokenValidation = await validateAuth(request, env)
+        if (!tokenValidation.valid) {
+          return new Response(
+            JSON.stringify({ error: tokenValidation.error }),
+            { status: tokenValidation.status, headers: corsHeaders }
+          )
+        }
+        if (tokenValidation.authMethod !== 'service_binding') {
+          return new Response(
+            JSON.stringify({ error: 'recordPublishedSite is only callable over a service binding.' }),
+            { status: 403, headers: corsHeaders }
+          )
+        }
+        let body = {}
+        try { body = await request.json() } catch { /* handled as missing fields below */ }
+        const recorded = await recordPublishedSite(env, body || {})
+        return new Response(
+          JSON.stringify(recorded.ok ? { success: true, hostname: recorded.hostname, publishedAt: recorded.publishedAt } : { error: recorded.message }),
+          { status: recorded.ok ? 200 : recorded.status, headers: corsHeaders }
+        )
+      }
+
       if (pathname === '/patchNode' && request.method === 'POST') {
         const tokenValidation = await validateAuth(request, env)
         if (!tokenValidation.valid) {

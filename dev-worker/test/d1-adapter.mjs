@@ -306,6 +306,11 @@ export class PagesKVLike {
       ? { keys, list_complete: true }
       : { keys, list_complete: false, cursor: String(next) }
   }
+  /** recordPublishedSite writes metadata-only keys; a second put for a name replaces the first. */
+  async put(name, _value, { metadata } = {}) {
+    this.entries = this.entries.filter((e) => e.name !== name)
+    this.entries.push({ name, metadata })
+  }
 }
 
 /** agent-worker, faked. Records what the publish request carried. */

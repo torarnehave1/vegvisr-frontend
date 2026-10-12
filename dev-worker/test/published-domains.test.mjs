@@ -85,7 +85,8 @@ describe('readPublishedDomainRegistry', () => {
 
     const r = await pd.readPublishedDomainRegistry(env)
     assert.equal(r.ownerOf.size, 25)
-    assert.equal(env.HTML_PAGES.listCalls, 3)
+    // three pages of html: keys, plus one (empty) listing of the site: prefix
+    assert.equal(env.HTML_PAGES.listCalls, 4)
   })
 
   test('the result is cached, so a listing does not re-read KV per graph', async () => {
@@ -93,7 +94,78 @@ describe('readPublishedDomainRegistry', () => {
     env.HTML_PAGES = new PagesKVLike([key('a.example.com', 'g1')])
     await pd.readPublishedDomainRegistry(env)
     await pd.readPublishedDomainRegistry(env)
-    assert.equal(env.HTML_PAGES.listCalls, 1)
+    // one listing per prefix (html:, site:), once — not once per call
+    assert.equal(env.HTML_PAGES.listCalls, 2)
+  })
+
+  test('a site on a World own proxy is known through its site: record', async () => {
+    const { env } = freshDb()
+    env.HTML_PAGES = new PagesKVLike([
+      key('a.vegvisr.org', 'g1', 'n-a'),
+      { name: 'site:lipi.vegr.ai', metadata: { graphId: 'g2', nodeId: 'lipi', publishedAt: '2026-10-12T10:00:00.000Z', publishedBy: 'tor' } },
+    ])
+    const r = await pd.readPublishedDomainRegistry(env)
+    assert.equal(r.ownerOf.get('lipi.vegr.ai'), 'g2')
+    assert.deepEqual([...r.byGraph.get('g2')], ['lipi.vegr.ai'])
+    assert.equal(r.details.get('lipi.vegr.ai').nodeId, 'lipi')
+    assert.equal(r.ownerOf.get('a.vegvisr.org'), 'g1')
+  })
+
+  test('a host with both records belongs to the later publish, in either order', async () => {
+    const { env } = freshDb()
+    env.HTML_PAGES = new PagesKVLike([
+      key('moved.example.com', 'old-graph', 'n-old', '2026-09-01T10:00:00.000Z'),
+      { name: 'site:moved.example.com', metadata: { graphId: 'new-graph', nodeId: 'n-new', publishedAt: '2026-10-01T10:00:00.000Z' } },
+      key('back.example.com', 'platform-graph', 'n-p', '2026-10-05T10:00:00.000Z'),
+      { name: 'site:back.example.com', metadata: { graphId: 'proxy-graph', nodeId: 'n-x', publishedAt: '2026-09-05T10:00:00.000Z' } },
+    ])
+    const r = await pd.readPublishedDomainRegistry(env)
+    assert.equal(r.ownerOf.get('moved.example.com'), 'new-graph')
+    assert.equal(r.byGraph.has('old-graph'), false)
+    assert.equal(r.ownerOf.get('back.example.com'), 'platform-graph')
+    assert.equal(r.byGraph.has('proxy-graph'), false)
+  })
+})
+
+describe('recordPublishedSite', () => {
+  test('writes a metadata-only site: record that the registry reads back at once', async () => {
+    const { env } = freshDb()
+    env.HTML_PAGES = new PagesKVLike([key('a.vegvisr.org', 'g1')])
+    await pd.readPublishedDomainRegistry(env) // warm the cache, to prove the record clears it
+
+    const w = await pd.recordPublishedSite(env, { hostname: 'Lipi.Vegr.AI', graphId: 'g2', nodeId: 'lipi', publishedBy: 'tor' })
+    assert.equal(w.ok, true)
+    assert.equal(w.hostname, 'lipi.vegr.ai')
+
+    const stored = env.HTML_PAGES.entries.find((e) => e.name === 'site:lipi.vegr.ai')
+    assert.equal(stored.metadata.graphId, 'g2')
+    assert.equal(stored.metadata.nodeId, 'lipi')
+    assert.equal(env.HTML_PAGES.entries.some((e) => e.name === 'html:lipi.vegr.ai'), false)
+
+    const r = await pd.readPublishedDomainRegistry(env)
+    assert.equal(r.ownerOf.get('lipi.vegr.ai'), 'g2')
+  })
+
+  test('a second record for the host replaces the first', async () => {
+    const { env } = freshDb()
+    env.HTML_PAGES = new PagesKVLike([])
+    await pd.recordPublishedSite(env, { hostname: 'x.example.com', graphId: 'g1', nodeId: 'n1' })
+    await pd.recordPublishedSite(env, { hostname: 'x.example.com', graphId: 'g2', nodeId: 'n2' })
+    assert.equal(env.HTML_PAGES.entries.filter((e) => e.name === 'site:x.example.com').length, 1)
+    const r = await pd.readPublishedDomainRegistry(env)
+    assert.equal(r.ownerOf.get('x.example.com'), 'g2')
+    assert.equal(r.byGraph.has('g1'), false)
+  })
+
+  test('a bad hostname or a missing graph is refused and writes nothing', async () => {
+    const { env } = freshDb()
+    env.HTML_PAGES = new PagesKVLike([])
+    for (const bad of [{ hostname: 'https://x.example.com/p', graphId: 'g' }, { hostname: 'x.example.com', graphId: '' }, { hostname: '', graphId: 'g' }]) {
+      const w = await pd.recordPublishedSite(env, bad)
+      assert.equal(w.ok, false)
+      assert.equal(w.code, gs.ERR.INVALID_INPUT)
+    }
+    assert.equal(env.HTML_PAGES.entries.length, 0)
   })
 
   test('a KV failure degrades to an empty registry instead of failing the listing', async () => {
