@@ -161,6 +161,18 @@ async function handleGenerate(request, env, corsHeaders) {
           createdAt: new Date().toISOString(),
         }
 
+        // A graph republished under a new slug leaves its old page behind. Turn
+        // the old key into a redirect so the old URL follows the graph instead
+        // of serving a stale copy forever.
+        const previousSlug = await env.SEO_PAGES.get(`mapping:${graphId}`)
+        if (previousSlug && previousSlug !== slug) {
+          console.log('Slug changed, redirecting old slug:', previousSlug, '->', slug)
+          await env.SEO_PAGES.put(
+            `graph:${previousSlug}`,
+            JSON.stringify({ graphId, redirectTo: slug, movedAt: new Date().toISOString() })
+          )
+        }
+
         console.log('Storing page data for slug:', slug)
         await env.SEO_PAGES.put(`graph:${slug}`, JSON.stringify(pageData))
 
@@ -245,6 +257,16 @@ async function handleGraphPage(request, env, url, corsHeaders) {
   if (!pageData) {
     console.log('No page data found for slug:', slug)
     return new Response('Page not found', { status: 404, headers: corsHeaders })
+  }
+
+  // Old slug of a graph that has since been republished under another one.
+  if (pageData.redirectTo && pageData.redirectTo !== slug) {
+    const target = new URL(url)
+    target.pathname = `/graph/${pageData.redirectTo}${isRawRoute ? '/raw' : ''}`
+    return new Response(null, {
+      status: 301,
+      headers: { ...corsHeaders, Location: target.toString() },
+    })
   }
 
   const wantsJson = (url.searchParams.get('format') || '').toLowerCase() === 'json'
