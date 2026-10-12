@@ -63,6 +63,7 @@
           <!-- Results Count -->
           <div class="filter-results">
             <span class="results-count">{{ filteredRecordings.length }} recording{{ filteredRecordings.length !== 1 ? 's' : '' }}</span>
+            <span v-if="loadingMore" class="results-count"> · loading older…</span>
           </div>
         </div>
 
@@ -234,6 +235,10 @@ const filteredRecordings = computed(() => {
 })
 
 // Methods
+// A refresh while older recordings are still streaming in must not interleave the two loads.
+let fetchRun = 0
+const loadingMore = ref(false)
+
 const fetchRecordings = async () => {
   if (!userStore.email) {
     error.value = 'User not logged in'
@@ -243,36 +248,62 @@ const fetchRecordings = async () => {
   loading.value = true
   error.value = null
 
-  try {
-    const isAdminUser = userStore.role === 'Superadmin' || userStore.role === 'Admin'
-    const userRole = isAdminUser ? 'superadmin' : 'user'
+  // order=newest is the worker's paged newest-first listing for one owner. Without it the
+  // worker reads every KV value in sequence and returns the OLDEST `limit` records, which
+  // took 3-20 s here. The newest FIRST_PAGE show at once; the rest stream in behind them so
+  // search and the year filter still cover everything. Records stay full (no fields=light)
+  // because the selected recording is emitted to parents that read its transcript fields.
+  const FIRST_PAGE = 5
+  const REST_PAGE = 500
+  const run = ++fetchRun
+  const loadPage = async (offset, limit) => {
     const params = new URLSearchParams({
       userEmail: userStore.email,
-      userRole,
-      limit: '500',
+      order: 'newest',
+      offset: String(offset),
+      limit: String(limit),
     })
-
-    if (isAdminUser) {
-      params.set('ownerEmail', userStore.email)
-    }
-
     const response = await fetch(
       `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?${params.toString()}`,
     )
-
     if (!response.ok) {
       throw new Error(`Failed to fetch recordings: ${response.statusText}`)
     }
+    return response.json()
+  }
 
-    const data = await response.json()
-    recordings.value = data.recordings || []
+  try {
+    const first = await loadPage(0, FIRST_PAGE)
+    if (run !== fetchRun) return
+    recordings.value = first.recordings || []
+    loading.value = false
+
+    let offset = first.nextOffset ?? recordings.value.length
+    let hasMore = Boolean(first.hasMore)
+    loadingMore.value = hasMore
+    while (hasMore) {
+      const page = await loadPage(offset, REST_PAGE)
+      if (run !== fetchRun) return
+      const more = page.recordings || []
+      const seen = new Set(recordings.value.map((r) => r.recordingId || r.id))
+      recordings.value = [
+        ...recordings.value,
+        ...more.filter((r) => !seen.has(r.recordingId || r.id)),
+      ]
+      hasMore = Boolean(page.hasMore) && more.length > 0
+      offset = page.nextOffset ?? offset + more.length
+    }
 
     console.log('📁 Audio Portfolio: Loaded recordings:', recordings.value.length)
   } catch (err) {
+    if (run !== fetchRun) return
     console.error('❌ Audio Portfolio: Error fetching recordings:', err)
     error.value = err.message
   } finally {
-    loading.value = false
+    if (run === fetchRun) {
+      loading.value = false
+      loadingMore.value = false
+    }
   }
 }
 
