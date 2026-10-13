@@ -16,7 +16,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
-import { freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike, FakeAgentWorker, FakeRegisterWorker, FakeRoleWorker } from './d1-adapter.mjs'
+import { freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike, FakeAgentWorker, FakeRegisterWorker, FakeRoleWorker, FakeDeployWorker } from './d1-adapter.mjs'
+import { PROTECTED_WORKERS } from '../workers-service.js'
 import * as pd from '../published-domains.js'
 import { CONNECT_SCOPES, OPT_IN_SCOPES } from '../oauth/scopes.js'
 import * as server from '../mcp/server.js'
@@ -780,6 +781,8 @@ describe('annotations tell the client the truth about each tool', () => {
       // leaves Cloudflare with content attached.
       'compose_node_image',
       'set_group_member_role',
+      // Added 2026-10-13. It puts code on a public address — the widest effect of any tool here.
+      'deploy_worker',
     ])
     for (const t of tools) {
       assert.equal(t.annotations?.openWorldHint, outward.has(t.name), `${t.name} openWorldHint`)
@@ -1177,6 +1180,7 @@ describe('publish_html_node is the one tool that reaches the public internet', (
       'add_group_member',
       'compose_node_image',
       'create_group_invite',
+      'deploy_worker',
       'post_chat_message',
       'publish_html_node',
       'register_user',
@@ -1809,6 +1813,124 @@ describe('update_user_profile updates someone who is already registered', () => 
 })
 
 
+describe('deploy_worker puts code in production, and only where that is safe', () => {
+  const ROOT = {
+    auth: { ...ALICE_RW.auth, scope: ['graph:read', 'worker:deploy'], userId: 'root@example.com' },
+    props: { userId: 'root@example.com', email: 'root@example.com', role: 'Superadmin', authMethod: 'oauth' },
+  }
+  const CODE = 'export default { fetch() { return new Response("hi") } }'
+
+  function seeded(opts = {}) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.AGENT_WORKER = new FakeDeployWorker(opts)
+    raw.prepare("INSERT OR REPLACE INTO config (user_id, data, email, emailVerificationToken, Role) VALUES (?,?,?,?,?)")
+      .run('u-root', '{}', 'root@example.com', 'sess-root', 'Superadmin')
+    return env
+  }
+
+  test('forwards to agent-worker as the caller, with bindAdmin off', async () => {
+    const env = seeded()
+    const { client } = await connect(env, ROOT)
+    const r = await callOk(client, 'deploy_worker', { workerName: 'hello-mcp', code: CODE })
+    assert.equal(r.workerName, 'hello-mcp')
+    assert.equal(r.url, 'https://hello-mcp.torarnehave.workers.dev')
+    assert.equal(r.created, false)
+    const call = env.AGENT_WORKER.calls[0]
+    assert.equal(call.url, 'https://agent-worker/admin/deploy-worker')
+    assert.equal(call.token, 'sess-root', 'runs as the caller, whose role agent-worker resolves itself')
+    assert.equal(call.body.bindAdmin, false)
+    assert.equal(call.body.code, CODE)
+  })
+
+  test('bindAdmin is not an argument, so a model cannot turn it on', async () => {
+    const env = seeded()
+    const { client } = await connect(env, ROOT)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'deploy_worker')
+    assert.deepEqual(Object.keys(t.inputSchema.properties).sort(), ['code', 'compatibilityDate', 'description', 'workerName'])
+    // Sent anyway, it is dropped or refused by the schema — either way true never leaves here.
+    await client.callTool({ name: 'deploy_worker', arguments: { workerName: 'hello-mcp', code: CODE, bindAdmin: true } })
+    for (const c of env.AGENT_WORKER.calls) assert.equal(c.body.bindAdmin, false)
+  })
+
+  test('a worker known to have bindings is refused before anything leaves this worker', async () => {
+    for (const name of ['knowledge-graph-worker', 'agent-worker', 'user-keys-worker', 'email-worker']) {
+      const env = seeded()
+      const { client } = await connect(env, ROOT)
+      const e = await callErr(client, 'deploy_worker', { workerName: name, code: CODE })
+      assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH, name)
+      assert.equal(e.refused, 'HAS_BINDINGS')
+      assert.match(e.message, /bindings/)
+      assert.equal(env.AGENT_WORKER.calls.length, 0, `${name} must not be forwarded`)
+    }
+  })
+
+  test('the protected list covers this worker and every worker it is bound to', () => {
+    // dev-worker deploys as knowledge-graph-worker; these are its own service bindings.
+    for (const name of ['knowledge-graph-worker', 'agent-worker', 'user-keys-worker', 'chat-history-worker',
+      'drizzle-worker', 'vegvisr-dash-worker', 'email-worker', 'sms-gateway', 'group-chat-worker']) {
+      assert.equal(PROTECTED_WORKERS.includes(name), true, `${name} is missing from PROTECTED_WORKERS`)
+    }
+    assert.equal(PROTECTED_WORKERS.includes('hello-mcp'), false)
+  })
+
+  test("a worker that is not on the list is still stopped by agent-worker's live check", async () => {
+    const env = seeded({ ok: false, status: 409, refused: 'HAS_BINDINGS', error: '"unlisted-worker" has 2 binding(s): DB (d1), KEY (secret_text).' })
+    const { client } = await connect(env, ROOT)
+    const e = await callErr(client, 'deploy_worker', { workerName: 'unlisted-worker', code: CODE })
+    assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.equal(e.refused, 'HAS_BINDINGS')
+    assert.match(e.message, /DB \(d1\)/)
+  })
+
+  test('a name that is not a script name never reaches the service', async () => {
+    const env = seeded()
+    const { client } = await connect(env, ROOT)
+    for (const bad of ['../knowledge-graph-worker', 'Hello-MCP', 'a/b', 'has space']) {
+      const r = await client.callTool({ name: 'deploy_worker', arguments: { workerName: bad, code: CODE } })
+      assert.equal(r.isError, true, bad)
+    }
+    assert.equal(env.AGENT_WORKER.calls.length, 0)
+  })
+
+  test('a non-Superadmin holding the scope is refused before anything leaves this worker', async () => {
+    const env = seeded()
+    const { client } = await connect(env, { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['worker:deploy'] } })
+    const e = await callErr(client, 'deploy_worker', { workerName: 'hello-mcp', code: CODE })
+    assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.match(e.message, /Superadmin/)
+    assert.equal(env.AGENT_WORKER.calls.length, 0)
+  })
+
+  test('a Superadmin WITHOUT the scope is refused — the role alone is not consent', async () => {
+    const env = seeded()
+    const { client } = await connect(env, { ...ROOT, auth: { ...ROOT.auth, scope: ['graph:read', 'graph:write', 'user:register'] } })
+    const e = await callErr(client, 'deploy_worker', { workerName: 'hello-mcp', code: CODE })
+    assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+    assert.equal(e.requiredScope, 'worker:deploy')
+    assert.equal(env.AGENT_WORKER.calls.length, 0)
+  })
+
+  test('a failed upload is reported as a failure, with Cloudflare\'s reason', async () => {
+    const env = seeded({ ok: false, status: 400, error: 'Deploy failed', details: [{ code: 10021, message: 'Uncaught SyntaxError' }] })
+    const { client } = await connect(env, ROOT)
+    const e = await callErr(client, 'deploy_worker', { workerName: 'hello-mcp', code: CODE })
+    assert.equal(e.code, gs.ERR.INVALID_INPUT)
+    assert.match(e.message, /Uncaught SyntaxError/)
+  })
+
+  test('it declares that it replaces what is running and reaches the public internet', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ROOT)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'deploy_worker')
+    assert.equal(t.annotations.destructiveHint, true)
+    assert.equal(t.annotations.openWorldHint, true)
+    assert.equal(t.annotations.readOnlyHint, false)
+  })
+})
+
 describe('set_user_role is the only way to re-rank someone', () => {
   const ROOT = {
     auth: { ...ALICE_RW.auth, scope: ['graph:read', 'user:register'], userId: 'root@example.com' },
@@ -2346,6 +2468,7 @@ describe('post_chat_message is gated harder than everything else', () => {
       'add_group_member',
       'compose_node_image',
       'create_group_invite',
+      'deploy_worker',
       'post_chat_message',
       'publish_html_node',
       'register_user',
@@ -2434,6 +2557,7 @@ describe('read_chat_messages is gated apart from posting', () => {
       'add_group_member',
       'compose_node_image',
       'create_group_invite',
+      'deploy_worker',
       'post_chat_message',
       'publish_html_node',
       'register_user',
@@ -2445,7 +2569,7 @@ describe('read_chat_messages is gated apart from posting', () => {
     ])
     // The property that makes adding another one safe: no such scope is advertised, so every
     // one of them requires a person to tick a box on the consent screen.
-    for (const scope of ['chat:write', 'graph:publish', 'user:register']) {
+    for (const scope of ['chat:write', 'graph:publish', 'user:register', 'worker:deploy']) {
       assert.equal(CONNECT_SCOPES.includes(scope), false, `${scope} must stay unadvertised`)
       assert.equal(OPT_IN_SCOPES.includes(scope), true, `${scope} must be reachable by an opt-in`)
     }

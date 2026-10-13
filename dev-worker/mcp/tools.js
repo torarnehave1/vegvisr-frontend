@@ -32,6 +32,7 @@ import * as publish from '../publish-service.js'
 import { NODE_TYPES, DEFAULT_NODE_TYPE, suggestNodeType } from '../node-types.js'
 import * as users from '../users-service.js'
 import * as sms from '../sms-service.js'
+import * as workers from '../workers-service.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared schemas
@@ -2866,6 +2867,77 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── deploy_worker ─────────────────────────────────────────────────────────
+  //
+  // Puts CODE into production, so it has its own scope (worker:deploy) rather than borrowing one:
+  // none of the other risk classes describes "run this program on the platform's account".
+  // Unadvertised, granted only by a ticked box, and Superadmin on top.
+  //
+  // The upload is agent-worker's executeDeployWorker behind its guarded door. Two narrowings
+  // compared with the same action in the Agent Builder: a worker that has bindings is refused
+  // (the upload would replace them with none), and bindAdmin cannot be turned on, so code that
+  // arrives from a model is never handed the platform database or the internal shared secret.
+  server.registerTool(
+    'deploy_worker',
+    {
+      title: 'Deploy a Cloudflare Worker',
+      description:
+        'Upload ES-module JavaScript as a Cloudflare Worker and put it live at ' +
+        'https://<workerName>.torarnehave.workers.dev. THIS RUNS CODE IN PRODUCTION AND REPLACES ' +
+        'WHATEVER THAT WORKER WAS RUNNING — confirm the name and the code with the user before ' +
+        'calling it. It is for workers that have NO bindings: no database, no KV, no secrets, no ' +
+        'service bindings. A worker that has any is refused, because an upload through this tool ' +
+        'would remove all of them; such workers are deployed with wrangler instead. The deployed ' +
+        'worker gets no bindings either. Pass the complete source of one file as `code`. ' +
+        'Requires the worker:deploy scope, which an ordinary connection does not carry, and the ' +
+        'Superadmin role.',
+      inputSchema: {
+        workerName: z
+          .string()
+          .regex(workers.WORKER_NAME_RE)
+          .describe('The script name: lowercase letters, digits and hyphens, e.g. "hello-mcp". Never the name of a worker that has bindings.'),
+        code: z.string().min(1).describe('The complete ES-module source of the worker (a single file with a default export).'),
+        compatibilityDate: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional()
+          .describe('Cloudflare compatibility date, YYYY-MM-DD. Omit to use the default.'),
+        description: z.string().optional().describe('One line on what the worker does, recorded in the system registry.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        workerName: z.string(),
+        url: z.string(),
+        created: z.boolean(),
+        subdomainEnabled: z.boolean(),
+        deploymentId: z.string().nullable(),
+        modifiedOn: z.string().nullable(),
+        deployedBy: z.string().nullable(),
+      },
+      // Destructive: it replaces the running code of an existing worker. Not idempotent in the
+      // sense that matters — each call is a new deployment. openWorldHint: the result is public.
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ workerName, code, compatibilityDate, description }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'worker:deploy')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await workers.deployWorker(env, { workerName, code, compatibilityDate, description, actor })
+      if (!r.ok) return fromService(r)
+
+      const { ok: _o, ...payload } = r
+      return ok(
+        { success: true, ...payload },
+        `${r.created ? 'Created' : 'Redeployed'} worker ${r.workerName} at ${r.url}` +
+          `${r.subdomainEnabled ? '' : ' — the workers.dev address could NOT be enabled, so it may not answer there'}.`,
+      )
+    },
+  )
+
   // ── list_meta_areas ───────────────────────────────────────────────────────
   //
   // The map before the territory. Without it the only way to learn which meta areas exist was to
@@ -3232,6 +3304,7 @@ export const TOOL_NAMES = [
   'set_user_groups',
   'update_user_profile',
   'set_user_role',
+  'deploy_worker',
   'list_published_sites',
   'search_graphs',
   'list_my_graphs',

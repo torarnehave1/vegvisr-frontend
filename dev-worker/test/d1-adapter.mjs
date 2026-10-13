@@ -361,6 +361,32 @@ export class FakeRoleWorker {
   }
 }
 
+/** agent-worker's /admin/deploy-worker, faked. Records what the MCP layer forwarded. */
+export class FakeDeployWorker {
+  constructor({ ok = true, created = false, error = null, status = 200, refused = null, details = null } = {}) {
+    this.calls = []
+    this.ok = ok; this.created = created; this.error = error; this.status = status
+    this.refused = refused; this.details = details
+  }
+  async fetch(url, init) {
+    const body = JSON.parse(init.body)
+    this.calls.push({ url, token: new Headers(init.headers).get('X-API-Token'), body })
+    if (!this.ok) {
+      return new Response(JSON.stringify({
+        success: false, error: this.error,
+        ...(this.refused ? { refused: this.refused } : {}),
+        ...(this.details ? { details: this.details } : {}),
+      }), { status: this.status })
+    }
+    return new Response(JSON.stringify({
+      success: true, workerName: body.workerName,
+      url: `https://${body.workerName}.torarnehave.workers.dev`,
+      created: this.created, subdomainEnabled: true,
+      deploymentId: 'dep-1', modifiedOn: '2026-10-13T00:00:00Z', deployedBy: 'root@example.com',
+    }), { status: 200 })
+  }
+}
+
 /** agent-worker's /admin/register-user, faked. Records what the MCP layer forwarded. */
 export class FakeRegisterWorker {
   constructor({ ok = true, updated = false, error = null, status = 200, role = 'Admin' } = {}) {
