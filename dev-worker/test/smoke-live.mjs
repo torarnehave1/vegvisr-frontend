@@ -29,7 +29,17 @@ function token() {
   return json[0].results[0].t
 }
 
-const TOKEN = token()
+// SMOKE_PUBLIC_ONLY=1 is how CI runs this: it holds no D1 access and no session token, so the
+// checks that need either are skipped and SAID to be skipped — never counted as green.
+const PUBLIC_ONLY = process.env.SMOKE_PUBLIC_ONLY === '1'
+const TOKEN = PUBLIC_ONLY ? null : token()
+let skipped = 0
+const needsToken = (name) => {
+  if (!PUBLIC_ONLY) return true
+  skipped++
+  console.log(`skip  ${name} (needs the owner's session or D1)`)
+  return false
+}
 const json = async (url, init) => {
   const r = await fetch(url, init)
   return { status: r.status, body: await r.json().catch(() => ({})) }
@@ -58,7 +68,7 @@ console.log('— live smoke —')
 }
 
 // 4. The IMAP path still reaches Uniweb and still resolves the folder. Read-only: LIST only.
-{
+if (needsToken('IMAP login + LIST')) {
   const { status, body } = await json(`${MCP}/email/imap-sent-folder`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-Token': TOKEN },
@@ -82,7 +92,7 @@ console.log('— live smoke —')
 // 6. The guard that cost a World its sender. Asked to downgrade a live cf-email-service sender,
 //    the tool must refuse and write nothing. Run against production deliberately: this is the
 //    exact call that destroyed post@nibi.no on 2026-10-04.
-{
+if (needsToken('empty mailbox password is refused')) {
   const { body } = await json(`${AGENT}/email/mailbox-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-Token': TOKEN },
@@ -95,7 +105,7 @@ console.log('— live smoke —')
 //    and lands on a real handset, so the send path is exercised by hand, once, with the owner's
 //    go. What a smoke test CAN prove is that the migration landed and the table is queryable,
 //    which is the half that silently breaks.
-{
+if (needsToken('sms_send_log is queryable')) {
   let ok = false
   try {
     const out = execFileSync('npx', [
@@ -124,7 +134,7 @@ console.log('— live smoke —')
   })
   check('sms/send refuses no token', status === 401, `HTTP ${status}`)
 }
-{
+if (needsToken('sms/preview refuses a non-Norwegian number')) {
   const { status, body } = await json(`${MCP}/sms/preview`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-Token': TOKEN },
@@ -133,5 +143,5 @@ console.log('— live smoke —')
   check('sms/preview refuses a non-Norwegian number', status !== 200 && /\+47/.test(body.error || ''), `HTTP ${status} ${JSON.stringify(body).slice(0, 120)}`)
 }
 
-console.log(failures === 0 ? '\nLIVE SMOKE GREEN' : `\n${failures} live check(s) FAILED`)
+console.log(failures === 0 ? `\nLIVE SMOKE GREEN${skipped ? ` — ${skipped} check(s) skipped, public-only run` : ''}` : `\n${failures} live check(s) FAILED`)
 process.exit(failures === 0 ? 0 : 1)

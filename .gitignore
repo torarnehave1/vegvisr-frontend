@@ -46,8 +46,9 @@ VERSION
 /main-worker/wrangler.toml
 
 main-worker/wrangler.toml
-/dev-workder/wrangler.toml
-dev-worker/wrangler.toml
+# The one tracked wrangler.toml: no secrets in it, and CI deploys dev-worker from it
+# (.github/workflows/deploy-dev-worker.yml). Must stay BELOW *.toml to win.
+!/dev-worker/wrangler.toml
 nodetest.js
 
 # Documentation with potential secrets

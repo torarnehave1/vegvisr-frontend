@@ -4,7 +4,8 @@
 # No wrangler.toml: the worker has no bindings or secrets, so name and compatibility date are
 # passed as flags and the repo rule that *.toml stays out of git is untouched.
 #
-# Needs ONE repository secret: CLOUDFLARE_API_TOKEN (Workers Scripts: Edit on the account below).
+# CLOUDFLARE_API_TOKEN is a secret of the `mcp-production` ENVIRONMENT, not of the repository, so
+# the job waits for the owner's approval and no other workflow can read the token.
 # The account id is not a secret.
 name: Deploy hello-mcp-worker
 
@@ -23,6 +24,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: mcp-production
     env:
       CLOUDFLARE_ACCOUNT_ID: 5d9b2060ef095c777711a8649c24914e
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -39,7 +41,7 @@ jobs:
       - name: Check the Cloudflare token is set
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
-            echo "::error::Repository secret CLOUDFLARE_API_TOKEN is missing — add it under Settings → Secrets and variables → Actions."
+            echo "::error::Environment secret CLOUDFLARE_API_TOKEN is missing — gh secret set CLOUDFLARE_API_TOKEN --env mcp-production"
             exit 1
           fi
 
