@@ -118,13 +118,11 @@ describe('chat:read is consented to separately from chat:write', () => {
     // ChatGPT will not even reuse the old connector name. Five scopes were added over two days
     // in September 2026 and each one cost that, because they were named after FEATURES.
     //
-    // These (eight, then nine) are named after RISK CLASSES and are meant to be final. If this assertion
+    // These eight are named after RISK CLASSES and are meant to be final. If this assertion
     // fails, that is the point: decide deliberately, and record the reason in the runbook.
     assert.deepEqual(KNOWN_SCOPES, [
       'graph:read', 'graph:write', 'graph:publish', 'graph:delete',
       'chat:write', 'chat:read', 'user:register', 'user:read',
-      // Ninth, 2026-10-13: deploy_worker. Reason and cost are recorded at the top of scopes.js.
-      'worker:deploy',
     ])
   })
 
@@ -170,7 +168,7 @@ describe('chat:read is consented to separately from chat:write', () => {
   })
 
   test('every opt-in stays out of the advertised set', () => {
-    assert.deepEqual(OPT_IN_SCOPES, ['chat:write', 'chat:read', 'graph:publish', 'graph:delete', 'user:register', 'user:read', 'worker:deploy'])
+    assert.deepEqual(OPT_IN_SCOPES, ['chat:write', 'chat:read', 'graph:publish', 'graph:delete', 'user:register', 'user:read'])
     for (const s of OPT_IN_SCOPES) assert.equal(CONNECT_SCOPES.includes(s), false, `${s} leaked into the advertised set`)
   })
 

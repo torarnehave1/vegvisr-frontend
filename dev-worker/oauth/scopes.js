@@ -18,8 +18,7 @@
  * The mistake was naming scopes after FEATURES. chat:write arrived with chat, graph:publish with
  * publishing, user:register with the directory — so every new capability implied a new scope.
  *
- * The eight below (nine since 2026-10-13, see the note under the list) are named after RISK
- * CLASSES instead, and are meant to be final. A new tool
+ * The eight below are named after RISK CLASSES instead, and are meant to be final. A new tool
  * picks the class its damage belongs to; it does not get its own scope:
  *
  *   graph:read     reading content the user may already see
@@ -31,16 +30,6 @@
  *   chat:read      reading messages other people wrote
  *   user:register  creating or altering an account in the user directory
  *   user:read      seeing other people's names, addresses and roles
- *
- * NINTH SCOPE, added 2026-10-13 — worker:deploy, running code on the platform's own account.
- * The question below was asked and the answer was "none": publishing a page is content, and
- * altering the directory is data, but a deployed worker is a program with its own URL. Borrowing
- * graph:publish or user:register would have made consent narrower than what the scope permits.
- * What it cost: nobody is forced to re-authorize, because only a person who wants deploy_worker
- * needs the box — but that person must delete the connector and add it again, like every scope
- * before it. The architect chose this over reusing user:register with that cost stated.
- *
- *   worker:deploy  putting code into production as a Cloudflare Worker
  *
  * Before adding a ninth, answer: which of these does the new damage resemble? If the honest
  * answer is "none", the scope is justified — and the runbook must say what it cost. If the
@@ -69,7 +58,7 @@ export const CONNECT_SCOPES = ['graph:read', 'graph:write']
  * graph:delete is reserved and unused. It is listed so the vocabulary is complete and so a
  * future delete tool costs a tool-list refresh rather than a re-authorization.
  */
-export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'graph:delete', 'chat:write', 'chat:read', 'user:register', 'user:read', 'worker:deploy']
+export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'graph:delete', 'chat:write', 'chat:read', 'user:register', 'user:read']
 
 /** Human text for the consent screen. Covers every known scope, advertised or not. */
 export const SCOPE_TEXT = {
@@ -81,7 +70,6 @@ export const SCOPE_TEXT = {
   'chat:read': 'Lese meldinger andre har skrevet',
   'user:register': 'Opprette brukerkontoer og endre dem — rolle og gruppe',
   'user:read': 'Se andre registrerte personer: navn, e-post, rolle og gruppe',
-  'worker:deploy': 'Publisere kode som kjører i produksjon',
 }
 
 /**
@@ -122,18 +110,10 @@ export const OPT_IN_SCOPES = [
   'graph:delete',
   'user:register',
   'user:read',
-  'worker:deploy',
 ]
 
 /** Longer copy for the consent screen: the one-liner is not enough for an outward-facing scope. */
 export const OPT_IN_SCOPE_DETAIL = {
-  'worker:deploy':
-    'Lar assistenten laste opp JavaScript som en Cloudflare Worker, slik at koden KJØRER I ' +
-    'PRODUKSJON på plattformens konto og svarer på en offentlig adresse. Den kan opprette en ny ' +
-    'worker eller erstatte koden i en som finnes fra før. Den kan IKKE røre en worker som har ' +
-    'bindinger — database, lagring, hemmeligheter eller andre workere — og koden den laster opp ' +
-    'får heller ingen. Virker bare for Superadmin. Kryss av bare hvis du vil at assistenten ' +
-    'skal kunne publisere kode uten at du kjører wrangler selv.',
   'graph:delete':
     'Lar assistenten slette innhold permanent. INGEN VERKTØY BRUKER DENNE ENNÅ — boksen finnes ' +
     'fordi et grant aldri utvides: uten den her ville det første slette-verktøyet tvunget alle ' +
