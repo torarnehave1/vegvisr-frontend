@@ -2,8 +2,11 @@
  * graph-service.js — the single internal service layer for Knowledge Graph operations.
  *
  *   REST-handler ─┐
- *                 ├── graphService ── D1 (vegvisr_org)
+ *                 ├── graphService ── graph-store ── D1 (vegvisr_org)
  *   MCP-verktøy ──┘
+ *
+ * No function here names a database. Each asks graph-store.js for the store that holds the graph
+ * it is working on (2026-10-13), which today is always the platform D1 and soon is not.
  *
  * Extracted from dev-worker/index.js (2026-09-27) so the MCP tools and the REST handlers
  * execute the SAME code instead of two parallel implementations. The extraction is
@@ -15,6 +18,8 @@
  * Functions return plain result objects, never Responses — the caller decides the wire
  * format. That is what lets one implementation serve both HTTP/REST and MCP/JSON-RPC.
  */
+
+import { platformStore, resolveGraphStore } from './graph-store.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Error codes — the structured vocabulary shared by REST and MCP
@@ -211,27 +216,8 @@ export function isUuidV4(id) {
 
 /** The authoritative current version of a graph: MAX(version) in the history table. */
 export async function currentVersion(env, graphId) {
-  const row = await env.vegvisr_org
-    .prepare('SELECT MAX(version) AS version FROM knowledge_graph_history WHERE graph_id = ?')
-    .bind(graphId)
-    .first()
-  return row?.version || 0
-}
-
-/** History is capped at 20 versions per graph — drop the oldest once over. */
-async function trimHistory(env, graphId) {
-  const countResult = await env.vegvisr_org
-    .prepare('SELECT COUNT(*) AS count FROM knowledge_graph_history WHERE graph_id = ?')
-    .bind(graphId)
-    .first()
-  if (countResult?.count > 20) {
-    await env.vegvisr_org
-      .prepare(
-        'DELETE FROM knowledge_graph_history WHERE graph_id = ? AND version = (SELECT MIN(version) FROM knowledge_graph_history WHERE graph_id = ?)',
-      )
-      .bind(graphId, graphId)
-      .run()
-  }
+  const store = await resolveGraphStore(env, { graphId })
+  return store.currentVersion(graphId)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -258,10 +244,8 @@ async function trimHistory(env, graphId) {
 export async function checkAccess(env, actor, graphId, action = 'read') {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
 
-  const row = await env.vegvisr_org
-    .prepare('SELECT data, created_by, user_id FROM knowledge_graphs WHERE id = ?')
-    .bind(graphId)
-    .first()
+  const store = await resolveGraphStore(env, { graphId })
+  const row = await store.getRow(graphId)
   if (!row) return fail(ERR.GRAPH_NOT_FOUND, `Graph ${graphId} not found.`)
 
   let meta = {}
@@ -313,10 +297,8 @@ function ownerOf(row, meta) {
 export async function getGraph(env, id, opts = {}) {
   if (!id) return fail(ERR.INVALID_INPUT, 'Graph ID is required.')
 
-  const result = await env.vegvisr_org
-    .prepare('SELECT data, created_date, updated_at FROM knowledge_graphs WHERE id = ?')
-    .bind(id)
-    .first()
+  const store = await resolveGraphStore(env, { graphId: id })
+  const result = await store.getRow(id)
   if (!result) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
 
   const graphData = sanitizeGraphData(JSON.parse(result.data))
@@ -390,10 +372,8 @@ export async function saveGraph(env, { id, graphData, override = false, actor = 
     return fail(ERR.INVALID_INPUT, 'Graph ID and graph data are required.')
   }
 
-  const graphExists = await env.vegvisr_org
-    .prepare('SELECT id FROM knowledge_graphs WHERE id = ?')
-    .bind(id)
-    .first()
+  const store = await resolveGraphStore(env, { graphId: id })
+  const graphExists = await store.exists(id)
 
   // UUID v4 required for NEW graphs. Existing graphs (semantic-named legacy ids are
   // common here) keep updating at their current id. Additive rule from 2026-05-28.
@@ -404,7 +384,7 @@ export async function saveGraph(env, { id, graphData, override = false, actor = 
     })
   }
 
-  const current = await currentVersion(env, id)
+  const current = await store.currentVersion(id)
 
   let newVersion
   if (!graphExists && current === 0) {
@@ -437,51 +417,21 @@ export async function saveGraph(env, { id, graphData, override = false, actor = 
   const sourceApp = enriched.metadata.createdBy || null
   const now = new Date().toISOString()
 
-  if (graphExists) {
-    await env.vegvisr_org
-      .prepare(
-        `UPDATE knowledge_graphs
-         SET data = ?, title = COALESCE(?, title), description = COALESCE(?, description), created_by = COALESCE(?, created_by), updated_at = ?,
-             user_id = COALESCE(?, user_id), source_app = COALESCE(?, source_app)
-         WHERE id = ?`,
-      )
-      .bind(
-        JSON.stringify(enriched),
-        enriched.metadata.title || null,
-        enriched.metadata.description || null,
-        enriched.metadata.createdBy || null,
-        now,
-        userId,
-        sourceApp,
-        id,
-      )
-      .run()
-  } else {
-    await env.vegvisr_org
-      .prepare(
-        `INSERT INTO knowledge_graphs (id, title, description, created_by, data, created_date, updated_at, user_id, source_app)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        id,
-        enriched.metadata.title || '',
-        enriched.metadata.description || '',
-        enriched.metadata.createdBy || '',
-        JSON.stringify(enriched),
-        now,
-        now,
-        userId,
-        sourceApp,
-      )
-      .run()
-  }
-
-  await env.vegvisr_org
-    .prepare('INSERT INTO knowledge_graph_history (id, graph_id, version, data, user_id, source_app) VALUES (?, ?, ?, ?, ?, ?)')
-    .bind(crypto.randomUUID(), id, newVersion, JSON.stringify(enriched), userId, sourceApp)
-    .run()
-
-  await trimHistory(env, id)
+  // A new row stores '' for a missing title/description/creator; an existing row keeps its
+  // column when the incoming value is missing (null → COALESCE in the store).
+  const blank = graphExists ? null : ''
+  await store.commit({
+    id,
+    create: !graphExists,
+    data: JSON.stringify(enriched),
+    version: newVersion,
+    now,
+    title: enriched.metadata.title || blank,
+    description: enriched.metadata.description || blank,
+    createdBy: enriched.metadata.createdBy || blank,
+    userId,
+    sourceApp,
+  })
 
   return { ok: true, id, newVersion, graphData: enriched, created: !graphExists }
 }
@@ -541,17 +491,15 @@ export async function addNode(env, { graphId, node, expectedVersion = null, acto
     return fail(ERR.INVALID_INPUT, 'graphId and node are required.')
   }
 
-  const result = await env.vegvisr_org
-    .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
-    .bind(graphId)
-    .first()
+  const store = await resolveGraphStore(env, { graphId })
+  const result = await store.getRow(graphId)
   if (!result) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
 
   const graphData = JSON.parse(result.data)
   if (!Array.isArray(graphData.nodes)) graphData.nodes = []
   if (!Array.isArray(graphData.edges)) graphData.edges = []
 
-  const current = await currentVersion(env, graphId)
+  const current = await store.currentVersion(graphId)
   if (expectedVersion !== null && expectedVersion !== undefined) {
     if (!Number.isInteger(expectedVersion)) {
       return fail(ERR.INVALID_INPUT, 'expectedVersion must be an integer when provided.')
@@ -580,18 +528,12 @@ export async function addNode(env, { graphId, node, expectedVersion = null, acto
   if (!graphData.metadata) graphData.metadata = {}
   graphData.metadata.version = newVersion
 
-  const now = new Date().toISOString()
-  await env.vegvisr_org
-    .prepare('UPDATE knowledge_graphs SET data = ?, updated_at = ? WHERE id = ?')
-    .bind(JSON.stringify(graphData), now, graphId)
-    .run()
-
-  await env.vegvisr_org
-    .prepare('INSERT INTO knowledge_graph_history (id, graph_id, version, data) VALUES (?, ?, ?, ?)')
-    .bind(crypto.randomUUID(), graphId, newVersion, JSON.stringify(graphData))
-    .run()
-
-  await trimHistory(env, graphId)
+  await store.commit({
+    id: graphId,
+    data: JSON.stringify(graphData),
+    version: newVersion,
+    now: new Date().toISOString(),
+  })
 
   return {
     ok: true,
@@ -619,13 +561,11 @@ export async function updateMetadata(env, { graphId, fields, expectedVersion, ac
     return fail(ERR.INVALID_INPUT, 'publicationState cannot be set through a metadata update — use the explicit publish action.')
   }
 
-  const row = await env.vegvisr_org
-    .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
-    .bind(graphId)
-    .first()
+  const store = await resolveGraphStore(env, { graphId })
+  const row = await store.getRow(graphId)
   if (!row) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
 
-  const current = await currentVersion(env, graphId)
+  const current = await store.currentVersion(graphId)
   if (current !== expectedVersion) {
     return fail(ERR.VERSION_CONFLICT, 'Grafen er endret siden den ble lest.', { currentVersion: current, expectedVersion })
   }
@@ -640,22 +580,14 @@ export async function updateMetadata(env, { graphId, fields, expectedVersion, ac
   const newVersion = current + 1
   graphData.metadata.version = newVersion
 
-  const now = new Date().toISOString()
-  await env.vegvisr_org
-    .prepare(
-      `UPDATE knowledge_graphs
-       SET data = ?, title = COALESCE(?, title), description = COALESCE(?, description), updated_at = ?
-       WHERE id = ?`,
-    )
-    .bind(JSON.stringify(graphData), graphData.metadata.title || null, graphData.metadata.description || null, now, graphId)
-    .run()
-
-  await env.vegvisr_org
-    .prepare('INSERT INTO knowledge_graph_history (id, graph_id, version, data) VALUES (?, ?, ?, ?)')
-    .bind(crypto.randomUUID(), graphId, newVersion, JSON.stringify(graphData))
-    .run()
-
-  await trimHistory(env, graphId)
+  await store.commit({
+    id: graphId,
+    data: JSON.stringify(graphData),
+    version: newVersion,
+    now: new Date().toISOString(),
+    title: graphData.metadata.title || null,
+    description: graphData.metadata.description || null,
+  })
 
   return {
     ok: true,
@@ -858,7 +790,7 @@ export async function searchGraphs(env, { query, metaArea = null, nodeType = nul
 
   const whereSql = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
 
-  const totalRow = await env.vegvisr_org
+  const totalRow = await platformStore(env).db
     .prepare(`SELECT COUNT(*) AS total FROM knowledge_graphs ${whereSql}`)
     .bind(...bindings)
     .first()
@@ -866,7 +798,7 @@ export async function searchGraphs(env, { query, metaArea = null, nodeType = nul
 
   if (total === 0) return { ok: true, results: [], total: 0, limit: lim, offset: off, hasMore: false }
 
-  const rows = await env.vegvisr_org
+  const rows = await platformStore(env).db
     .prepare(`
       SELECT
         id,
@@ -930,13 +862,13 @@ export async function listMyGraphs(env, { limit = 20, offset = 0, metaArea = nul
   }
   const whereSql = `WHERE ${conditions.join(' AND ')}`
 
-  const totalRow = await env.vegvisr_org
+  const totalRow = await platformStore(env).db
     .prepare(`SELECT COUNT(*) AS total FROM knowledge_graphs ${whereSql}`)
     .bind(...bindings)
     .first()
   const total = Number(totalRow?.total || 0)
 
-  const rows = await env.vegvisr_org
+  const rows = await platformStore(env).db
     .prepare(`
       SELECT
         id,
@@ -1002,10 +934,8 @@ export async function updateNode(env, { graphId, nodeId, fields, expectedVersion
     return fail(ERR.INVALID_INPUT, 'graphId, nodeId, fields (object), and expectedVersion (integer) are required.')
   }
 
-  const result = await env.vegvisr_org
-    .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
-    .bind(graphId)
-    .first()
+  const store = await resolveGraphStore(env, { graphId })
+  const result = await store.getRow(graphId)
   if (!result) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
 
   const graphData = JSON.parse(result.data)
@@ -1037,23 +967,17 @@ export async function updateNode(env, { graphId, nodeId, fields, expectedVersion
   if (!graphData.metadata) graphData.metadata = {}
   graphData.metadata.version = newVersion
 
-  const now = new Date().toISOString()
-  const updateResult = await env.vegvisr_org
-    .prepare(`
-      UPDATE knowledge_graphs
-      SET data = ?, updated_at = ?
-      WHERE id = ?
-        AND COALESCE(CAST(json_extract(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.metadata.version') AS INTEGER), 0) = ?
-    `)
-    .bind(JSON.stringify(graphData), now, graphId, expectedVersion)
-    .run()
+  const committed = await store.commit({
+    id: graphId,
+    data: JSON.stringify(graphData),
+    version: newVersion,
+    casVersion: expectedVersion,
+    now: new Date().toISOString(),
+  })
 
-  // Zero rows changed means another request won the race between the read above and this write.
-  if (!updateResult.meta?.changes) {
-    const latest = await env.vegvisr_org
-      .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
-      .bind(graphId)
-      .first()
+  // A conflict means another request won the race between the read above and this write.
+  if (committed.conflict) {
+    const latest = await store.getRow(graphId)
     let latestVersion = 0
     try {
       latestVersion = Number(JSON.parse(latest?.data || '{}')?.metadata?.version || 0)
@@ -1063,13 +987,6 @@ export async function updateNode(env, { graphId, nodeId, fields, expectedVersion
       expectedVersion,
     })
   }
-
-  await env.vegvisr_org
-    .prepare('INSERT INTO knowledge_graph_history (id, graph_id, version, data) VALUES (?, ?, ?, ?)')
-    .bind(crypto.randomUUID(), graphId, newVersion, JSON.stringify(graphData))
-    .run()
-
-  await trimHistory(env, graphId)
 
   return {
     ok: true,
@@ -1106,7 +1023,7 @@ export async function listMetaAreas(env, { actor }) {
   }
 
   const dataSql = `CASE WHEN json_valid(data) THEN data END`
-  const rows = await env.vegvisr_org
+  const rows = await platformStore(env).db
     .prepare(`
       SELECT COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '') AS meta_area
       FROM knowledge_graphs
