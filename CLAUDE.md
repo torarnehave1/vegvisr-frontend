@@ -256,6 +256,12 @@ wrangler deploy
 # Workers are NOT auto-deployed from GitHub
 ```
 
+**One exception: `hello-mcp-worker/`** is deployed by GitHub Actions
+(`.github/workflows/deploy-hello-mcp.yml`) on every push to `main` that touches it:
+unit tests → `wrangler deploy` with flags (no wrangler.toml) → live smoke test.
+It has no bindings and no secrets, which is what makes this safe. It needs the repository
+secret `CLOUDFLARE_API_TOKEN`. Endpoint: `https://hello-mcp.torarnehave.workers.dev/mcp`.
+
 ### Pages Apps (Use git push)
 ```bash
 # Cloudflare Pages apps deploy automatically via GitHub integration:
