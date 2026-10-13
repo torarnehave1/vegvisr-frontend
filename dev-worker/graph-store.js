@@ -24,6 +24,7 @@
  */
 
 const HISTORY_CAP = 20
+const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
 export class PlatformStore {
   constructor(db) {
@@ -110,6 +111,171 @@ export class PlatformStore {
 
     await this.#trimHistory(id)
     return { ok: true }
+  }
+
+  // ── Unversioned writes ────────────────────────────────────────────────────────────────────
+  // Older endpoints overwrite a graph without bumping its version or writing history
+  // (/saveknowgraph, /updateknowgraph, the classifier, work notes). They are kept as they are —
+  // changing them is a product decision, not a refactor — but they go through the store so a
+  // graph that lives elsewhere is overwritten where it lives.
+
+  /** INSERT a row with no history entry. */
+  async insertUnversioned({ id, title = null, description = null, createdBy = null, data, now }) {
+    await this.db
+      .prepare('INSERT INTO knowledge_graphs (id, title, description, created_by, data, created_date, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(id, title, description, createdBy, data, now, now)
+      .run()
+  }
+
+  /** Overwrite the JSON with no history entry. `now` null leaves updated_at untouched. */
+  async putData(id, data, now = null) {
+    if (now) {
+      await this.db.prepare('UPDATE knowledge_graphs SET data = ?, updated_at = ? WHERE id = ?').bind(data, now, id).run()
+    } else {
+      await this.db.prepare('UPDATE knowledge_graphs SET data = ? WHERE id = ?').bind(data, id).run()
+    }
+  }
+
+  async getAiInstructions(id) {
+    const row = await this.db.prepare('SELECT ai_instructions FROM knowledge_graphs WHERE id = ?').bind(id).first()
+    return row?.ai_instructions || ''
+  }
+
+  async setAiInstructions(id, instructions, now) {
+    await this.db
+      .prepare('UPDATE knowledge_graphs SET ai_instructions = ?, updated_at = ? WHERE id = ?')
+      .bind(instructions, now, id)
+      .run()
+  }
+
+  // ── History reads ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Versions and timestamps, newest first. Returns the D1 result object ({ results, ... }), not
+   * a bare array: GET /getknowgraphhistory has always put that whole object on the wire as
+   * `history`, and clients read `history.results`.
+   */
+  async historyList(id) {
+    return this.db
+      .prepare(`
+            SELECT version, timestamp
+            FROM knowledge_graph_history
+            WHERE graph_id = ?
+            ORDER BY version DESC
+          `)
+      .bind(id)
+      .all()
+  }
+
+  /** The history row for one version ({ data }), or null. */
+  async historyVersion(id, version) {
+    return this.db
+      .prepare('SELECT data FROM knowledge_graph_history WHERE graph_id = ? AND version = ?')
+      .bind(id, version)
+      .first()
+  }
+
+  // ── Trash ─────────────────────────────────────────────────────────────────────────────────
+  // A deleted graph is copied to graph_trash with its whole history and kept for 30 days. The
+  // trash lives in the same store as the graph it came from.
+
+  /** Copy a graph and its history into the trash, then purge expired entries. */
+  async trashCopy({ id, data, deletedBy }) {
+    const historyRows = await this.db
+      .prepare('SELECT * FROM knowledge_graph_history WHERE graph_id = ? ORDER BY version ASC')
+      .bind(id)
+      .all()
+    const historyJson = JSON.stringify(historyRows.results || [])
+
+    let title = id
+    try {
+      const gd = JSON.parse(data)
+      title = gd.metadata?.title || gd.title || id
+    } catch {}
+
+    const trashId = `trash_${id}_${Date.now()}`
+    const expiresAt = new Date(Date.now() + TRASH_RETENTION_MS).toISOString()
+    await this.db
+      .prepare(
+        `INSERT INTO graph_trash (id, graph_id, title, graph_data, graph_history, deleted_by, deleted_at, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
+      )
+      .bind(trashId, id, title, data, historyJson, deletedBy, expiresAt)
+      .run()
+    await this.purgeTrash()
+    return { trashId, expiresAt }
+  }
+
+  /** Remove a graph's history and then its row. Does not touch the trash. */
+  async deleteGraph(id) {
+    await this.db.prepare('DELETE FROM knowledge_graph_history WHERE graph_id = ?').bind(id).run()
+    await this.db.prepare('DELETE FROM knowledge_graphs WHERE id = ?').bind(id).run()
+  }
+
+  async purgeTrash() {
+    await this.db.prepare(`DELETE FROM graph_trash WHERE expires_at < datetime('now')`).run()
+  }
+
+  /** Unexpired trash entries, newest first, without the graph bodies. */
+  async listTrash() {
+    await this.purgeTrash()
+    const rows = await this.db
+      .prepare('SELECT id, graph_id, title, deleted_by, deleted_at, expires_at FROM graph_trash ORDER BY deleted_at DESC')
+      .all()
+    return rows.results || []
+  }
+
+  /** One unexpired trash entry with its bodies, or null. */
+  async getTrashEntry(trashId) {
+    return this.db
+      .prepare(`SELECT * FROM graph_trash WHERE id = ? AND expires_at > datetime('now')`)
+      .bind(trashId)
+      .first()
+  }
+
+  /**
+   * Put a trashed graph and its history back, and drop the trash entry.
+   *
+   * The columns are rebuilt from the graph's own JSON. Until 2026-10-13 this was
+   * `INSERT OR REPLACE ... (id, data)`, which names neither `title` nor `created_by` — both
+   * NOT NULL — so every restore failed with a constraint error and nothing could leave the trash.
+   * The trash keeps the JSON and the history, not the row, so the row's columns have to come
+   * from the metadata, the same way saveGraph fills them for a new graph. created_date is the
+   * first history entry's timestamp when there is one: the original is not kept anywhere.
+   */
+  async restoreFromTrash(entry, now = new Date().toISOString()) {
+    const history = entry.graph_history ? JSON.parse(entry.graph_history) : []
+    let meta = {}
+    try {
+      meta = JSON.parse(entry.graph_data)?.metadata || {}
+    } catch { /* an unparseable graph is restored with empty columns */ }
+
+    await this.db
+      .prepare(
+        `INSERT OR REPLACE INTO knowledge_graphs (id, title, description, created_by, data, created_date, updated_at, user_id, source_app)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        entry.graph_id,
+        meta.title || entry.title || '',
+        meta.description || '',
+        meta.createdBy || '',
+        entry.graph_data,
+        history[0]?.timestamp || now,
+        now,
+        meta.userId || null,
+        meta.createdBy || null,
+      )
+      .run()
+    for (const h of history) {
+      await this.db
+        .prepare(
+          'INSERT OR IGNORE INTO knowledge_graph_history (id, graph_id, version, timestamp, data, user_id, source_app) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
+        .bind(h.id, h.graph_id, h.version, h.timestamp, h.data, h.user_id || null, h.source_app || null)
+        .run()
+    }
+    await this.db.prepare('DELETE FROM graph_trash WHERE id = ?').bind(entry.id).run()
   }
 
   /** History is capped at 20 versions per graph — drop the oldest once over. */

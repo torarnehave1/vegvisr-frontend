@@ -77,6 +77,18 @@ export function freshDb() {
       source_app TEXT,
       FOREIGN KEY (graph_id) REFERENCES knowledge_graphs (id)
     );
+    -- graph_trash is NOT from sqlite_master: its CREATE TABLE is in no file in this repo. The
+    -- columns are the ones /deleteknowgraph inserts; types and constraints are a guess.
+    CREATE TABLE graph_trash (
+      id TEXT PRIMARY KEY,
+      graph_id TEXT,
+      title TEXT,
+      graph_data TEXT,
+      graph_history TEXT,
+      deleted_by TEXT,
+      deleted_at DATETIME,
+      expires_at DATETIME
+    );
   `)
   return { env: { vegvisr_org: new D1Like(db) }, raw: db }
 }

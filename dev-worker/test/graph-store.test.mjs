@@ -107,3 +107,65 @@ describe('history cap', () => {
     assert.equal(versions.at(-1), 21)
   })
 })
+
+describe('unversioned writes', () => {
+  test('putData overwrites the JSON and writes no history', async () => {
+    const { store } = await seeded()
+    await store.putData(ID, blob(1, { touched: true }), '2026-10-13T12:00:00.000Z')
+    const row = await store.getRow(ID)
+    assert.equal(JSON.parse(row.data).metadata.touched, true)
+    assert.equal(row.updated_at, '2026-10-13T12:00:00.000Z')
+    assert.deepEqual(await historyVersions(store), [1])
+  })
+  test('putData without a timestamp leaves updated_at alone', async () => {
+    const { store } = await seeded()
+    await store.putData(ID, blob(1))
+    assert.equal((await store.getRow(ID)).updated_at, NOW)
+  })
+  test('insertUnversioned creates a row with no history', async () => {
+    const { env } = freshDb()
+    const store = platformStore(env)
+    await store.insertUnversioned({ id: ID, title: 'T', description: 'D', createdBy: 'a@b.no', data: blob(0), now: NOW })
+    assert.equal(await store.exists(ID), true)
+    assert.equal(await store.currentVersion(ID), 0)
+  })
+})
+
+describe('history reads', () => {
+  test('historyList is newest first inside a results envelope; historyVersion returns one body', async () => {
+    const { store } = await seeded()
+    await store.commit({ id: ID, data: blob(2), version: 2, now: NOW })
+    const list = await store.historyList(ID)
+    assert.deepEqual(list.results.map((r) => r.version), [2, 1])
+    assert.equal(JSON.parse((await store.historyVersion(ID, 1)).data).metadata.version, 1)
+    assert.equal(await store.historyVersion(ID, 7), null)
+  })
+})
+
+describe('trash', () => {
+  test('trashCopy keeps the body and whole history; deleteGraph removes row and history', async () => {
+    const { store } = await seeded()
+    await store.commit({ id: ID, data: blob(2), version: 2, now: NOW })
+    const { trashId } = await store.trashCopy({ id: ID, data: (await store.getRow(ID)).data, deletedBy: 'alice@example.com' })
+    await store.deleteGraph(ID)
+
+    assert.equal(await store.exists(ID), false)
+    assert.deepEqual(await historyVersions(store), [])
+    const listed = await store.listTrash()
+    assert.deepEqual(listed.map((t) => [t.id, t.graph_id, t.deleted_by]), [[trashId, ID, 'alice@example.com']])
+    const entry = await store.getTrashEntry(trashId)
+    assert.equal(JSON.parse(entry.graph_history).length, 2)
+  })
+  test('restoreFromTrash brings back the row and its history and empties the trash', async () => {
+    const { store } = await seeded()
+    await store.commit({ id: ID, data: blob(2), version: 2, now: NOW })
+    const { trashId } = await store.trashCopy({ id: ID, data: (await store.getRow(ID)).data, deletedBy: 'alice@example.com' })
+    await store.deleteGraph(ID)
+
+    await store.restoreFromTrash(await store.getTrashEntry(trashId))
+
+    assert.equal(JSON.parse((await store.getRow(ID)).data).metadata.version, 2)
+    assert.deepEqual(await historyVersions(store), [1, 2])
+    assert.deepEqual(await store.listTrash(), [])
+  })
+})

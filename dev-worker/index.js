@@ -21,7 +21,7 @@ import {
   encryptDataNodeInfo,
   decryptDataNodeInfo,
 } from './graph-service.js'
-import { resolveGraphStore } from './graph-store.js'
+import { platformStore, resolveGraphStore } from './graph-store.js'
 import { listTemplates as gsListTemplates } from './templates-service.js'
 import { readPublishedDomainRegistry, mergePublishedDomains, recordPublishedSite } from './published-domains.js'
 import { NODE_TYPES } from './node-types.js'
@@ -161,7 +161,8 @@ async function classifyAndStore(env, graphId, graphData) {
   if (!result) return
 
   // Read current graph data to merge classification into metadata
-  const existing = await env.vegvisr_org.prepare('SELECT data FROM knowledge_graphs WHERE id = ?').bind(graphId).first()
+  const store = await resolveGraphStore(env, { graphId })
+  const existing = await store.getRow(graphId)
   if (!existing) return
 
   const data = JSON.parse(existing.data)
@@ -171,8 +172,7 @@ async function classifyAndStore(env, graphId, graphData) {
   data.metadata.semanticConfidence = result.confidence
   data.metadata.classifiedAt = new Date().toISOString()
 
-  await env.vegvisr_org.prepare('UPDATE knowledge_graphs SET data = ? WHERE id = ?')
-    .bind(JSON.stringify(data), graphId).run()
+  await store.putData(graphId, JSON.stringify(data))
 
   console.log(`[Classify] ${graphId} → ${result.primary} (${result.secondary.join(', ')}) confidence=${result.confidence}`)
 }
@@ -2752,8 +2752,7 @@ const restHandler = {
         }
 
         try {
-          const query = `SELECT data FROM knowledge_graphs WHERE id = ?`
-          const result = await env.vegvisr_org.prepare(query).bind(graphId).first()
+          const result = await (await resolveGraphStore(env, { graphId })).getRow(graphId)
           if (!result) {
             return new Response(JSON.stringify({ success: false, message: 'Graph not found.' }), {
               status: 404,
@@ -2832,8 +2831,7 @@ const restHandler = {
         }
 
         try {
-          const query = `SELECT data FROM knowledge_graphs WHERE id = ?`
-          const result = await env.vegvisr_org.prepare(query).bind(graphId).first()
+          const result = await (await resolveGraphStore(env, { graphId })).getRow(graphId)
           if (!result) {
             return new Response(JSON.stringify({ success: false, message: 'Graph not found.' }), {
               status: 404,
@@ -5955,19 +5953,14 @@ const restHandler = {
             )
           }
 
-          const query = `INSERT INTO knowledge_graphs (id, title, description, created_by, data, created_date, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-          await env.vegvisr_org
-            .prepare(query)
-            .bind(
-              id,
-              graphData.metadata.title,
-              graphData.metadata.description,
-              graphData.metadata.createdBy,
-              JSON.stringify(graphData),
-              new Date().toISOString(),
-              new Date().toISOString(),
-            )
-            .run()
+          await (await resolveGraphStore(env, { graphId: id })).insertUnversioned({
+            id,
+            title: graphData.metadata.title,
+            description: graphData.metadata.description,
+            createdBy: graphData.metadata.createdBy,
+            data: JSON.stringify(graphData),
+            now: new Date().toISOString(),
+          })
 
           console.log('[Worker] Knowledge graph saved successfully')
           return new Response(
@@ -5998,12 +5991,9 @@ const restHandler = {
         const graphId = pathname.split('/')[3]
 
         try {
-          const result = await env.vegvisr_org
-            .prepare('SELECT ai_instructions FROM knowledge_graphs WHERE id = ?')
-            .bind(graphId)
-            .first()
+          const instructions = await (await resolveGraphStore(env, { graphId })).getAiInstructions(graphId)
 
-          return new Response(JSON.stringify({ instructions: result?.ai_instructions || '' }), {
+          return new Response(JSON.stringify({ instructions }), {
             status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
@@ -6022,10 +6012,7 @@ const restHandler = {
         const { instructions } = await request.json()
 
         try {
-          await env.vegvisr_org
-            .prepare('UPDATE knowledge_graphs SET ai_instructions = ?, updated_at = ? WHERE id = ?')
-            .bind(instructions, new Date().toISOString(), graphId)
-            .run()
+          await (await resolveGraphStore(env, { graphId })).setAiInstructions(graphId, instructions, new Date().toISOString())
 
           return new Response(JSON.stringify({ message: 'AI instructions updated successfully' }), {
             status: 200,
@@ -6079,11 +6066,7 @@ const restHandler = {
 
           console.log(`[Worker] Updating graph with ID: ${id}`)
 
-          const query = `UPDATE knowledge_graphs SET data = ?, updated_at = ? WHERE id = ?`
-          await env.vegvisr_org
-            .prepare(query)
-            .bind(JSON.stringify(graphData), new Date().toISOString(), id)
-            .run()
+          await (await resolveGraphStore(env, { graphId: id })).putData(id, JSON.stringify(graphData), new Date().toISOString())
 
           console.log('[Worker] Graph updated successfully')
           return new Response(JSON.stringify({ message: 'Graph updated successfully', id }), {
@@ -7675,8 +7658,7 @@ const restHandler = {
 
           console.log(`[Worker] Fetching public graph with ID: ${id}`)
 
-          const query = `SELECT data, created_date, updated_at FROM knowledge_graphs WHERE id = ?`
-          const result = await env.vegvisr_org.prepare(query).bind(id).first()
+          const result = await (await resolveGraphStore(env, { graphId: id })).getRow(id)
 
           if (!result) {
             return new Response(generateErrorHtml('Graph not found.'), {
@@ -8282,13 +8264,7 @@ const restHandler = {
 
           console.log(`[Worker] Fetching history for graph ID: ${graphId}`)
 
-          const query = `
-            SELECT version, timestamp
-            FROM knowledge_graph_history
-            WHERE graph_id = ?
-            ORDER BY version DESC
-          `
-          const results = await env.vegvisr_org.prepare(query).bind(graphId).all()
+          const results = await (await resolveGraphStore(env, { graphId })).historyList(graphId)
 
           if (!results || results.length === 0) {
             return new Response(
@@ -8384,7 +8360,7 @@ const restHandler = {
           }
 
           // Fetch graph data
-          const row = await env.vegvisr_org.prepare('SELECT data FROM knowledge_graphs WHERE id = ?').bind(graphId).first()
+          const row = await (await resolveGraphStore(env, { graphId })).getRow(graphId)
           if (!row) {
             return new Response(JSON.stringify({ error: 'Graph not found' }), {
               status: 404, headers: corsHeaders,
@@ -8459,12 +8435,7 @@ const restHandler = {
 
           console.log(`[Worker] Fetching version ${version} for graph ID: ${graphId}`)
 
-          const query = `
-            SELECT data
-            FROM knowledge_graph_history
-            WHERE graph_id = ? AND version = ?
-          `
-          const result = await env.vegvisr_org.prepare(query).bind(graphId, version).first()
+          const result = await (await resolveGraphStore(env, { graphId })).historyVersion(graphId, version)
 
           if (!result) {
             return new Response(
@@ -8543,10 +8514,7 @@ const restHandler = {
 
           // If sourceId is provided (OpenAPI spec usage), fetch the source graph from D1
           if (sourceId && !graphData) {
-            const sourceRow = await env.vegvisr_org
-              .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
-              .bind(sourceId)
-              .first()
+            const sourceRow = await (await resolveGraphStore(env, { graphId: sourceId })).getRow(sourceId)
             if (!sourceRow) {
               return new Response(
                 JSON.stringify({ error: `Source graph '${sourceId}' not found.` }),
@@ -8598,40 +8566,17 @@ const restHandler = {
             )
           }
 
-          // Step 1: Insert into main knowledge_graphs table
-          const insertMainQuery = `
-            INSERT INTO knowledge_graphs (id, title, description, created_by, data, created_date, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `
-          await env.vegvisr_org
-            .prepare(insertMainQuery)
-            .bind(
-              newGraphId,
-              duplicatedGraphData.metadata.title,
-              duplicatedGraphData.metadata.description,
-              duplicatedGraphData.metadata.createdBy,
-              JSON.stringify(duplicatedGraphData),
-              new Date().toISOString(),
-              new Date().toISOString(),
-            )
-            .run()
-
-          console.log('[Worker] Main graph record created successfully')
-
-          // Step 2: Insert into knowledge_graph_history table (version 1)
-          const insertHistoryQuery = `
-            INSERT INTO knowledge_graph_history (id, graph_id, version, data)
-            VALUES (?, ?, ?, ?)
-          `
-          await env.vegvisr_org
-            .prepare(insertHistoryQuery)
-            .bind(
-              crypto.randomUUID(), // History entry ID
-              newGraphId, // Graph ID
-              1, // Version 1
-              JSON.stringify(duplicatedGraphData),
-            )
-            .run()
+          // The copy is written as version 1: the row and its history entry in one commit.
+          await (await resolveGraphStore(env, { graphId: newGraphId })).commit({
+            id: newGraphId,
+            create: true,
+            data: JSON.stringify(duplicatedGraphData),
+            version: 1,
+            now: new Date().toISOString(),
+            title: duplicatedGraphData.metadata.title ?? null,
+            description: duplicatedGraphData.metadata.description ?? null,
+            createdBy: duplicatedGraphData.metadata.createdBy ?? null,
+          })
 
           console.log('[Worker] Graph history record created successfully')
 
@@ -8904,8 +8849,7 @@ const restHandler = {
           console.log(`[Worker] Generating slideshow for node ${nodeId} in graph ${graphId}`)
 
           // Fetch the graph data
-          const graphQuery = `SELECT data FROM knowledge_graphs WHERE id = ?`
-          const graphResult = await env.vegvisr_org.prepare(graphQuery).bind(graphId).first()
+          const graphResult = await (await resolveGraphStore(env, { graphId })).getRow(graphId)
 
           if (!graphResult) {
             return new Response('Graph not found', {
@@ -9065,12 +9009,8 @@ const restHandler = {
             })
           }
 
-          const graphQuery = `
-            SELECT data
-            FROM knowledge_graphs
-            WHERE id = ?
-          `
-          const graphResult = await env.vegvisr_org.prepare(graphQuery).bind(graphId).first()
+          const store = await resolveGraphStore(env, { graphId })
+          const graphResult = await store.getRow(graphId)
 
           if (!graphResult) {
             return new Response(JSON.stringify({ error: 'Graph not found.' }), {
@@ -9089,15 +9029,7 @@ const restHandler = {
           }
           graphData.nodes.push(newNode)
 
-          const updateQuery = `
-            UPDATE knowledge_graphs
-            SET data = ?, updated_at = ?
-            WHERE id = ?
-          `
-          await env.vegvisr_org
-            .prepare(updateQuery)
-            .bind(JSON.stringify(graphData), new Date().toISOString(), graphId)
-            .run()
+          await store.putData(graphId, JSON.stringify(graphData), new Date().toISOString())
 
           console.log('[Worker] Work note inserted into graph successfully')
           return new Response(
@@ -9254,14 +9186,10 @@ const restHandler = {
           }
           if (!trashAuth) return new Response(JSON.stringify({ error: 'Authentication required.' }), { status: 401, headers: corsHeaders })
 
-          // Purge expired entries first
-          await env.vegvisr_org.prepare(`DELETE FROM graph_trash WHERE expires_at < datetime('now')`).run()
+          // Expired entries are purged before listing.
+          const results = await platformStore(env).listTrash()
 
-          const rows = await env.vegvisr_org.prepare(
-            `SELECT id, graph_id, title, deleted_by, deleted_at, expires_at FROM graph_trash ORDER BY deleted_at DESC`
-          ).all()
-
-          return new Response(JSON.stringify({ results: rows.results || [] }), {
+          return new Response(JSON.stringify({ results }), {
             status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         } catch (err) {
@@ -9292,29 +9220,12 @@ const restHandler = {
           const { trashId } = await request.json()
           if (!trashId) return new Response(JSON.stringify({ error: 'trashId is required.' }), { status: 400, headers: corsHeaders })
 
-          const entry = await env.vegvisr_org.prepare(
-            `SELECT * FROM graph_trash WHERE id = ? AND expires_at > datetime('now')`
-          ).bind(trashId).first()
-
+          // A trash id carries no hint of which store it sits in; only the platform has a trash today.
+          const trashStore = platformStore(env)
+          const entry = await trashStore.getTrashEntry(trashId)
           if (!entry) return new Response(JSON.stringify({ error: 'Trash entry not found or expired.' }), { status: 404, headers: corsHeaders })
 
-          // Restore graph
-          await env.vegvisr_org.prepare(
-            `INSERT OR REPLACE INTO knowledge_graphs (id, data) VALUES (?, ?)`
-          ).bind(entry.graph_id, entry.graph_data).run()
-
-          // Restore history
-          if (entry.graph_history) {
-            const history = JSON.parse(entry.graph_history)
-            for (const h of history) {
-              await env.vegvisr_org.prepare(
-                `INSERT OR IGNORE INTO knowledge_graph_history (id, graph_id, version, timestamp, data, user_id, source_app) VALUES (?, ?, ?, ?, ?, ?, ?)`
-              ).bind(h.id, h.graph_id, h.version, h.timestamp, h.data, h.user_id || null, h.source_app || null).run()
-            }
-          }
-
-          // Remove from trash
-          await env.vegvisr_org.prepare(`DELETE FROM graph_trash WHERE id = ?`).bind(trashId).run()
+          await trashStore.restoreFromTrash(entry)
 
           console.log(`[Worker] Graph ${entry.graph_id} restored from trash`)
           return new Response(JSON.stringify({ success: true, graphId: entry.graph_id }), {
@@ -9359,10 +9270,8 @@ const restHandler = {
           console.log(`[Worker] Deleting graph with ID: ${id}`)
 
           // First check if the graph exists and fetch its data for trash
-          const checkQuery = `SELECT id, data FROM knowledge_graphs WHERE id = ?`
-          console.log('[Worker] Checking if graph exists with query:', checkQuery)
-          const graphExists = await env.vegvisr_org.prepare(checkQuery).bind(id).first()
-          console.log('[Worker] Graph exists check result:', graphExists)
+          const store = await resolveGraphStore(env, { graphId: id })
+          const graphExists = await store.getRow(id)
 
           if (!graphExists) {
             console.log('[Worker] Graph not found:', id)
@@ -9374,34 +9283,12 @@ const restHandler = {
 
           // ── Copy to trash before deleting (30-day retention) ──────────────
           try {
-            // Fetch all history entries for this graph
-            const historyRows = await env.vegvisr_org
-              .prepare(`SELECT * FROM knowledge_graph_history WHERE graph_id = ? ORDER BY version ASC`)
-              .bind(id).all()
-            const historyJson = JSON.stringify(historyRows.results || [])
-
-            // Parse title from graph data
-            let graphTitle = id
-            try {
-              const gd = JSON.parse(graphExists.data)
-              graphTitle = gd.metadata?.title || gd.title || id
-            } catch {}
-
-            const trashId = `trash_${id}_${Date.now()}`
-            const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-            const deletedBy = tokenValidation.userId || 'unknown'
-
-            await env.vegvisr_org.prepare(
-              `INSERT INTO graph_trash (id, graph_id, title, graph_data, graph_history, deleted_by, deleted_at, expires_at)
-               VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)`
-            ).bind(trashId, id, graphTitle, graphExists.data, historyJson, deletedBy, expiresAt).run()
-
+            const { expiresAt } = await store.trashCopy({
+              id,
+              data: graphExists.data,
+              deletedBy: tokenValidation.userId || 'unknown',
+            })
             console.log(`[Worker] Graph ${id} moved to trash (expires: ${expiresAt})`)
-
-            // Purge any expired trash entries while we're here
-            await env.vegvisr_org.prepare(
-              `DELETE FROM graph_trash WHERE expires_at < datetime('now')`
-            ).run()
           } catch (trashError) {
             console.error('[Worker] Failed to copy to trash:', trashError.message)
             // Continue with deletion even if trash copy fails
@@ -9435,17 +9322,9 @@ const restHandler = {
             await env.vegvisr_org.prepare(deleteWorkNotesQuery).bind(id).run()
             console.log('[Worker] Deleted from graphWorkNotes table')
 
-            // 2. Delete from knowledge_graph_history table
-            console.log('[Worker] Deleting from knowledge_graph_history table')
-            const deleteHistoryQuery = `DELETE FROM knowledge_graph_history WHERE graph_id = ?`
-            await env.vegvisr_org.prepare(deleteHistoryQuery).bind(id).run()
-            console.log('[Worker] Deleted from knowledge_graph_history table')
-
-            // 3. Finally delete from knowledge_graphs table
-            console.log('[Worker] Deleting from knowledge_graphs table')
-            const deleteGraphQuery = `DELETE FROM knowledge_graphs WHERE id = ?`
-            await env.vegvisr_org.prepare(deleteGraphQuery).bind(id).run()
-            console.log('[Worker] Deleted from knowledge_graphs table')
+            // 2. Delete the graph's history, then the graph itself
+            await store.deleteGraph(id)
+            console.log('[Worker] Deleted history and graph row')
 
             console.log('[Worker] Graph and all related records deleted successfully')
             return new Response(JSON.stringify({ message: 'Graph deleted successfully', id }), {
