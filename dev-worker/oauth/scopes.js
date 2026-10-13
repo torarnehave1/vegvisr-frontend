@@ -135,7 +135,13 @@ export const OPT_IN_SCOPE_DETAIL = {
     'Lar assistenten publisere en html-node til en nettadresse som ALLEREDE er satt opp, slik ' +
     'at siden blir synlig for hvem som helst på internett. Den kan ikke opprette nye ' +
     'subdomener, og den kan bare publisere til en adresse noden allerede er knyttet til — et ' +
-    'forsøk på en annen adresse blir avvist. En publisert side erstatter det som lå der fra før.',
+    'forsøk på en annen adresse blir avvist. En publisert side erstatter det som lå der fra før. ' +
+    // Widened 2026-10-13 for create_worker — same class: something reachable by people who are
+    // not signed in. Named here because "publisere en side" would not make anyone expect code.
+    'Den kan også skrive KODE til en liten frittstående Cloudflare Worker og legge den i det ' +
+    'offentlige GitHub-repoet. Koden blir synlig der med én gang, men workeren går ikke i ' +
+    'produksjon før eieren har godkjent den på GitHub. En slik worker har ingen tilgang til ' +
+    'database, lagring eller hemmeligheter. Virker bare for Superadmin.',
   // Widened 2026-09-30 to name group membership, when the member tools landed. The TEXT is not
   // frozen — only the scope names are — so describing more of a risk class costs a consent
   // screen that reads correctly and nothing else. Naming it matters: someone reading only

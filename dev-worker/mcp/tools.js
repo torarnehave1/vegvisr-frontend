@@ -32,6 +32,7 @@ import * as publish from '../publish-service.js'
 import { NODE_TYPES, DEFAULT_NODE_TYPE, suggestNodeType } from '../node-types.js'
 import * as users from '../users-service.js'
 import * as sms from '../sms-service.js'
+import * as workerSource from '../worker-source-service.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared schemas
@@ -2866,6 +2867,81 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── create_worker ─────────────────────────────────────────────────────────
+  //
+  // Proposes a worker; it does not deploy one. The source is committed to GitHub
+  // (mcp-workers/<name>/index.js) and a workflow there deploys it as `mcp-<name>` — after the
+  // owner has approved the run. A model writes, a person lets it out, and the code is in git.
+  //
+  // graph:publish is the risk class: making something reachable by people who are not signed in.
+  // Superadmin on top. worker-source-service.js says which guarantees live where.
+  server.registerTool(
+    'create_worker',
+    {
+      title: 'Create or update a Cloudflare Worker (goes live after the owner approves)',
+      description:
+        'Write a small standalone Cloudflare Worker and send it for deployment. This commits the ' +
+        'source to the public GitHub repository; a workflow there builds it and then WAITS FOR ' +
+        'THE OWNER TO APPROVE before deploying. So the worker is NOT live when this returns: ' +
+        'tell the user to open approvalUrl, press "Review deployments" and approve, and only ' +
+        'after that will it answer at the returned url. Never say it is live or deployed on the ' +
+        'strength of this call. Calling it again with the same workerName replaces the code. ' +
+        'The worker is deployed as "mcp-<workerName>" and gets NO bindings — no database, no KV, ' +
+        'no secrets, no access to other workers — so write code that needs none. Pass the ' +
+        'complete source of ONE file as `code`: an ES module with a default export. THE CODE ' +
+        'BECOMES PUBLIC in the repository, so it must contain no token, password or personal ' +
+        'data. Confirm the name and what the worker does with the user before calling. ' +
+        'Requires the graph:publish scope, which an ordinary connection does not carry, and the ' +
+        'Superadmin role.',
+      inputSchema: {
+        workerName: z
+          .string()
+          .regex(workerSource.WORKER_NAME_RE)
+          .describe('Short name: lowercase letters, digits and hyphens, e.g. "hello". It is deployed as "mcp-<workerName>".'),
+        code: z
+          .string()
+          .min(1)
+          .describe('The complete ES-module source of the worker, one file, e.g. export default { async fetch(request) { return new Response("hi") } }'),
+        description: z.string().optional().describe('One line on what the worker does. Goes into the public commit message.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        workerName: z.string(),
+        deployedName: z.string(),
+        created: z.boolean(),
+        live: z.boolean(),
+        status: z.string(),
+        path: z.string(),
+        commitSha: z.string().nullable(),
+        commitUrl: z.string().nullable(),
+        approvalUrl: z.string(),
+        url: z.string(),
+      },
+      // Destructive: it replaces the source of an existing worker of the same name. openWorldHint:
+      // the commit is public the moment it lands, before anyone approves anything.
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ workerName, code, description }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:publish')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await workerSource.proposeWorker(env, { workerName, code, description, actor })
+      if (!r.ok) return fromService(r)
+
+      const { ok: _o, ...payload } = r
+      return ok(
+        { success: true, ...payload },
+        `${r.created ? 'Created' : 'Updated'} the source of worker ${r.deployedName} in GitHub. It is NOT live yet: ` +
+          `the owner must approve the deployment at ${r.approvalUrl} ("Review deployments"). ` +
+          `After approval it will answer at ${r.url}.`,
+      )
+    },
+  )
+
   // ── list_meta_areas ───────────────────────────────────────────────────────
   //
   // The map before the territory. Without it the only way to learn which meta areas exist was to
@@ -3232,6 +3308,7 @@ export const TOOL_NAMES = [
   'set_user_groups',
   'update_user_profile',
   'set_user_role',
+  'create_worker',
   'list_published_sites',
   'search_graphs',
   'list_my_graphs',

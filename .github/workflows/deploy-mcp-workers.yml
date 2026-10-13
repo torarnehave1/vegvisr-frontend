@@ -1,0 +1,121 @@
+# Deploys the workers under mcp-workers/ — the ones written through the MCP server's
+# create_worker tool: build → the owner's approval → wrangler deploy → reachability check.
+#
+# TWO RULES THIS FILE HOLDS, so they do not depend on the tool behaving:
+#
+#   * Every directory deploys as the script `mcp-<dir>`. No platform worker has that prefix, so a
+#     commit here can never replace one. That matters because these deploy with no bindings, and a
+#     script upload replaces the whole binding set.
+#   * The deploy job runs in the `mcp-production` environment: required reviewer, and the only
+#     place CLOUDFLARE_API_TOKEN exists. Never add that token as a repository secret.
+#
+# The build job has no secrets and needs no approval, so code that does not compile never reaches
+# the reviewer.
+name: Deploy MCP-created workers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mcp-workers/*/index.js'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-mcp-workers
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      workers: ${{ steps.pick.outputs.workers }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Which workers changed
+        id: pick
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # A push names its parent; a manual run, or a first push, deploys every worker.
+          if [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            FILES=$(git diff --name-only --diff-filter=AM "$BEFORE" "$GITHUB_SHA" -- 'mcp-workers/*/index.js')
+          else
+            FILES=$(git ls-files 'mcp-workers/*/index.js')
+          fi
+          NAMES=""
+          for f in $FILES; do
+            d=$(basename "$(dirname "$f")")
+            if ! printf '%s' "$d" | grep -Eq '^[a-z0-9][a-z0-9-]{0,48}$'; then
+              echo "::error::mcp-workers/$d is not a valid worker name (lowercase letters, digits, hyphens; max 49)."
+              exit 1
+            fi
+            NAMES="$NAMES $d"
+          done
+          NAMES=$(echo $NAMES)
+          echo "workers=$NAMES" >> "$GITHUB_OUTPUT"
+          echo "Workers to deploy: ${NAMES:-none}"
+
+      - name: 1/3 build each worker (no token, nothing uploaded)
+        if: steps.pick.outputs.workers != ''
+        run: |
+          mkdir -p "$RUNNER_TEMP/build" && cd "$RUNNER_TEMP/build"
+          for d in ${{ steps.pick.outputs.workers }}; do
+            echo "── mcp-$d"
+            npx --yes wrangler@4 deploy "$GITHUB_WORKSPACE/mcp-workers/$d/index.js" \
+              --name "mcp-$d" --compatibility-date 2026-10-01 --dry-run
+          done
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.workers != ''
+    runs-on: ubuntu-latest
+    environment: mcp-production
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 5d9b2060ef095c777711a8649c24914e
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      WORKERS: ${{ needs.build.outputs.workers }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check the Cloudflare token is set
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Environment secret CLOUDFLARE_API_TOKEN is missing — gh secret set CLOUDFLARE_API_TOKEN --env mcp-production"
+            exit 1
+          fi
+
+      - name: 2/3 deploy
+        run: |
+          mkdir -p "$RUNNER_TEMP/deploy" && cd "$RUNNER_TEMP/deploy"
+          for d in $WORKERS; do
+            echo "── mcp-$d"
+            npx --yes wrangler@4 deploy "$GITHUB_WORKSPACE/mcp-workers/$d/index.js" \
+              --name "mcp-$d" --compatibility-date 2026-10-01
+          done
+
+      - name: 3/3 each worker answers
+        run: |
+          FAILED=0
+          for d in $WORKERS; do
+            URL="https://mcp-$d.torarnehave.workers.dev/"
+            CODE=000
+            for i in 1 2 3 4 5 6; do
+              CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$URL" || true)
+              case "$CODE" in 000|5*) sleep 10 ;; *) break ;; esac
+            done
+            echo "$URL -> HTTP $CODE"
+            case "$CODE" in 000|5*) echo "::error::mcp-$d does not answer (HTTP $CODE)"; FAILED=1 ;; esac
+          done
+          exit $FAILED

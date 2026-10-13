@@ -207,6 +207,10 @@ describe('chat:read is consented to separately from chat:write', () => {
     assert.match(d, /hvem som helst/, 'must say the page becomes public')
     assert.match(d, /ikke opprette nye/, 'must say it cannot create subdomains')
     assert.match(d, /allerede er knyttet til/, 'must say the host is constrained to the node')
+    // Widened 2026-10-13 with create_worker: the box now also covers code, so the copy must say so
+    // and must name the limit that makes it safe.
+    assert.match(d, /KODE/, 'must say it can write code')
+    assert.match(d, /godkjent/, 'must say nothing goes to production without approval')
   })
 
   test('granting one does not grant the other — that is the whole point of two boxes', () => {

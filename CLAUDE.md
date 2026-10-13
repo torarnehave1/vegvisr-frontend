@@ -256,7 +256,7 @@ wrangler deploy
 # Workers are NOT auto-deployed from GitHub
 ```
 
-**Two exceptions, both deployed by GitHub Actions behind the owner's approval:**
+**Three exceptions, all deployed by GitHub Actions behind the owner's approval:**
 
 - `dev-worker/` (the MCP server, `knowledge-graph-worker`) —
   `.github/workflows/deploy-dev-worker.yml`: unit tests → approval → `wrangler deploy` → public
@@ -267,7 +267,14 @@ wrangler deploy
 - `hello-mcp-worker/` — `.github/workflows/deploy-hello-mcp.yml`. No bindings, no secrets.
   Endpoint: `https://hello-mcp.torarnehave.workers.dev/mcp`.
 
-Both deploy jobs run in the GitHub environment `mcp-production`, which has a required reviewer.
+- `mcp-workers/<name>/index.js` — workers written through the MCP tool `create_worker`, which
+  commits the file via the GitHub API (secret `GITHUB_WORKER_TOKEN` on knowledge-graph-worker:
+  fine-grained, Contents write on this repo, NO Workflows permission).
+  `.github/workflows/deploy-mcp-workers.yml` deploys each as `mcp-<name>` — the prefix is what
+  keeps them from ever replacing a platform worker. No bindings. These commits arrive on
+  `origin/main` without passing through the laptop: `git pull` before working.
+
+All three deploy jobs run in the GitHub environment `mcp-production`, which has a required reviewer.
 `CLOUDFLARE_API_TOKEN` is a secret of THAT ENVIRONMENT and must never be added as a repository
 secret — any workflow file on `main` can read a repository secret, which would bypass the approval.
 

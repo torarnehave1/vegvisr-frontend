@@ -18,6 +18,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
 import { freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike, FakeAgentWorker, FakeRegisterWorker, FakeRoleWorker } from './d1-adapter.mjs'
 import * as pd from '../published-domains.js'
+import * as workerSource from '../worker-source-service.js'
 import { CONNECT_SCOPES, OPT_IN_SCOPES } from '../oauth/scopes.js'
 import * as server from '../mcp/server.js'
 import { NODE_TYPES, suggestNodeType } from '../node-types.js'
@@ -780,6 +781,9 @@ describe('annotations tell the client the truth about each tool', () => {
       // leaves Cloudflare with content attached.
       'compose_node_image',
       'set_group_member_role',
+      // Added 2026-10-13. The source is committed to a PUBLIC repository the moment it returns,
+      // before any approval — and after approval it is code answering on a public address.
+      'create_worker',
     ])
     for (const t of tools) {
       assert.equal(t.annotations?.openWorldHint, outward.has(t.name), `${t.name} openWorldHint`)
@@ -1177,6 +1181,7 @@ describe('publish_html_node is the one tool that reaches the public internet', (
       'add_group_member',
       'compose_node_image',
       'create_group_invite',
+      'create_worker',
       'post_chat_message',
       'publish_html_node',
       'register_user',
@@ -1809,6 +1814,174 @@ describe('update_user_profile updates someone who is already registered', () => 
 })
 
 
+describe('create_worker proposes a worker through GitHub and never deploys one', () => {
+  const ROOT = {
+    auth: { ...ALICE_RW.auth, scope: ['graph:read', 'graph:publish'], userId: 'root@example.com' },
+    props: { userId: 'root@example.com', email: 'root@example.com', role: 'Superadmin', authMethod: 'oauth' },
+  }
+  const CODE = 'export default { fetch() { return new Response("hi") } }'
+
+  /** GitHub's contents API, faked. `existing` is the sha of the file already there, or null. */
+  function github({ existing = null, putStatus = null, headStatus = null } = {}) {
+    const calls = []
+    const real = globalThis.fetch
+    globalThis.fetch = async (url, init = {}) => {
+      const call = { url: String(url), method: init.method || 'GET', headers: new Headers(init.headers), body: init.body ? JSON.parse(init.body) : null }
+      calls.push(call)
+      if (call.method === 'GET') {
+        if (headStatus) return new Response('{}', { status: headStatus })
+        return existing
+          ? new Response(JSON.stringify({ sha: existing }), { status: 200 })
+          : new Response(JSON.stringify({ message: 'Not Found' }), { status: 404 })
+      }
+      if (putStatus) return new Response(JSON.stringify({ message: 'Resource not accessible by personal access token' }), { status: putStatus })
+      return new Response(JSON.stringify({ commit: { sha: 'abc123', html_url: 'https://github.com/torarnehave1/vegvisr-frontend/commit/abc123' } }), { status: existing ? 200 : 201 })
+    }
+    return { calls, restore: () => { globalThis.fetch = real } }
+  }
+
+  function seeded({ token = 'gh-test-token' } = {}) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    if (token) env.GITHUB_WORKER_TOKEN = token
+    return env
+  }
+
+  test('commits one file under mcp-workers/ on main and says it is NOT live', async () => {
+    const gh = github()
+    try {
+      const { client } = await connect(seeded(), ROOT)
+      const r = await callOk(client, 'create_worker', { workerName: 'hello', code: CODE, description: 'says hi' })
+      assert.equal(r.live, false)
+      assert.equal(r.status, 'awaiting_approval')
+      assert.equal(r.created, true)
+      assert.equal(r.deployedName, 'mcp-hello')
+      assert.equal(r.url, 'https://mcp-hello.torarnehave.workers.dev')
+      assert.equal(r.path, 'mcp-workers/hello/index.js')
+      assert.match(r.approvalUrl, /actions\/workflows\/deploy-mcp-workers\.yml$/)
+      const put = gh.calls.find((c) => c.method === 'PUT')
+      assert.equal(put.url, 'https://api.github.com/repos/torarnehave1/vegvisr-frontend/contents/mcp-workers/hello/index.js')
+      assert.equal(put.body.branch, 'main')
+      assert.equal(Buffer.from(put.body.content, 'base64').toString('utf8'), CODE)
+      assert.equal(put.body.sha, undefined, 'a new file names no sha')
+      assert.equal(put.headers.get('Authorization'), 'Bearer gh-test-token')
+    } finally { gh.restore() }
+  })
+
+  test('the text result tells the model to send the user to approve, not that it is deployed', async () => {
+    const gh = github()
+    try {
+      const { client } = await connect(seeded(), ROOT)
+      const r = await client.callTool({ name: 'create_worker', arguments: { workerName: 'hello', code: CODE } })
+      const text = r.content.map((c) => c.text).join(' ')
+      assert.match(text, /NOT live/)
+      assert.match(text, /approve/i)
+    } finally { gh.restore() }
+  })
+
+  test('the public commit message carries no e-mail address', async () => {
+    const gh = github()
+    try {
+      const { client } = await connect(seeded(), ROOT)
+      await callOk(client, 'create_worker', { workerName: 'hello', code: CODE, description: 'says hi' })
+      const put = gh.calls.find((c) => c.method === 'PUT')
+      assert.equal(put.body.message.includes('@'), false, put.body.message)
+      assert.match(put.body.message, /^mcp-workers\/hello: create via MCP: says hi$/)
+    } finally { gh.restore() }
+  })
+
+  test('an existing worker is updated by naming the sha it replaces', async () => {
+    const gh = github({ existing: 'oldsha' })
+    try {
+      const { client } = await connect(seeded(), ROOT)
+      const r = await callOk(client, 'create_worker', { workerName: 'hello', code: CODE })
+      assert.equal(r.created, false)
+      assert.equal(gh.calls.find((c) => c.method === 'PUT').body.sha, 'oldsha')
+    } finally { gh.restore() }
+  })
+
+  test('a name cannot leave mcp-workers/ or name a platform worker', async () => {
+    const gh = github()
+    try {
+      const { client } = await connect(seeded(), ROOT)
+      for (const bad of ['../dev-worker', 'a/b', '.github', 'Hello', 'has space', 'x'.repeat(50)]) {
+        const r = await client.callTool({ name: 'create_worker', arguments: { workerName: bad, code: CODE } })
+        assert.equal(r.isError, true, bad)
+      }
+      assert.equal(gh.calls.length, 0, 'nothing reached GitHub')
+      // A platform worker's NAME is allowed, because it cannot collide: it deploys as mcp-<name>.
+      const r = await callOk(client, 'create_worker', { workerName: 'knowledge-graph-worker', code: CODE })
+      assert.equal(r.deployedName, 'mcp-knowledge-graph-worker')
+      assert.equal(r.path, 'mcp-workers/knowledge-graph-worker/index.js')
+    } finally { gh.restore() }
+  })
+
+  test('the deploy prefix is one no platform worker uses', () => {
+    assert.equal(workerSource.DEPLOY_PREFIX, 'mcp-')
+    assert.equal(workerSource.SOURCE_DIR, 'mcp-workers')
+  })
+
+  test('code that is not an ES module with a default export is refused before GitHub', async () => {
+    const gh = github()
+    try {
+      const { client } = await connect(seeded(), ROOT)
+      const e = await callErr(client, 'create_worker', { workerName: 'hello', code: 'addEventListener("fetch", () => {})' })
+      assert.equal(e.code, gs.ERR.INVALID_INPUT)
+      assert.equal(gh.calls.length, 0)
+    } finally { gh.restore() }
+  })
+
+  test('a non-Superadmin holding the scope is refused before GitHub', async () => {
+    const gh = github()
+    try {
+      const { client } = await connect(seeded(), { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:publish'] } })
+      const e = await callErr(client, 'create_worker', { workerName: 'hello', code: CODE })
+      assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH)
+      assert.match(e.message, /Superadmin/)
+      assert.equal(gh.calls.length, 0)
+    } finally { gh.restore() }
+  })
+
+  test('a Superadmin WITHOUT graph:publish is refused — the role alone is not consent', async () => {
+    const gh = github()
+    try {
+      const { client } = await connect(seeded(), { ...ROOT, auth: { ...ROOT.auth, scope: ['graph:read', 'graph:write'] } })
+      const e = await callErr(client, 'create_worker', { workerName: 'hello', code: CODE })
+      assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+      assert.equal(e.requiredScope, 'graph:publish')
+      assert.equal(gh.calls.length, 0)
+    } finally { gh.restore() }
+  })
+
+  test('without the GitHub token it says so and commits nothing', async () => {
+    const gh = github()
+    try {
+      const { client } = await connect(seeded({ token: null }), ROOT)
+      const e = await callErr(client, 'create_worker', { workerName: 'hello', code: CODE })
+      assert.equal(e.code, gs.ERR.INTERNAL_ERROR)
+      assert.match(e.message, /GITHUB_WORKER_TOKEN/)
+      assert.equal(gh.calls.length, 0)
+    } finally { gh.restore() }
+  })
+
+  test('a refused commit is a failure, and a failed read never falls through to a write', async () => {
+    let gh = github({ putStatus: 403 })
+    try {
+      const { client } = await connect(seeded(), ROOT)
+      const e = await callErr(client, 'create_worker', { workerName: 'hello', code: CODE })
+      assert.equal(e.code, gs.ERR.INTERNAL_ERROR)
+      assert.match(e.message, /status 403/)
+      assert.equal(e.message.includes('gh-test-token'), false, 'the credential is never echoed')
+    } finally { gh.restore() }
+    gh = github({ headStatus: 500 })
+    try {
+      const { client } = await connect(seeded(), ROOT)
+      await callErr(client, 'create_worker', { workerName: 'hello', code: CODE })
+      assert.equal(gh.calls.filter((c) => c.method === 'PUT').length, 0)
+    } finally { gh.restore() }
+  })
+})
+
 describe('set_user_role is the only way to re-rank someone', () => {
   const ROOT = {
     auth: { ...ALICE_RW.auth, scope: ['graph:read', 'user:register'], userId: 'root@example.com' },
@@ -2346,6 +2519,7 @@ describe('post_chat_message is gated harder than everything else', () => {
       'add_group_member',
       'compose_node_image',
       'create_group_invite',
+      'create_worker',
       'post_chat_message',
       'publish_html_node',
       'register_user',
@@ -2434,6 +2608,7 @@ describe('read_chat_messages is gated apart from posting', () => {
       'add_group_member',
       'compose_node_image',
       'create_group_invite',
+      'create_worker',
       'post_chat_message',
       'publish_html_node',
       'register_user',
