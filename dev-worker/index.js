@@ -21,6 +21,7 @@ import {
   encryptDataNodeInfo,
   decryptDataNodeInfo,
 } from './graph-service.js'
+import { resolveGraphStore } from './graph-store.js'
 import { listTemplates as gsListTemplates } from './templates-service.js'
 import { readPublishedDomainRegistry, mergePublishedDomains, recordPublishedSite } from './published-domains.js'
 import { NODE_TYPES } from './node-types.js'
@@ -7869,10 +7870,8 @@ const restHandler = {
           console.log(`[Worker] patchGraphMetadata: graph=${graphId} fields=${Object.keys(fields).join(',')}`)
 
           // 1. Read graph from D1
-          const result = await env.vegvisr_org
-            .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
-            .bind(graphId)
-            .first()
+          const store = await resolveGraphStore(env, { graphId })
+          const result = await store.getRow(graphId)
 
           if (!result) {
             return new Response(
@@ -7904,22 +7903,18 @@ const restHandler = {
           graphData.metadata.version = newVersion
 
           // 4. Write back to D1 (update title/description columns too if provided)
-          const now = new Date().toISOString()
-          const updateResult = await env.vegvisr_org
-            .prepare(`
-              UPDATE knowledge_graphs
-              SET data = ?, title = COALESCE(?, title), description = COALESCE(?, description), updated_at = ?
-              WHERE id = ?
-                AND COALESCE(CAST(json_extract(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.metadata.version') AS INTEGER), 0) = ?
-            `)
-            .bind(JSON.stringify(graphData), fields.title || null, fields.description || null, now, graphId, expectedVersion)
-            .run()
+          const committed = await store.commit({
+            id: graphId,
+            data: JSON.stringify(graphData),
+            version: newVersion,
+            casVersion: expectedVersion,
+            now: new Date().toISOString(),
+            title: fields.title || null,
+            description: fields.description || null,
+          })
 
-          if (!updateResult.meta?.changes) {
-            const latestGraph = await env.vegvisr_org
-              .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
-              .bind(graphId)
-              .first()
+          if (committed.conflict) {
+            const latestGraph = await store.getRow(graphId)
             const latestData = latestGraph?.data ? JSON.parse(latestGraph.data) : null
             return new Response(
               JSON.stringify({
@@ -7929,24 +7924,6 @@ const restHandler = {
               }),
               { status: 409, headers: corsHeaders }
             )
-          }
-
-          // 5. Save history
-          await env.vegvisr_org
-            .prepare('INSERT INTO knowledge_graph_history (id, graph_id, version, data) VALUES (?, ?, ?, ?)')
-            .bind(crypto.randomUUID(), graphId, newVersion, JSON.stringify(graphData))
-            .run()
-
-          // 6. Trim history to 20 versions
-          const countResult = await env.vegvisr_org
-            .prepare('SELECT COUNT(*) AS count FROM knowledge_graph_history WHERE graph_id = ?')
-            .bind(graphId)
-            .first()
-          if (countResult?.count > 20) {
-            await env.vegvisr_org
-              .prepare('DELETE FROM knowledge_graph_history WHERE graph_id = ? AND version = (SELECT MIN(version) FROM knowledge_graph_history WHERE graph_id = ?)')
-              .bind(graphId, graphId)
-              .run()
           }
 
           console.log(`[Worker] patchGraphMetadata: success, version ${currentVersion} → ${newVersion}`)
@@ -8047,10 +8024,8 @@ const restHandler = {
 
           console.log(`[Worker] addEdge: graph=${graphId} source=${edge.source} target=${edge.target}`)
 
-          const result = await env.vegvisr_org
-            .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
-            .bind(graphId)
-            .first()
+          const store = await resolveGraphStore(env, { graphId })
+          const result = await store.getRow(graphId)
 
           if (!result) {
             return new Response(
@@ -8084,36 +8059,17 @@ const restHandler = {
 
           graphData.edges.push({ ...edge, id: edgeId })
 
-          const currentVersionResult = await env.vegvisr_org
-            .prepare('SELECT MAX(version) AS version FROM knowledge_graph_history WHERE graph_id = ?')
-            .bind(graphId)
-            .first()
-          const currentVersion = currentVersionResult?.version || 0
+          const currentVersion = await store.currentVersion(graphId)
           const newVersion = currentVersion + 1
           if (!graphData.metadata) graphData.metadata = {}
           graphData.metadata.version = newVersion
 
-          const now = new Date().toISOString()
-          await env.vegvisr_org
-            .prepare('UPDATE knowledge_graphs SET data = ?, updated_at = ? WHERE id = ?')
-            .bind(JSON.stringify(graphData), now, graphId)
-            .run()
-
-          await env.vegvisr_org
-            .prepare('INSERT INTO knowledge_graph_history (id, graph_id, version, data) VALUES (?, ?, ?, ?)')
-            .bind(crypto.randomUUID(), graphId, newVersion, JSON.stringify(graphData))
-            .run()
-
-          const countResult = await env.vegvisr_org
-            .prepare('SELECT COUNT(*) AS count FROM knowledge_graph_history WHERE graph_id = ?')
-            .bind(graphId)
-            .first()
-          if (countResult?.count > 20) {
-            await env.vegvisr_org
-              .prepare('DELETE FROM knowledge_graph_history WHERE graph_id = ? AND version = (SELECT MIN(version) FROM knowledge_graph_history WHERE graph_id = ?)')
-              .bind(graphId, graphId)
-              .run()
-          }
+          await store.commit({
+            id: graphId,
+            data: JSON.stringify(graphData),
+            version: newVersion,
+            now: new Date().toISOString(),
+          })
 
           console.log(`[Worker] addEdge: success, version ${currentVersion} → ${newVersion}`)
           return new Response(
@@ -8166,10 +8122,8 @@ const restHandler = {
 
           console.log(`[Worker] removeEdge: graph=${graphId} edgeId=${edgeId} source=${source} target=${target}`)
 
-          const result = await env.vegvisr_org
-            .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
-            .bind(graphId)
-            .first()
+          const store = await resolveGraphStore(env, { graphId })
+          const result = await store.getRow(graphId)
 
           if (!result) {
             return new Response(
@@ -8200,36 +8154,17 @@ const restHandler = {
           }
           graphData.edges = graphData.edges.filter(e => !matches(e))
 
-          const currentVersionResult = await env.vegvisr_org
-            .prepare('SELECT MAX(version) AS version FROM knowledge_graph_history WHERE graph_id = ?')
-            .bind(graphId)
-            .first()
-          const currentVersion = currentVersionResult?.version || 0
+          const currentVersion = await store.currentVersion(graphId)
           const newVersion = currentVersion + 1
           if (!graphData.metadata) graphData.metadata = {}
           graphData.metadata.version = newVersion
 
-          const now = new Date().toISOString()
-          await env.vegvisr_org
-            .prepare('UPDATE knowledge_graphs SET data = ?, updated_at = ? WHERE id = ?')
-            .bind(JSON.stringify(graphData), now, graphId)
-            .run()
-
-          await env.vegvisr_org
-            .prepare('INSERT INTO knowledge_graph_history (id, graph_id, version, data) VALUES (?, ?, ?, ?)')
-            .bind(crypto.randomUUID(), graphId, newVersion, JSON.stringify(graphData))
-            .run()
-
-          const countResult = await env.vegvisr_org
-            .prepare('SELECT COUNT(*) AS count FROM knowledge_graph_history WHERE graph_id = ?')
-            .bind(graphId)
-            .first()
-          if (countResult?.count > 20) {
-            await env.vegvisr_org
-              .prepare('DELETE FROM knowledge_graph_history WHERE graph_id = ? AND version = (SELECT MIN(version) FROM knowledge_graph_history WHERE graph_id = ?)')
-              .bind(graphId, graphId)
-              .run()
-          }
+          await store.commit({
+            id: graphId,
+            data: JSON.stringify(graphData),
+            version: newVersion,
+            now: new Date().toISOString(),
+          })
 
           console.log(`[Worker] removeEdge: removed ${removedEdges.length}, version ${currentVersion} → ${newVersion}`)
           return new Response(
@@ -8274,10 +8209,8 @@ const restHandler = {
           console.log(`[Worker] removeNode: graph=${graphId} nodeId=${nodeId} removeEdges=${removeEdges}`)
 
           // 1. Read graph from D1
-          const result = await env.vegvisr_org
-            .prepare('SELECT data FROM knowledge_graphs WHERE id = ?')
-            .bind(graphId)
-            .first()
+          const store = await resolveGraphStore(env, { graphId })
+          const result = await store.getRow(graphId)
 
           if (!result) {
             return new Response(
@@ -8310,39 +8243,18 @@ const restHandler = {
           }
 
           // 4. Bump version
-          const currentVersionResult = await env.vegvisr_org
-            .prepare('SELECT MAX(version) AS version FROM knowledge_graph_history WHERE graph_id = ?')
-            .bind(graphId)
-            .first()
-          const currentVersion = currentVersionResult?.version || 0
+          const currentVersion = await store.currentVersion(graphId)
           const newVersion = currentVersion + 1
           if (!graphData.metadata) graphData.metadata = {}
           graphData.metadata.version = newVersion
 
           // 5. Write back to D1
-          const now = new Date().toISOString()
-          await env.vegvisr_org
-            .prepare('UPDATE knowledge_graphs SET data = ?, updated_at = ? WHERE id = ?')
-            .bind(JSON.stringify(graphData), now, graphId)
-            .run()
-
-          // 6. Save history
-          await env.vegvisr_org
-            .prepare('INSERT INTO knowledge_graph_history (id, graph_id, version, data) VALUES (?, ?, ?, ?)')
-            .bind(crypto.randomUUID(), graphId, newVersion, JSON.stringify(graphData))
-            .run()
-
-          // 7. Trim history to 20 versions
-          const countResult = await env.vegvisr_org
-            .prepare('SELECT COUNT(*) AS count FROM knowledge_graph_history WHERE graph_id = ?')
-            .bind(graphId)
-            .first()
-          if (countResult?.count > 20) {
-            await env.vegvisr_org
-              .prepare('DELETE FROM knowledge_graph_history WHERE graph_id = ? AND version = (SELECT MIN(version) FROM knowledge_graph_history WHERE graph_id = ?)')
-              .bind(graphId, graphId)
-              .run()
-          }
+          await store.commit({
+            id: graphId,
+            data: JSON.stringify(graphData),
+            version: newVersion,
+            now: new Date().toISOString(),
+          })
 
           console.log(`[Worker] removeNode: success, version ${currentVersion} → ${newVersion}`)
           return new Response(
