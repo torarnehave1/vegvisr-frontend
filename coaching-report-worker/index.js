@@ -14,14 +14,10 @@
 
 const CMS_BASE = 'https://sms.heinekolltveit.com/api.php';
 
-// The CMS sits behind Cloudflare bot protection; worker-origin requests get
-// challenged unless they look like a normal browser. Send browser-like headers.
+// The CMS (SiteGround) answers 403 to browser-like User-Agents on /api.php, from any IP
+// (measured 2026-10-14: Chrome UA -> 403; curl/default/custom UA -> 200). Identify honestly.
 const UPSTREAM_HEADERS = {
-  'User-Agent':
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
-    '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  Accept: 'application/json, text/plain, */*',
-  'Accept-Language': 'nb-NO,nb;q=0.9,en;q=0.8',
+  'User-Agent': 'Vegvisr-Contacts/1.0',
 };
 
 const CORS = {
