@@ -1,5 +1,6 @@
 # Deploys the workers under mcp-workers/ — the ones written through the MCP server's
-# create_worker tool: build → the owner's approval → wrangler deploy → reachability check.
+# create_worker tool: build → the owner's approval → wrangler deploy → reachability check →
+# manifest check.
 #
 # TWO RULES THIS FILE HOLDS, so they do not depend on the tool behaving:
 #
@@ -117,5 +118,27 @@ jobs:
             done
             echo "$URL -> HTTP $CODE"
             case "$CODE" in 000|5*) echo "::error::mcp-$d does not answer (HTTP $CODE)"; FAILED=1 ;; esac
+          done
+          exit $FAILED
+
+      - name: 4/4 the MCP manifest, if the worker has one, passes the server's own rule
+        # dev-worker/worker-tools.js is imported as-is, so CI and the MCP server cannot disagree
+        # about what a valid manifest is. No manifest (404) is allowed: that worker offers no tools.
+        run: |
+          FAILED=0
+          for d in $WORKERS; do
+            URL="https://mcp-$d.torarnehave.workers.dev/mcp-manifest"
+            CODE=$(curl -s -o "$RUNNER_TEMP/manifest-$d.json" -w '%{http_code}' --max-time 15 "$URL" || true)
+            if [ "$CODE" = "404" ]; then echo "mcp-$d: no /mcp-manifest — it offers no MCP tools"; continue; fi
+            if [ "$CODE" != "200" ]; then echo "::error::mcp-$d /mcp-manifest answered HTTP $CODE"; FAILED=1; continue; fi
+            node --input-type=module -e "
+              import { parseManifest } from '$GITHUB_WORKSPACE/dev-worker/worker-tools.js'
+              import { readFileSync } from 'node:fs'
+              let m; try { m = JSON.parse(readFileSync('$RUNNER_TEMP/manifest-$d.json', 'utf8')) } catch { console.log('::error::mcp-$d /mcp-manifest is not JSON'); process.exit(1) }
+              const { tools, errors } = parseManifest(m, '$d')
+              for (const e of errors) console.log('::error::mcp-$d manifest: ' + e)
+              console.log('mcp-$d tools: ' + (tools.map((t) => t.name).join(', ') || 'none'))
+              process.exit(errors.length || !tools.length ? 1 : 0)
+            " || FAILED=1
           done
           exit $FAILED

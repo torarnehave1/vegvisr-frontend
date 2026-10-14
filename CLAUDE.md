@@ -273,6 +273,9 @@ wrangler deploy
   `.github/workflows/deploy-mcp-workers.yml` deploys each as `mcp-<name>` — the prefix is what
   keeps them from ever replacing a platform worker. No bindings. These commits arrive on
   `origin/main` without passing through the laptop: `git pull` before working.
+  A worker that answers `GET /mcp-manifest` becomes MCP tools (`<name>__<tool>`) for the
+  Superadmin only — discovered from the RUNNING worker by `dev-worker/worker-tools.js`, so an
+  unapproved worker has no tools. Calls forward the arguments and nothing else.
 
 All three deploy jobs run in the GitHub environment `mcp-production`, which has a required reviewer.
 `CLOUDFLARE_API_TOKEN` is a secret of THAT ENVIRONMENT and must never be added as a repository

@@ -24,7 +24,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
-import { registerTools, TOOL_NAMES } from './tools.js'
+import { registerTools, registerWorkerTools, actorFromAuth, TOOL_NAMES } from './tools.js'
+import { discoverWorkerTools } from '../worker-tools.js'
 
 // What the server reports in the MCP initialize handshake. A client shows this, and a bug
 // report that names a version is worth more than one that does not.
@@ -259,6 +260,13 @@ export const mcpHandler = {
     // One context per request; the tools read it when they run.
     registerTools(server, () => ({ auth, env, props }))
 
+    // The create_worker workers' own tools, for the Superadmin only, and only on the two methods
+    // that can use them — discovery costs a GitHub call and one fetch per worker (cached a minute),
+    // and an initialize or a ping should not pay it.
+    if (wantsWorkerTools(parsed) && actorFromAuth(auth, props)?.isSuperadmin) {
+      registerWorkerTools(server, () => ({ auth, env, props }), await discoverWorkerTools(env))
+    }
+
     // Widen Accept before the transport sees it.
     //
     // The SDK refuses a POST whose Accept does not list BOTH application/json and
@@ -394,6 +402,12 @@ function json(body, status) {
     status,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   })
+}
+
+/** True when the JSON-RPC body (single or batch) asks for tools/list or tools/call. */
+export function wantsWorkerTools(parsed) {
+  const msgs = Array.isArray(parsed) ? parsed : [parsed]
+  return msgs.some((m) => m?.method === 'tools/list' || m?.method === 'tools/call')
 }
 
 export { TOOL_NAMES, SERVER_INFO, INSTRUCTIONS }
