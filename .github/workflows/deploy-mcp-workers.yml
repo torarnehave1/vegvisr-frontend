@@ -124,21 +124,37 @@ jobs:
       - name: 4/4 the MCP manifest, if the worker has one, passes the server's own rule
         # dev-worker/worker-tools.js is imported as-is, so CI and the MCP server cannot disagree
         # about what a valid manifest is. No manifest (404) is allowed: that worker offers no tools.
+        #
+        # Retried for up to a minute. Right after a deploy the edge can still serve the PREVIOUS
+        # version for a few seconds — run #2 failed exactly so: the old hei answered every path,
+        # /mcp-manifest included, with plain text, and was judged "not JSON" while the new version
+        # (valid manifest) was already rolling out.
         run: |
-          FAILED=0
-          for d in $WORKERS; do
-            URL="https://mcp-$d.torarnehave.workers.dev/mcp-manifest"
-            CODE=$(curl -s -o "$RUNNER_TEMP/manifest-$d.json" -w '%{http_code}' --max-time 15 "$URL" || true)
-            if [ "$CODE" = "404" ]; then echo "mcp-$d: no /mcp-manifest — it offers no MCP tools"; continue; fi
-            if [ "$CODE" != "200" ]; then echo "::error::mcp-$d /mcp-manifest answered HTTP $CODE"; FAILED=1; continue; fi
-            node --input-type=module -e "
-              import { parseManifest } from '$GITHUB_WORKSPACE/dev-worker/worker-tools.js'
-              import { readFileSync } from 'node:fs'
-              let m; try { m = JSON.parse(readFileSync('$RUNNER_TEMP/manifest-$d.json', 'utf8')) } catch { console.log('::error::mcp-$d /mcp-manifest is not JSON'); process.exit(1) }
-              const { tools, errors } = parseManifest(m, '$d')
-              for (const e of errors) console.log('::error::mcp-$d manifest: ' + e)
-              console.log('mcp-$d tools: ' + (tools.map((t) => t.name).join(', ') || 'none'))
-              process.exit(errors.length || !tools.length ? 1 : 0)
-            " || FAILED=1
-          done
-          exit $FAILED
+          node --input-type=module -e "
+            import { parseManifest } from '$GITHUB_WORKSPACE/dev-worker/worker-tools.js'
+            const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+            let failed = 0
+            for (const d of process.env.WORKERS.split(' ').filter(Boolean)) {
+              const url = 'https://mcp-' + d + '.torarnehave.workers.dev/mcp-manifest'
+              let last = ''
+              let done = false
+              for (let i = 0; i < 7 && !done; i++) {
+                if (i) await sleep(10000)
+                let res
+                try { res = await fetch(url, { headers: { Accept: 'application/json' } }) } catch (e) { last = e.message; continue }
+                if (res.status === 404) { last = 'no /mcp-manifest — it offers no MCP tools'; continue }
+                if (res.status !== 200) { last = 'HTTP ' + res.status; continue }
+                let m
+                try { m = JSON.parse(await res.text()) } catch { last = 'not JSON'; continue }
+                const { tools, errors } = parseManifest(m, d)
+                if (errors.length || !tools.length) { last = errors.join('; ') || 'no tools'; continue }
+                console.log('mcp-' + d + ' tools: ' + tools.map((t) => t.name).join(', '))
+                done = true
+              }
+              if (done) continue
+              if (last.startsWith('no /mcp-manifest')) { console.log('mcp-' + d + ': ' + last); continue }
+              console.log('::error::mcp-' + d + ' /mcp-manifest: ' + last)
+              failed = 1
+            }
+            process.exit(failed)
+          "
