@@ -22,7 +22,7 @@ import {
   encryptDataNodeInfo,
   decryptDataNodeInfo,
 } from './graph-service.js'
-import { platformStore, resolveGraphStore, GraphStoreError, setLocationStatus, worldStoresFor, graphIdOfTrashId, reserveLocation, activateLocation, dropPendingLocation, publicWorldStoresByTag, defaultWorldFor } from './graph-store.js'
+import { platformStore, resolveGraphStore, GraphStoreError, setLocationStatus, worldStoresFor, graphIdOfTrashId, reserveLocation, activateLocation, dropPendingLocation, publicWorldStoresByTag, defaultWorldFor, mayUseWorld } from './graph-store.js'
 
 // A graph-store routing failure as an HTTP response: 403 when the caller may not reach the World
 // that holds the graph, 503 when that World's store cannot be reached, 400 for a bad World name.
@@ -6799,6 +6799,33 @@ const restHandler = {
           } else if (pluginAuthenticated) {
             tokenBypassFilter = true
             console.log('[Worker] Plugin-authenticated request — bypassing hostname filter, returning all graphs')
+          }
+
+          // ?world=<domain>: ONLY that World's own graphs — the World Founder console's
+          // Kunnskapsgrafer tab. For a caller who may use that World (founder, account holder,
+          // system owner, Superadmin); 403 for anyone else, never platform graphs instead.
+          const worldParam = (url.searchParams.get('world') || '').trim().toLowerCase()
+          if (worldParam) {
+            const caller = listCaller || (await optionalCaller(request, env))
+            if (!(await mayUseWorld(env, caller, worldParam))) {
+              return new Response(JSON.stringify({ error: `Not allowed to list the graphs of ${worldParam}.`, code: 'FORBIDDEN_GRAPH' }), { status: caller ? 403 : 401, headers: corsHeaders })
+            }
+            const store = (await worldStoresFor(env, caller)).find((ws) => ws.world === worldParam)
+            if (!store) {
+              return new Response(JSON.stringify({ results: [], world: worldParam, store: false }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+            }
+            const rows = await store.all(
+              `SELECT id, title, created_date, updated_at,
+                      json_extract(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.metadata.publicationState') AS publication_state,
+                      json_extract(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.metadata.metaArea') AS meta_area
+               FROM knowledge_graphs ORDER BY COALESCE(updated_at, created_date) DESC`,
+              [],
+            )
+            return new Response(JSON.stringify({
+              world: worldParam,
+              store: true,
+              results: rows.map((r) => ({ id: r.id, title: r.title, createdAt: r.created_date || null, updatedAt: r.updated_at || r.created_date || null, publicationState: r.publication_state || 'private', metaArea: r.meta_area || '', world: worldParam })),
+            }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
           }
 
           // 1. Determine allowed meta areas based on KV store configuration
