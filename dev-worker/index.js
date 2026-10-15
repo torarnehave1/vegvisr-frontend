@@ -21,7 +21,29 @@ import {
   encryptDataNodeInfo,
   decryptDataNodeInfo,
 } from './graph-service.js'
-import { platformStore, resolveGraphStore } from './graph-store.js'
+import { platformStore, resolveGraphStore, GraphStoreError, setLocationStatus, worldStoresFor, graphIdOfTrashId, reserveLocation, activateLocation, dropPendingLocation, publicWorldStoresByTag } from './graph-store.js'
+
+// A graph-store routing failure as an HTTP response: 403 when the caller may not reach the World
+// that holds the graph, 503 when that World's store cannot be reached, 400 for a bad World name.
+// Without this a refused or unreachable World graph surfaced as a generic 500 "Server error".
+/**
+ * The caller of a read endpoint that has always been open: identified when the request carries
+ * credentials (X-API-Token, or the role + X-Session-Token pair), null otherwise. Open endpoints
+ * stay open for platform graphs; only a graph stored in a World needs to know who is asking.
+ */
+async function optionalCaller(request, env) {
+  const token = request.headers.get('X-API-Token')
+  const session = request.headers.get('X-Session-Token')
+  const has = (v) => v && v !== 'null' && v.trim() !== ''
+  if (!has(token) && !has(session)) return null
+  const v = await validateAuth(request, env)
+  return v.valid ? normalizeActor(v) : null
+}
+
+function graphStoreErrorResponse(error, corsHeaders) {
+  const status = { FORBIDDEN_GRAPH: 403, STORE_UNAVAILABLE: 503, INVALID_INPUT: 400 }[error.code] || 500
+  return new Response(JSON.stringify({ error: error.message, code: error.code }), { status, headers: corsHeaders })
+}
 import { listTemplates as gsListTemplates } from './templates-service.js'
 import { readPublishedDomainRegistry, mergePublishedDomains, recordPublishedSite } from './published-domains.js'
 import { NODE_TYPES } from './node-types.js'
@@ -2821,6 +2843,7 @@ const restHandler = {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           return new Response(
             JSON.stringify({ success: false, message: `Catalog sync failed: ${error.message || 'Unknown error'}` }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
@@ -2900,6 +2923,7 @@ const restHandler = {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           return new Response(
             JSON.stringify({ success: false, message: `Catalog sync failed: ${error.message || 'Unknown error'}` }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
@@ -5999,6 +6023,7 @@ const restHandler = {
             },
           )
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error processing /saveknowgraph request:', error)
           return new Response(
             JSON.stringify({ error: 'Invalid JSON or server error', details: error.message }),
@@ -6022,6 +6047,7 @@ const restHandler = {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error fetching AI instructions:', error)
           return new Response(JSON.stringify({ error: 'Failed to fetch AI instructions' }), {
             status: 500,
@@ -6043,6 +6069,7 @@ const restHandler = {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error updating AI instructions:', error)
           return new Response(JSON.stringify({ error: 'Failed to update AI instructions' }), {
             status: 500,
@@ -6098,6 +6125,7 @@ const restHandler = {
             headers: corsHeaders,
           })
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error processing /updateknowgraph request:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
@@ -6198,8 +6226,10 @@ const restHandler = {
           const _summariesOrigin = request.headers.get('Origin')
           const _summariesTrustedOrigins = ['https://www.vegvisr.org','https://vegvisr.org','https://hello.vegvisr.org','https://dashboard.vegvisr.org','https://mystmkra.io','https://www.mystmkra.io']
           let isPrivileged = false
+          let sumCaller = null
           if (_summariesApiToken && _summariesApiToken !== 'null' && _summariesApiToken.trim() !== '') {
             const tv = await validateAuth(request, env)
+            sumCaller = normalizeActor(tv)
             if (tv.valid && (hasScope(tv.scopes, 'graph:read') || hasScope(tv.scopes, 'all'))) isPrivileged = true
             else if (!tv.valid) {
               return new Response(JSON.stringify({ error: tv.error || 'Invalid API token' }), {
@@ -6254,7 +6284,23 @@ const restHandler = {
             .bind(...whereBindings)
             .first()
 
-          const total = Number(totalRow?.total || 0)
+          let total = Number(totalRow?.total || 0)
+
+          // World stores to include. An identified caller: every World they may use, same filter.
+          // Anyone else asking for a tag (a member page's portfolio): the Worlds carrying that tag,
+          // PUBLISHED graphs only — the filter is forced here whatever the caller's headers said.
+          const sumPubFilter = `(json_extract(${safeJsonDataSql}, '$.metadata.publicationState') = 'published' OR json_extract(${safeJsonDataSql}, '$.metadata.seoSlug') IS NOT NULL)`
+          const sumWorlds = []
+          for (const ws of await worldStoresFor(env, sumCaller)) sumWorlds.push({ ws, where: whereSql })
+          if (!sumCaller && metaAreaParam) {
+            const forced = isPrivileged ? (whereSql ? `${whereSql} AND ${sumPubFilter}` : `WHERE ${sumPubFilter}`) : whereSql
+            for (const ws of await publicWorldStoresByTag(env, metaAreaParam)) sumWorlds.push({ ws, where: forced })
+          }
+          for (const w of sumWorlds) {
+            const n = await w.ws.first(`SELECT COUNT(*) AS total FROM knowledge_graphs ${w.where}`, whereBindings)
+            total += Number(n?.total || 0)
+          }
+
           if (total === 0) {
             return new Response(
               JSON.stringify({
@@ -6397,6 +6443,18 @@ const restHandler = {
             rows = fallbackResult.results || fallbackResult.rows || []
           }
 
+          if (sumWorlds.length) {
+            // Every store returns its newest (offset + limit) rows; the page is cut from the merge.
+            const head = await env.vegvisr_org.prepare(summaryQuery).bind(...whereBindings, offset + limit, 0).all()
+            const merged = [...(head.results || [])]
+            for (const w of sumWorlds) {
+              const q = w.where === whereSql ? summaryQuery : summaryQuery.replace(whereSql, w.where)
+              for (const row of await w.ws.all(q, [...whereBindings, offset + limit, 0])) merged.push({ ...row, _world: w.ws.world })
+            }
+            merged.sort((x, y) => String(y.updated_at || y.created_date || '').localeCompare(String(x.updated_at || x.created_date || '')))
+            rows = merged.slice(offset, offset + limit)
+          }
+
           const domainRegistry = await readPublishedDomainRegistry(env)
 
           const summaries = rows
@@ -6445,6 +6503,7 @@ const restHandler = {
                 portfolioImagePath: row.portfolio_image_path || null,
                 publishedDomains,
                 searchText: `${nodeTypes.join(' ')} ${nodeLabelsText} ${publishedDomains.join(' ')}`.trim(),
+                ...(row._world ? { world: row._world } : {}),
                 metadata: {
                   title: row.metadata_title || row.title || 'Untitled Graph',
                   description: row.metadata_description || '',
@@ -6484,6 +6543,7 @@ const restHandler = {
             },
           )
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error fetching graph summaries:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
@@ -6503,9 +6563,10 @@ const restHandler = {
           const _srchOrigin = request.headers.get('Origin')
           const _srchTrusted = ['https://www.vegvisr.org','https://vegvisr.org','https://hello.vegvisr.org','https://dashboard.vegvisr.org','https://mystmkra.io','https://www.mystmkra.io']
           let srchPrivileged = false
-
+          let srchCaller = null
           if (_srchApiToken && _srchApiToken !== 'null' && _srchApiToken.trim() !== '') {
             const tv = await validateAuth(request, env)
+            srchCaller = normalizeActor(tv)
             if (!tv.valid) {
               return new Response(JSON.stringify({ error: tv.error || 'Invalid API token' }), {
                 status: tv.status || 401, headers: corsHeaders,
@@ -6642,11 +6703,30 @@ const restHandler = {
             LIMIT ? OFFSET ?
           `
 
-          const result = await env.vegvisr_org
-            .prepare(query)
-            .bind(...bindings, limit, offset)
-            .all()
-          const rows = result.results || result.rows || []
+          // A token caller also searches each World store they may use. Then every store returns
+          // its newest (offset + limit) matches and the page is cut from the merge, so paging stays
+          // true across stores; without World stores the query is exactly the old one.
+          const srchWorlds = await worldStoresFor(env, srchCaller)
+          let rows
+          let srchTotal = total
+          if (!srchWorlds.length) {
+            const result = await env.vegvisr_org
+              .prepare(query)
+              .bind(...bindings, limit, offset)
+              .all()
+            rows = result.results || result.rows || []
+          } else {
+            const merged = []
+            const head = await env.vegvisr_org.prepare(query).bind(...bindings, offset + limit, 0).all()
+            merged.push(...(head.results || []))
+            for (const ws of srchWorlds) {
+              const n = await ws.first(`SELECT COUNT(*) AS total FROM knowledge_graphs ${whereSql}`, bindings)
+              srchTotal += Number(n?.total || 0)
+              for (const row of await ws.all(query, [...bindings, offset + limit, 0])) merged.push({ ...row, _world: ws.world })
+            }
+            merged.sort((x, y) => String(y.updated_at || '').localeCompare(String(x.updated_at || '')))
+            rows = merged.slice(offset, offset + limit)
+          }
 
           const results = rows.map(row => ({
             id: row.id,
@@ -6662,19 +6742,21 @@ const restHandler = {
               srchDomainRegistry,
             ),
             updatedAt: row.updated_at || '',
+            ...(row._world ? { world: row._world } : {}),
           }))
 
           return new Response(JSON.stringify({
             results,
-            total,
+            total: srchTotal,
             limit,
             offset,
-            hasMore: offset + rows.length < total,
+            hasMore: offset + rows.length < srchTotal,
           }), {
             status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error in /searchGraphs:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
@@ -6689,6 +6771,7 @@ const restHandler = {
 
           // Token check: valid X-API-Token with graph:read bypasses hostname filter
           let tokenBypassFilter = false
+          let listCaller = null
           const apiToken = request.headers.get('X-API-Token')
           const pluginAuthenticated = isPluginAuthenticated(request)
           if (apiToken && apiToken !== 'null' && apiToken.trim() !== '') {
@@ -6706,6 +6789,7 @@ const restHandler = {
               })
             }
             tokenBypassFilter = true
+            listCaller = normalizeActor(tokenValidation)
             console.log('[Worker] Valid API token — bypassing hostname filter, returning all graphs')
           } else if (pluginAuthenticated) {
             tokenBypassFilter = true
@@ -6811,12 +6895,24 @@ const restHandler = {
             updatedAt: row.updated_at || row.created_date || null,
           }))
 
+          // 5. The graphs of each World store this caller may use, marked with their World. Only
+          //    for an identified caller: a World's graphs are never listed anonymously.
+          const worldStores = await worldStoresFor(env, listCaller)
+          for (const ws of worldStores) {
+            const rows = await ws.all('SELECT id, title, created_date, updated_at FROM knowledge_graphs ORDER BY COALESCE(updated_at, created_date) DESC', [])
+            for (const row of rows) {
+              responseGraphs.push({ id: row.id, title: row.title, createdAt: row.created_date || null, updatedAt: row.updated_at || row.created_date || null, world: ws.world })
+            }
+          }
+          if (worldStores.length) responseGraphs.sort((x, y) => String(y.updatedAt || '').localeCompare(String(x.updatedAt || '')))
+
           console.log('[Worker] Final response will contain', responseGraphs.length, 'graphs')
           return new Response(JSON.stringify({ results: responseGraphs }), {
             status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error fetching knowledge graphs:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
@@ -7070,7 +7166,22 @@ const restHandler = {
           // Knowledge graphs by createdBy
           const kgRow = await env.vegvisr_org
             .prepare("SELECT COUNT(*) AS n FROM knowledge_graphs WHERE json_extract(data,'$.metadata.createdBy') = ?").bind(email).first()
-          const graphs = (kgRow && kgRow.n) || 0
+          let graphs = (kgRow && kgRow.n) || 0
+
+          // Plus every graph in the World stores this person founded or holds: those graphs are
+          // theirs whoever created them, and they are not in the platform table at all. A store
+          // that does not answer leaves the platform count standing and is reported, not hidden.
+          let worldGraphs = null
+          try {
+            worldGraphs = {}
+            for (const ws of await worldStoresFor(env, { email: String(email).toLowerCase(), isSuperadmin: false })) {
+              const n = await ws.first('SELECT COUNT(*) AS n FROM knowledge_graphs', [])
+              worldGraphs[ws.world] = Number(n?.n || 0)
+              graphs += worldGraphs[ws.world]
+            }
+          } catch (e) {
+            worldGraphs = { error: e.message }
+          }
 
           // Chat engagement (by user_id) from the group-chat DB
           let chat = { groups: 0, contributions: 0, total_in_groups: 0 }
@@ -7554,6 +7665,7 @@ const restHandler = {
               assigned_subdomain: (cfg && cfg.publishSubdomain) || null,
               published_pages: publishedPages,
               knowledge_graphs: graphs,
+              world_graphs: worldGraphs,
               chat,
               zone_on_cloudflare: zoneOnCloudflare,
               routine_graph: routineGraphs,
@@ -7705,6 +7817,7 @@ const restHandler = {
             headers: { ...corsHeaders, 'Content-Type': 'text/html' },
           })
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error fetching public graph:', error)
           return new Response(generateErrorHtml(`Server error: ${error.message}`), {
             status: 500,
@@ -7943,6 +8056,7 @@ const restHandler = {
             { status: 200, headers: corsHeaders }
           )
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error processing /patchGraphMetadata:', error)
           return new Response(
             JSON.stringify({ error: 'Server error', details: error.message }),
@@ -8088,6 +8202,7 @@ const restHandler = {
             { status: 200, headers: corsHeaders }
           )
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error processing /addEdge:', error)
           return new Response(
             JSON.stringify({ error: 'Server error', details: error.message }),
@@ -8183,6 +8298,7 @@ const restHandler = {
             { status: 200, headers: corsHeaders }
           )
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error processing /removeEdge:', error)
           return new Response(
             JSON.stringify({ error: 'Server error', details: error.message }),
@@ -8273,6 +8389,7 @@ const restHandler = {
             { status: 200, headers: corsHeaders }
           )
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error processing /removeNode:', error)
           return new Response(
             JSON.stringify({ error: 'Server error', details: error.message }),
@@ -8293,7 +8410,7 @@ const restHandler = {
 
           console.log(`[Worker] Fetching history for graph ID: ${graphId}`)
 
-          const results = await (await resolveGraphStore(env, { graphId })).historyList(graphId)
+          const results = await (await resolveGraphStore(env, { graphId, actor: await optionalCaller(request, env) })).historyList(graphId)
 
           if (!results || results.length === 0) {
             return new Response(
@@ -8311,6 +8428,7 @@ const restHandler = {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error fetching graph history:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
@@ -8411,6 +8529,7 @@ const restHandler = {
             status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error classifying graph:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500, headers: corsHeaders,
@@ -8464,7 +8583,7 @@ const restHandler = {
 
           console.log(`[Worker] Fetching version ${version} for graph ID: ${graphId}`)
 
-          const result = await (await resolveGraphStore(env, { graphId })).historyVersion(graphId, version)
+          const result = await (await resolveGraphStore(env, { graphId, actor: await optionalCaller(request, env) })).historyVersion(graphId, version)
 
           if (!result) {
             return new Response(
@@ -8510,6 +8629,7 @@ const restHandler = {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error fetching graph version:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
@@ -8542,8 +8662,13 @@ const restHandler = {
           let graphData = inlineGraphData
 
           // If sourceId is provided (OpenAPI spec usage), fetch the source graph from D1
+          // Where the source lives decides where the copy goes: a copy of a World's graph stays in
+          // that World. An inline graphData with no sourceId cannot say where it came from, and is
+          // written to the platform as it always was.
+          const dupCaller = normalizeActor(tokenValidation)
+          const sourceStore = sourceId ? await resolveGraphStore(env, { graphId: sourceId, actor: dupCaller }) : null
           if (sourceId && !graphData) {
-            const sourceRow = await (await resolveGraphStore(env, { graphId: sourceId, actor: normalizeActor(tokenValidation) })).getRow(sourceId)
+            const sourceRow = await sourceStore.getRow(sourceId)
             if (!sourceRow) {
               return new Response(
                 JSON.stringify({ error: `Source graph '${sourceId}' not found.` }),
@@ -8596,7 +8721,12 @@ const restHandler = {
           }
 
           // The copy is written as version 1: the row and its history entry in one commit.
-          await (await resolveGraphStore(env, { graphId: newGraphId, actor: normalizeActor(tokenValidation) })).commit({
+          const targetStore = sourceStore?.kind === 'world'
+            ? await resolveGraphStore(env, { world: sourceStore.world, actor: dupCaller })
+            : await resolveGraphStore(env, { graphId: newGraphId, actor: dupCaller })
+          if (targetStore.kind === 'world') await reserveLocation(env, newGraphId, targetStore.world)
+          try {
+          await targetStore.commit({
             id: newGraphId,
             create: true,
             data: JSON.stringify(duplicatedGraphData),
@@ -8606,6 +8736,11 @@ const restHandler = {
             description: duplicatedGraphData.metadata.description ?? null,
             createdBy: duplicatedGraphData.metadata.createdBy ?? null,
           })
+          } catch (e) {
+            if (targetStore.kind === 'world') await dropPendingLocation(env, newGraphId)
+            throw e
+          }
+          if (targetStore.kind === 'world') await activateLocation(env, newGraphId)
 
           console.log('[Worker] Graph history record created successfully')
 
@@ -8621,6 +8756,7 @@ const restHandler = {
             { status: 200, headers: corsHeaders },
           )
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error duplicating knowledge graph:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
@@ -8922,6 +9058,7 @@ const restHandler = {
             headers: { ...corsHeaders, 'Content-Type': 'text/html' },
           })
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error generating slideshow:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
@@ -9066,6 +9203,7 @@ const restHandler = {
             { status: 200, headers: corsHeaders },
           )
         } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
           console.error('[Worker] Error inserting work note into graph:', error)
           return new Response(JSON.stringify({ error: 'Server error', details: error.message }), {
             status: 500,
@@ -9203,9 +9341,11 @@ const restHandler = {
           const _trashOrigin = request.headers.get('Origin')
           const _trashTrusted = ['https://www.vegvisr.org','https://vegvisr.org','https://hello.vegvisr.org','https://dashboard.vegvisr.org','https://mystmkra.io','https://www.mystmkra.io']
           let trashAuth = false
+          let trashCaller = null
 
           if (_trashToken && _trashToken !== 'null' && _trashToken.trim() !== '') {
             const tv = await validateAuth(request, env)
+            trashCaller = normalizeActor(tv)
             if (!tv.valid) return new Response(JSON.stringify({ error: tv.error }), { status: tv.status, headers: corsHeaders })
             if (!hasScope(tv.scopes, 'graph:delete') && !hasScope(tv.scopes, 'all'))
               return new Response(JSON.stringify({ error: 'Insufficient permissions. Required scope: graph:delete' }), { status: 403, headers: corsHeaders })
@@ -9215,13 +9355,19 @@ const restHandler = {
           }
           if (!trashAuth) return new Response(JSON.stringify({ error: 'Authentication required.' }), { status: 401, headers: corsHeaders })
 
-          // Expired entries are purged before listing.
+          // Expired entries are purged before listing. The platform's trash, then the trash of each
+          // World store this caller may use — a World's trash lives in the World's own database.
           const results = await platformStore(env).listTrash()
+          for (const ws of await worldStoresFor(env, trashCaller)) {
+            for (const entry of await ws.listTrash()) results.push({ ...entry, world: ws.world })
+          }
+          results.sort((x, y) => String(y.deleted_at).localeCompare(String(x.deleted_at)))
 
           return new Response(JSON.stringify({ results }), {
             status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         } catch (err) {
+          if (err instanceof GraphStoreError) return graphStoreErrorResponse(err, corsHeaders)
           return new Response(JSON.stringify({ error: 'Server error', details: err.message }), { status: 500, headers: corsHeaders })
         }
       }
@@ -9234,9 +9380,11 @@ const restHandler = {
           const _restOrigin = request.headers.get('Origin')
           const _restTrusted = ['https://www.vegvisr.org','https://vegvisr.org','https://hello.vegvisr.org','https://dashboard.vegvisr.org','https://mystmkra.io','https://www.mystmkra.io']
           let restAuth = false
+          let restCaller = null
 
           if (_restToken && _restToken !== 'null' && _restToken.trim() !== '') {
             const tv = await validateAuth(request, env)
+            restCaller = normalizeActor(tv)
             if (!tv.valid) return new Response(JSON.stringify({ error: tv.error }), { status: tv.status, headers: corsHeaders })
             if (!hasScope(tv.scopes, 'graph:write') && !hasScope(tv.scopes, 'all'))
               return new Response(JSON.stringify({ error: 'Insufficient permissions. Required scope: graph:write' }), { status: 403, headers: corsHeaders })
@@ -9249,18 +9397,21 @@ const restHandler = {
           const { trashId } = await request.json()
           if (!trashId) return new Response(JSON.stringify({ error: 'trashId is required.' }), { status: 400, headers: corsHeaders })
 
-          // A trash id carries no hint of which store it sits in; only the platform has a trash today.
-          const trashStore = platformStore(env)
+          // The trash id names the graph ("trash_<graphId>_<ms>"), and the graph's locator names
+          // the World whose trash holds it. No locator: the platform's trash, as always.
+          const trashStore = await resolveGraphStore(env, { graphId: graphIdOfTrashId(trashId), actor: restCaller })
           const entry = await trashStore.getTrashEntry(trashId)
           if (!entry) return new Response(JSON.stringify({ error: 'Trash entry not found or expired.' }), { status: 404, headers: corsHeaders })
 
           await trashStore.restoreFromTrash(entry)
+          if (trashStore.kind === 'world') await setLocationStatus(env, entry.graph_id, 'active')
 
           console.log(`[Worker] Graph ${entry.graph_id} restored from trash`)
           return new Response(JSON.stringify({ success: true, graphId: entry.graph_id }), {
             status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           })
         } catch (err) {
+          if (err instanceof GraphStoreError) return graphStoreErrorResponse(err, corsHeaders)
           return new Response(JSON.stringify({ error: 'Server error', details: err.message }), { status: 500, headers: corsHeaders })
         }
       }
@@ -9320,6 +9471,11 @@ const restHandler = {
             console.log(`[Worker] Graph ${id} moved to trash (expires: ${expiresAt})`)
           } catch (trashError) {
             console.error('[Worker] Failed to copy to trash:', trashError.message)
+            // The platform has always deleted even when the trash copy failed. A World graph is
+            // not deleted without its trash copy: its only other copy is the row about to go.
+            if (store.kind === 'world') {
+              return new Response(JSON.stringify({ error: `Graph ${id} was NOT deleted: its trash copy in ${store.world} failed (${trashError.message}).` }), { status: 503, headers: corsHeaders })
+            }
             // Continue with deletion even if trash copy fails
           }
 
@@ -9353,6 +9509,7 @@ const restHandler = {
 
             // 2. Delete the graph's history, then the graph itself
             await store.deleteGraph(id)
+            if (store.kind === 'world') await setLocationStatus(env, id, 'trashed')
             console.log('[Worker] Deleted history and graph row')
 
             console.log('[Worker] Graph and all related records deleted successfully')
@@ -9361,6 +9518,7 @@ const restHandler = {
               headers: corsHeaders,
             })
           } catch (error) {
+            if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
             console.error('[Worker] Error during deletion process:', error)
             console.error('[Worker] Error details:', {
               message: error.message,

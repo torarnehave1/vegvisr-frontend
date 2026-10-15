@@ -158,6 +158,49 @@ describe('working with a graph that lives in a World', () => {
   })
 })
 
+describe('lists and search reach the World stores the actor may use (G4)', () => {
+  test("the founder's list_my_graphs includes the World's graphs, whoever created them", async () => {
+    const w = await create(admin, { title: 'Fra Superadmin' })
+    const p = await gs.createGraph(env, { title: 'Min plattformgraf', metaArea: '#X', actor: stine })
+    const r = await gs.listMyGraphs(env, { actor: stine })
+    assert.equal(r.ok, true, r.message)
+    const ids = r.results.map((x) => x.graphId)
+    assert.ok(ids.includes(w.graphId) && ids.includes(p.graphId))
+    assert.equal(r.results.find((x) => x.graphId === w.graphId).world, WORLD)
+    assert.equal(r.results.find((x) => x.graphId === p.graphId).world, null)
+    assert.equal(r.total, 2)
+  })
+  test('a Superadmin who is not the founder sees only what they created there', async () => {
+    const mine = await create(admin, { title: 'Admin sin' })
+    await create(stine, { title: 'Stine sin' })
+    const r = await gs.listMyGraphs(env, { actor: admin })
+    assert.deepEqual(r.results.map((x) => x.graphId), [mine.graphId])
+  })
+  test('search finds a World graph by its node text for the founder, never for a stranger', async () => {
+    const w = await create(admin, { title: 'Strikkeoppskrift', nodes: [{ id: 'n1', label: 'Mønster', info: 'Alpakkagarn i rosa' }] })
+    const forStine = await gs.searchGraphs(env, { query: 'alpakka', actor: stine })
+    assert.deepEqual(forStine.results.map((x) => [x.graphId, x.world]), [[w.graphId, WORLD]])
+    const forStranger = await gs.searchGraphs(env, { query: 'alpakka', actor: stranger })
+    assert.equal(forStranger.total, 0)
+  })
+  test('the merged page is newest first across stores, and total counts both', async () => {
+    const a = await gs.createGraph(env, { title: 'A', metaArea: '#X', actor: stine })
+    await new Promise((r) => setTimeout(r, 5))
+    const b = await create(stine, { title: 'B' })
+    await new Promise((r) => setTimeout(r, 5))
+    const c = await gs.createGraph(env, { title: 'C', metaArea: '#X', actor: stine })
+    const page1 = await gs.listMyGraphs(env, { actor: stine, limit: 2 })
+    assert.deepEqual(page1.results.map((x) => x.graphId), [c.graphId, b.graphId])
+    assert.equal(page1.total, 3)
+    const page2 = await gs.listMyGraphs(env, { actor: stine, limit: 2, offset: 2 })
+    assert.deepEqual(page2.results.map((x) => x.graphId), [a.graphId])
+  })
+  test('a #EMAIL- system graph is never placed in a World', async () => {
+    const r = await create(admin, { metaArea: '#EMAIL-sodesign.no' })
+    assert.equal(r.code, 'INVALID_INPUT')
+  })
+})
+
 describe('platform graphs are untouched by any of this', () => {
   test('an anonymous REST-style read of a platform graph still works', async () => {
     const r = await gs.createGraph(env, { title: 'P', metaArea: '#X', actor: stranger })

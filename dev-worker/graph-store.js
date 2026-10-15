@@ -527,3 +527,61 @@ export async function activateLocation(env, graphId, now = new Date().toISOStrin
 export async function dropPendingLocation(env, graphId) {
   await env.vegvisr_org.prepare("DELETE FROM graph_locations WHERE graph_id = ? AND status = 'pending'").bind(graphId).run()
 }
+
+export async function setLocationStatus(env, graphId, status, now = new Date().toISOString()) {
+  await env.vegvisr_org.prepare('UPDATE graph_locations SET status = ?, updated_at = ? WHERE graph_id = ?').bind(status, now, graphId).run()
+}
+
+/**
+ * Every World store this actor may use — for listings, searches and the trash, which have no
+ * graph id to route by and so must ask each store the actor can see. A Superadmin sees every live
+ * store; a founder or account holder sees their own World's; anyone else, none.
+ */
+export async function worldStoresFor(env, actor) {
+  if (!actor || actor.anonymous || (!actor.email && !actor.isSuperadmin)) return []
+  let rows
+  try {
+    const sql = actor.isSuperadmin
+      ? "SELECT * FROM world_graph_stores WHERE status IN ('provisioned', 'active') ORDER BY domain"
+      : `SELECT DISTINCT s.* FROM world_graph_stores s JOIN world_founders f ON f.domain = s.domain
+         WHERE s.status IN ('provisioned', 'active')
+           AND (LOWER(f.founder_email) = ? OR LOWER(COALESCE(f.account_holder_email, '')) = ?)
+         ORDER BY s.domain`
+    const stmt = env.vegvisr_org.prepare(sql)
+    rows = (await (actor.isSuperadmin ? stmt : stmt.bind(actor.email, actor.email)).all()).results || []
+  } catch (e) {
+    if (/no such table/i.test(e.message)) return []
+    throw new GraphStoreError('STORE_UNAVAILABLE', `The graph registry could not be read: ${e.message}`)
+  }
+  return rows.map((row) => new WorldStore(env, row))
+}
+
+/** The graph id inside a trash id ("trash_<graphId>_<epoch ms>"), or null. */
+export function graphIdOfTrashId(trashId) {
+  const m = /^trash_(.+)_(\d+)$/.exec(String(trashId || ''))
+  return m ? m[1] : null
+}
+
+/**
+ * World stores whose content tag matches `metaArea` — for PUBLISHED-ONLY public listings, such as
+ * a member page's portfolio (getknowgraphsummaries?metaArea=#STINE, no credentials). No access
+ * rule is applied here, so a caller must restrict every query it runs on these stores to
+ * published graphs. Returns [] when nothing matches or the registry does not exist yet.
+ */
+export async function publicWorldStoresByTag(env, metaArea) {
+  const tag = String(metaArea || '').trim().replace(/^#/, '').toUpperCase()
+  if (!tag) return []
+  try {
+    const rows = await env.vegvisr_org
+      .prepare(
+        `SELECT DISTINCT s.* FROM world_graph_stores s JOIN world_founders f ON f.domain = s.domain
+         WHERE s.status IN ('provisioned', 'active') AND UPPER(REPLACE(COALESCE(f.meta_area_tag, ''), '#', '')) = ?`,
+      )
+      .bind(tag)
+      .all()
+    return (rows.results || []).map((row) => new WorldStore(env, row))
+  } catch (e) {
+    if (/no such table/i.test(e.message)) return []
+    throw new GraphStoreError('STORE_UNAVAILABLE', `The graph registry could not be read: ${e.message}`)
+  }
+}

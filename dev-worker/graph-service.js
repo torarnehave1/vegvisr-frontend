@@ -19,7 +19,7 @@
  * format. That is what lets one implementation serve both HTTP/REST and MCP/JSON-RPC.
  */
 
-import { platformStore, resolveGraphStore, GraphStoreError, reserveLocation, activateLocation, dropPendingLocation } from './graph-store.js'
+import { platformStore, resolveGraphStore, GraphStoreError, reserveLocation, activateLocation, dropPendingLocation, worldStoresFor } from './graph-store.js'
 
 /**
  * resolveGraphStore() throws on routing failures; the service speaks in fail() results. `caller`
@@ -417,6 +417,12 @@ export async function saveGraph(env, { id, graphData, override = false, actor = 
   return guarded(async () => {
   const graphExists = await store.exists(id)
   if (world && !graphExists && store.kind === 'platform') {
+    // System graphs are read straight from the platform database by other workers (the World's
+    // e-mail template, by email-service, via its #EMAIL-<domain> tag). One placed in a World store
+    // would silently stop working, so they never go there.
+    if (/#EMAIL-/i.test(String(graphData?.metadata?.metaArea || ''))) {
+      return fail(ERR.INVALID_INPUT, 'A #EMAIL- system graph is read from the platform by the e-mail worker and cannot be stored in a World.')
+    }
     const target = await storeFor(env, { world, actor: who })
     if (target.error) return target.error
     store = target.store
@@ -787,6 +793,33 @@ function visibilityClause(actor) {
   }
 }
 
+
+/**
+ * Run one listing over the platform AND every World store the actor may use, then merge.
+ *
+ * Each store answers COUNT and its newest (offset + limit) rows; the merge sorts by updated_at and
+ * slices the requested page. `whereFor(store)` builds that store's WHERE: the platform keeps its
+ * visibility rule, a World store has already admitted the actor (resolveGraphStore's rule) and may
+ * narrow differently. Returning null from whereFor skips the store.
+ */
+async function queryAcrossStores(env, actor, { whereFor, selectSql, lim, off }) {
+  const stores = [platformStore(env), ...(await worldStoresFor(env, actor))]
+  let total = 0
+  const rows = []
+  for (const store of stores) {
+    const w = whereFor(store)
+    if (!w) continue
+    const count = await store.first(`SELECT COUNT(*) AS total FROM knowledge_graphs ${w.whereSql}`, w.bindings)
+    const n = Number(count?.total || 0)
+    total += n
+    if (!n) continue
+    const page = await store.all(`${selectSql} ${w.whereSql} ORDER BY updated_at DESC LIMIT ? OFFSET 0`, [...w.bindings, off + lim])
+    for (const r of page) rows.push({ ...r, _world: store.world })
+  }
+  rows.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
+  return { total, rows: rows.slice(off, off + lim) }
+}
+
 const SEARCH_MAX_LIMIT = 50
 
 function clampLimit(limit, fallback = 20, max = SEARCH_MAX_LIMIT) {
@@ -814,14 +847,9 @@ export async function searchGraphs(env, { query, metaArea = null, nodeType = nul
   const dataSql = `CASE WHEN json_valid(data) THEN data END`
   const nodesSql = `COALESCE(json_extract(${dataSql}, '$.nodes'), '[]')`
 
+  // The search conditions, shared by every store; visibility is added per store below.
   const conditions = []
   const bindings = []
-
-  const vis = visibilityClause(actor)
-  if (vis.sql) {
-    conditions.push(vis.sql)
-    bindings.push(...vis.bindings)
-  }
 
   const q = String(query || '').trim()
   if (q) {
@@ -855,18 +883,18 @@ export async function searchGraphs(env, { query, metaArea = null, nodeType = nul
     bindings.push(String(nodeType))
   }
 
-  const whereSql = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
-
-  const totalRow = await platformStore(env).db
-    .prepare(`SELECT COUNT(*) AS total FROM knowledge_graphs ${whereSql}`)
-    .bind(...bindings)
-    .first()
-  const total = Number(totalRow?.total || 0)
-
-  if (total === 0) return { ok: true, results: [], total: 0, limit: lim, offset: off, hasMore: false }
-
-  const rows = await platformStore(env).db
-    .prepare(`
+  const vis = visibilityClause(actor)
+  const whereFor = (store) => {
+    // On the platform the usual rule; in a World store the actor is already admitted.
+    const c = store.kind === 'world' ? [...conditions] : [...(vis.sql ? [vis.sql] : []), ...conditions]
+    const b = store.kind === 'world' ? [...bindings] : [...vis.bindings, ...bindings]
+    return { whereSql: c.length ? `WHERE ${c.join(' AND ')}` : '', bindings: b }
+  }
+  const { total, rows } = await queryAcrossStores(env, actor, {
+    whereFor,
+    lim,
+    off,
+    selectSql: `
       SELECT
         id,
         COALESCE(json_extract(${dataSql}, '$.metadata.title'), title, '') AS title,
@@ -882,15 +910,12 @@ export async function searchGraphs(env, { query, metaArea = null, nodeType = nul
           WHERE json_extract(value, '$.publishedDomain') IS NOT NULL
         ), '') AS published_domains_csv,
         updated_at
-      FROM knowledge_graphs
-      ${whereSql}
-      ORDER BY updated_at DESC
-      LIMIT ? OFFSET ?
-    `)
-    .bind(...bindings, lim, off)
-    .all()
+      FROM knowledge_graphs`,
+  })
 
-  const results = (rows.results || []).map((r) => ({
+  if (total === 0) return { ok: true, results: [], total: 0, limit: lim, offset: off, hasMore: false }
+
+  const results = rows.map((r) => ({
     graphId: r.id,
     title: r.title || null,
     description: r.description || null,
@@ -903,6 +928,7 @@ export async function searchGraphs(env, { query, metaArea = null, nodeType = nul
     // The node's own stamp only. The caller merges it with the publish registry, which is the
     // authority on who serves a host today — the same two-step the REST listings do.
     publishedDomainsCsv: r.published_domains_csv || '',
+    world: r._world || null,
     ...graphLinks(r.id),
   }))
 
@@ -921,22 +947,27 @@ export async function listMyGraphs(env, { limit = 20, offset = 0, metaArea = nul
   const dataSql = `CASE WHEN json_valid(data) THEN data END`
   const nodesSql = `COALESCE(json_extract(${dataSql}, '$.nodes'), '[]')`
 
-  const conditions = [`LOWER(COALESCE(creator_email, '')) = ?`]
-  const bindings = [actor.email]
-  if (metaArea) {
-    conditions.push(`LOWER(COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '')) LIKE ?`)
-    bindings.push(`%${String(metaArea).toLowerCase()}%`)
+  // "Mine" on the platform means created by me. In a World store it means the World's graphs —
+  // they are the founder's whoever typed them in — except for a Superadmin who is not that World's
+  // founder: theirs there is still only what they created.
+  const areaClause = metaArea ? [`LOWER(COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '')) LIKE ?`] : []
+  const areaBind = metaArea ? [`%${String(metaArea).toLowerCase()}%`] : []
+  const founderOf = new Set()
+  if (actor.isSuperadmin) {
+    for (const ws of await worldStoresFor(env, { ...actor, isSuperadmin: false })) founderOf.add(ws.world)
   }
-  const whereSql = `WHERE ${conditions.join(' AND ')}`
+  const whereFor = (store) => {
+    const ownAll = store.kind === 'world' && (!actor.isSuperadmin || founderOf.has(store.world))
+    const c = [...(ownAll ? [] : [`LOWER(COALESCE(creator_email, '')) = ?`]), ...areaClause]
+    const b = [...(ownAll ? [] : [actor.email]), ...areaBind]
+    return { whereSql: c.length ? `WHERE ${c.join(' AND ')}` : '', bindings: b }
+  }
 
-  const totalRow = await platformStore(env).db
-    .prepare(`SELECT COUNT(*) AS total FROM knowledge_graphs ${whereSql}`)
-    .bind(...bindings)
-    .first()
-  const total = Number(totalRow?.total || 0)
-
-  const rows = await platformStore(env).db
-    .prepare(`
+  const { total, rows } = await queryAcrossStores(env, actor, {
+    whereFor,
+    lim,
+    off,
+    selectSql: `
       SELECT
         id,
         COALESCE(json_extract(${dataSql}, '$.metadata.title'), title, '') AS title,
@@ -951,15 +982,10 @@ export async function listMyGraphs(env, { limit = 20, offset = 0, metaArea = nul
           WHERE json_extract(value, '$.publishedDomain') IS NOT NULL
         ), '') AS published_domains_csv,
         updated_at
-      FROM knowledge_graphs
-      ${whereSql}
-      ORDER BY updated_at DESC
-      LIMIT ? OFFSET ?
-    `)
-    .bind(...bindings, lim, off)
-    .all()
+      FROM knowledge_graphs`,
+  })
 
-  const results = (rows.results || []).map((r) => ({
+  const results = rows.map((r) => ({
     graphId: r.id,
     title: r.title || null,
     description: r.description || null,
@@ -972,6 +998,7 @@ export async function listMyGraphs(env, { limit = 20, offset = 0, metaArea = nul
     // The node's own stamp only. The caller merges it with the publish registry, which is the
     // authority on who serves a host today — the same two-step the REST listings do.
     publishedDomainsCsv: r.published_domains_csv || '',
+    world: r._world || null,
     ...graphLinks(r.id),
   }))
 

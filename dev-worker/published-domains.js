@@ -17,6 +17,7 @@
  * comes into the platform store, so nothing here can serve it by accident.
  */
 
+import { platformStore, resolveGraphStore, mayUseWorld } from './graph-store.js'
 import { ERR, statusForCode, graphLinks } from './graph-service.js'
 
 function fail(code, message, extra = {}) {
@@ -142,14 +143,9 @@ export function mergePublishedDomains(graphId, stampedCsv, registry) {
   return Array.from(new Set([...stamped, ...(registry.byGraph.get(graphId) || [])])).sort()
 }
 
-/** Graph ids in `ids` that `actor` is allowed to read, resolved in ONE query. */
-async function readableGraphs(env, actor, ids) {
-  if (!ids.length) return new Map()
-
-  const placeholders = ids.map(() => '?').join(',')
+const READABLE_SQL = (n) => {
   const dataSql = `CASE WHEN json_valid(data) THEN data END`
-  const rows = await env.vegvisr_org
-    .prepare(`
+  return `
       SELECT
         id,
         COALESCE(json_extract(${dataSql}, '$.metadata.title'), title, '') AS title,
@@ -158,24 +154,59 @@ async function readableGraphs(env, actor, ids) {
         COALESCE(json_extract(${dataSql}, '$.metadata.createdBy'), created_by, '') AS owner,
         user_id
       FROM knowledge_graphs
-      WHERE id IN (${placeholders})
-    `)
-    .bind(...ids)
-    .all()
+      WHERE id IN (${Array.from({ length: n }, () => '?').join(',')})
+    `
+}
+
+/**
+ * Graph ids in `ids` that `actor` is allowed to read — one query per store. Most ids live on the
+ * platform; an id whose locator names a World is looked up in that World's own store, and only if
+ * the actor may use that World (its founder, account holder, or a Superadmin). Such a graph is
+ * the founder's whoever created it, so a permitted actor may read it.
+ */
+async function readableGraphs(env, actor, ids) {
+  if (!ids.length) return new Map()
+
+  const byWorld = new Map()
+  try {
+    const locs = await env.vegvisr_org
+      .prepare(`SELECT graph_id, world_domain FROM graph_locations WHERE graph_id IN (${ids.map(() => '?').join(',')}) AND status = 'active'`)
+      .bind(...ids)
+      .all()
+    for (const r of locs.results || []) {
+      if (!byWorld.has(r.world_domain)) byWorld.set(r.world_domain, [])
+      byWorld.get(r.world_domain).push(r.graph_id)
+    }
+  } catch (e) {
+    if (!/no such table/i.test(e.message)) throw e
+  }
+  const inWorld = new Set([...byWorld.values()].flat())
+  const platformIds = ids.filter((id) => !inWorld.has(id))
 
   const out = new Map()
-  for (const row of rows.results || []) {
-    // The same rule checkAccess applies, decided per row: your own graph, or a published one.
+  const keep = (row, worldGranted) => {
+    // The same rule checkAccess applies, decided per row: your own graph, or a published one —
+    // or, for a World's graph, being allowed into that World at all.
     const isOwner = Boolean(row.owner && actor.email && row.owner === actor.email)
     const userIdMatch = Boolean(row.user_id && actor.userId && row.user_id === actor.userId)
     const isPublished = row.publication_state === 'published'
-    if (!(actor.isSuperadmin || isOwner || userIdMatch || isPublished)) continue
+    if (!(actor.isSuperadmin || worldGranted || isOwner || userIdMatch || isPublished)) return
     out.set(row.id, {
       title: row.title || '(untitled)',
       metaArea: row.meta_area || null,
       publicationState: row.publication_state || 'private',
       owner: row.owner || null,
     })
+  }
+
+  if (platformIds.length) {
+    const rows = await platformStore(env).all(READABLE_SQL(platformIds.length), platformIds)
+    for (const row of rows) keep(row, false)
+  }
+  for (const [domain, worldIds] of byWorld) {
+    if (!(await mayUseWorld(env, actor, domain))) continue
+    const store = await resolveGraphStore(env, { graphId: worldIds[0], actor })
+    for (const row of await store.all(READABLE_SQL(worldIds.length), worldIds)) keep(row, true)
   }
   return out
 }
