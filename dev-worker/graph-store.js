@@ -643,3 +643,32 @@ export async function publicWorldStoresByTag(env, metaArea) {
     throw new GraphStoreError('STORE_UNAVAILABLE', `The graph registry could not be read: ${e.message}`)
   }
 }
+
+/**
+ * Where a NEW graph goes when the caller names no World (G7). A founder or account holder of
+ * exactly ONE World whose store is 'active' gets that World; everyone else — a Superadmin, a
+ * founder of several active Worlds, anyone with none — gets null, meaning the platform as before.
+ * A Superadmin is never defaulted: acting for many Worlds, the choice must be explicit.
+ *
+ * Fail closed: a registry that cannot be read throws, so a founder's graph is never quietly
+ * written to the platform because the lookup failed.
+ */
+export async function defaultWorldFor(env, actor) {
+  if (!actor || actor.anonymous || actor.isSuperadmin || !actor.email) return null
+  let rows
+  try {
+    rows = await env.vegvisr_org
+      .prepare(
+        `SELECT DISTINCT s.domain FROM world_graph_stores s JOIN world_founders f ON f.domain = s.domain
+         WHERE s.status = 'active'
+           AND (LOWER(f.founder_email) = ? OR LOWER(COALESCE(f.account_holder_email, '')) = ?)`,
+      )
+      .bind(actor.email, actor.email)
+      .all()
+  } catch (e) {
+    if (/no such table/i.test(e.message)) return null
+    throw new GraphStoreError('STORE_UNAVAILABLE', `The graph registry could not be read: ${e.message}`)
+  }
+  const domains = (rows.results || []).map((r) => r.domain)
+  return domains.length === 1 ? domains[0] : null
+}

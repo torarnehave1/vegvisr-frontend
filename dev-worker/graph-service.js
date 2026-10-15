@@ -19,7 +19,7 @@
  * format. That is what lets one implementation serve both HTTP/REST and MCP/JSON-RPC.
  */
 
-import { platformStore, resolveGraphStore, GraphStoreError, reserveLocation, activateLocation, dropPendingLocation, worldStoresFor } from './graph-store.js'
+import { platformStore, resolveGraphStore, GraphStoreError, reserveLocation, activateLocation, dropPendingLocation, worldStoresFor, defaultWorldFor } from './graph-store.js'
 
 /**
  * resolveGraphStore() throws on routing failures; the service speaks in fail() results. `caller`
@@ -416,6 +416,11 @@ export async function saveGraph(env, { id, graphData, override = false, actor = 
   let store = located.store
   return guarded(async () => {
   const graphExists = await store.exists(id)
+  // No World named: a founder of one active World store gets it by default (G7). System graphs
+  // (#EMAIL-) stay on the platform whoever creates them — other workers read them there.
+  if (!world && !graphExists && store.kind === 'platform' && !/#EMAIL-/i.test(String(graphData?.metadata?.metaArea || ''))) {
+    world = await defaultWorldFor(env, who)
+  }
   if (world && !graphExists && store.kind === 'platform') {
     // System graphs are read straight from the platform database by other workers (the World's
     // e-mail template, by email-service, via its #EMAIL-<domain> tag). One placed in a World store

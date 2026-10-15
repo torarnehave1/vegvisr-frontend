@@ -22,7 +22,7 @@ import {
   encryptDataNodeInfo,
   decryptDataNodeInfo,
 } from './graph-service.js'
-import { platformStore, resolveGraphStore, GraphStoreError, setLocationStatus, worldStoresFor, graphIdOfTrashId, reserveLocation, activateLocation, dropPendingLocation, publicWorldStoresByTag } from './graph-store.js'
+import { platformStore, resolveGraphStore, GraphStoreError, setLocationStatus, worldStoresFor, graphIdOfTrashId, reserveLocation, activateLocation, dropPendingLocation, publicWorldStoresByTag, defaultWorldFor } from './graph-store.js'
 
 // A graph-store routing failure as an HTTP response: 403 when the caller may not reach the World
 // that holds the graph, 503 when that World's store cannot be reached, 400 for a bad World name.
@@ -8759,9 +8759,17 @@ const restHandler = {
           }
 
           // The copy is written as version 1: the row and its history entry in one commit.
+          // The copy's home: the source's World if it has one; otherwise the caller's default World
+          // (a founder of one active World store, G7) unless it is an #EMAIL- system graph;
+          // otherwise the platform.
+          const dupDefault = sourceStore?.kind === 'world' || /#EMAIL-/i.test(String(duplicatedGraphData.metadata?.metaArea || ''))
+            ? null
+            : await defaultWorldFor(env, dupCaller)
           const targetStore = sourceStore?.kind === 'world'
             ? await resolveGraphStore(env, { world: sourceStore.world, actor: dupCaller })
-            : await resolveGraphStore(env, { graphId: newGraphId, actor: dupCaller })
+            : dupDefault
+              ? await resolveGraphStore(env, { world: dupDefault, actor: dupCaller })
+              : await resolveGraphStore(env, { graphId: newGraphId, actor: dupCaller })
           if (targetStore.kind === 'world') await reserveLocation(env, newGraphId, targetStore.world)
           try {
           await targetStore.commit({

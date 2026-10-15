@@ -259,6 +259,58 @@ describe('moving a platform graph into a World (G6)', () => {
   })
 })
 
+describe('default World for its founder (G7)', () => {
+  const activate = () => env.vegvisr_org.db.prepare("UPDATE world_graph_stores SET status = 'active' WHERE domain = ?").run(WORLD)
+  test("while the store is only 'provisioned', a founder's new graph stays on the platform", async () => {
+    const r = await gs.createGraph(env, { title: 'Før', metaArea: '#X', actor: stine })
+    assert.equal(r.world, null)
+    assert.equal(platformRows(r.graphId), 1)
+  })
+  test("once 'active', the founder's and the account holder's new graphs go to the World without asking", async () => {
+    activate()
+    for (const who of [stine, holder]) {
+      const r = await gs.createGraph(env, { title: 'Etter', metaArea: '#X', actor: who })
+      assert.equal(r.ok, true, r.message)
+      assert.equal(r.world, WORLD)
+      assert.equal(worldRows(r.graphId), 1)
+      assert.equal(platformRows(r.graphId), 0)
+    }
+  })
+  test('a REST-style save naming the founder only as caller is defaulted too', async () => {
+    activate()
+    const id = '33333333-3333-4333-8333-333333333333'
+    const r = await gs.saveGraph(env, { id, graphData: { metadata: { title: 'REST', version: 0, createdBy: 'stine.oksvold@gmail.com' }, nodes: [], edges: [] }, caller: stine })
+    assert.equal(r.world, WORLD)
+    assert.equal(worldRows(id), 1)
+  })
+  test('a Superadmin, a stranger, and an #EMAIL- system graph are never defaulted', async () => {
+    activate()
+    assert.equal((await gs.createGraph(env, { title: 'A', metaArea: '#X', actor: admin })).world, null)
+    assert.equal((await gs.createGraph(env, { title: 'S', metaArea: '#X', actor: stranger })).world, null)
+    const e = await gs.createGraph(env, { title: 'Mal', metaArea: '#EMAIL-sodesign.no', actor: stine })
+    assert.equal(e.ok, true, e.message)
+    assert.equal(e.world, null)
+    assert.equal(platformRows(e.graphId), 1)
+  })
+  test('active but unreachable: the create fails and nothing lands on the platform', async () => {
+    activate()
+    proxyUp = false
+    const before = env.vegvisr_org.db.prepare('SELECT COUNT(*) AS n FROM knowledge_graphs').get().n
+    const r = await gs.createGraph(env, { title: 'Nede', metaArea: '#X', actor: stine })
+    assert.equal(r.ok, false)
+    assert.equal(r.code, 'STORE_UNAVAILABLE')
+    assert.equal(env.vegvisr_org.db.prepare('SELECT COUNT(*) AS n FROM knowledge_graphs').get().n, before)
+  })
+  test('a founder of two active Worlds is not guessed for', async () => {
+    activate()
+    env.vegvisr_org.db.exec(`
+      INSERT INTO world_founders VALUES ('wf2', 'stine.oksvold@gmail.com', '', 'own_account', 'x', 'other.no', '2026-10-15');
+      INSERT INTO world_graph_stores VALUES ('other.no', 'x', 'u2', 'world-graphs-other', 'other-graphs-proxy', 'https://graphs.other.no', 'v', '2', 'active', '', '');
+    `)
+    assert.equal((await gs.createGraph(env, { title: 'To', metaArea: '#X', actor: stine })).world, null)
+  })
+})
+
 describe('platform graphs are untouched by any of this', () => {
   test('an anonymous REST-style read of a platform graph still works', async () => {
     const r = await gs.createGraph(env, { title: 'P', metaArea: '#X', actor: stranger })
