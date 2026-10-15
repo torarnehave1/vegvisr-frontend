@@ -390,6 +390,7 @@ export function registerTools(server, getContext) {
         edgeCount: z.number(),
         nodes: z.array(z.record(z.any())),
         edges: z.array(z.record(z.any())),
+        world: z.string().nullable().optional().describe("The World whose own storage holds this graph. Null: the platform's shared storage."),
         editorUrl: z.string(),
         viewerUrl: z.string(),
       },
@@ -431,6 +432,7 @@ export function registerTools(server, getContext) {
         edgeCount: g.edges.length,
         nodes: g.nodes,
         edges: g.edges,
+        world: read.world || null,
         ...gs.graphLinks(graphId),
       }
 
