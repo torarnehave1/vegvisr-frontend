@@ -1154,3 +1154,119 @@ export async function listMetaAreas(env, { actor }) {
 
   return { ok: true, metaAreas, count: metaAreas.length, untagged, totalGraphs }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Moving a platform graph into a World's own store (G6, 2026-10-15)
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function sha256Hex(text) {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(text ?? '')))
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Move one graph from the platform into a World's own store. Superadmin only.
+ *
+ * Order, chosen so no step can lose the graph:
+ *   1. export the platform row and every history row
+ *   2. claim the id for the World (locator 'pending' — reads still go to the platform)
+ *   3. import row + history into the World in one batch (all or nothing)
+ *   4. read it back from the World and compare SHA-256 of the row and of every version
+ *   5. only then point the locator at the World ('active')
+ *   6. copy the platform original to the platform trash (30 days) and remove it
+ * A failure before 5 undoes the World copy and the claim, and leaves the platform untouched.
+ *
+ * The platform history may hold two rows with the same version (an old non-atomic write path);
+ * a World store refuses that, so the newest row per version is kept and the rest reported.
+ */
+export async function moveGraphToWorld(env, { graphId, world, actor }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!actor.isSuperadmin) return fail(ERR.FORBIDDEN_GRAPH, 'Only a Superadmin may move a graph into a World.')
+  if (!graphId || !world) return fail(ERR.INVALID_INPUT, 'graphId and world are required.')
+  const domain = String(world).trim().toLowerCase()
+
+  const source = await storeFor(env, { graphId, actor })
+  if (source.error) return source.error
+  if (source.store.kind !== 'platform') {
+    return fail(ERR.INVALID_INPUT, `Graph ${graphId} is not on the platform${source.store.world ? ` — it is already in ${source.store.world}` : ''}.`)
+  }
+  const target = await storeFor(env, { world: domain, actor })
+  if (target.error) return target.error
+  const platform = source.store
+  const worldStore = target.store
+
+  const exported = await platform.exportGraph(graphId)
+  if (!exported) return fail(ERR.GRAPH_NOT_FOUND, `Graph ${graphId} not found.`)
+  let meta = {}
+  try { meta = JSON.parse(exported.row.data)?.metadata || {} } catch { /* keep going: the bytes are what is moved */ }
+  if (/#EMAIL-/i.test(String(meta.metaArea || ''))) {
+    return fail(ERR.INVALID_INPUT, 'A #EMAIL- system graph is read from the platform by the e-mail worker and cannot be moved into a World.')
+  }
+
+  // Newest row per version (history is ordered version, timestamp ascending, so later wins).
+  const byVersion = new Map()
+  for (const h of exported.history) byVersion.set(h.version, h)
+  const history = [...byVersion.values()]
+  const duplicatesDropped = exported.history.length - history.length
+
+  const now = new Date().toISOString()
+  await reserveLocation(env, graphId, domain, now)
+  const undo = async (why) => {
+    try { await worldStore.deleteGraph(graphId) } catch { /* nothing to undo, or the store is down */ }
+    await dropPendingLocation(env, graphId)
+    return fail(ERR.STORE_UNAVAILABLE, `Graph ${graphId} was NOT moved: ${why} The platform copy is untouched.`)
+  }
+
+  try {
+    await worldStore.importGraph({ row: exported.row, history })
+  } catch (e) {
+    return undo(`the import into ${domain} failed (${e.message}).`)
+  }
+
+  // Verify from the World, not from the import's own report.
+  let verified
+  try {
+    const back = await worldStore.exportGraph(graphId)
+    if (!back) return undo(`the graph could not be read back from ${domain}.`)
+    const rowOk = (await sha256Hex(back.row.data)) === (await sha256Hex(exported.row.data))
+    const want = new Map()
+    for (const h of history) want.set(h.version, await sha256Hex(h.data))
+    const got = new Map()
+    for (const h of back.history) got.set(h.version, await sha256Hex(h.data))
+    const versionsOk = want.size === got.size && [...want].every(([v, hash]) => got.get(v) === hash)
+    if (!rowOk || !versionsOk) return undo(`the copy in ${domain} does not match the original (row ${rowOk ? 'ok' : 'differs'}, versions ${versionsOk ? 'ok' : 'differ'}).`)
+    verified = { rowSha256: await sha256Hex(back.row.data), versions: [...got.keys()].sort((a, b) => a - b) }
+  } catch (e) {
+    return undo(`reading it back from ${domain} failed (${e.message}).`)
+  }
+
+  await activateLocation(env, graphId)
+
+  // The platform original goes to the platform trash for 30 days, then is removed.
+  let trash = null
+  try {
+    trash = await platform.trashCopy({ id: graphId, data: exported.row.data, deletedBy: `move_graph_to_world:${actor.email || 'superadmin'}` })
+    await platform.deleteGraph(graphId)
+  } catch (e) {
+    // The World copy is live and verified; the locator already routes there. A platform row left
+    // behind is unreachable, not a second live copy — report it rather than fail the move.
+    return {
+      ok: true, graphId, world: domain, version: meta.version ?? null, history: verified.versions.length,
+      duplicatesDropped, verified, platformCopy: `NOT removed: ${e.message} (unreachable — reads go to ${domain})`,
+      ...graphLinks(graphId),
+    }
+  }
+
+  return {
+    ok: true,
+    graphId,
+    world: domain,
+    title: meta.title ?? null,
+    version: meta.version ?? null,
+    history: verified.versions.length,
+    duplicatesDropped,
+    verified,
+    platformCopy: `in the platform trash until ${trash.expiresAt} (${trash.trashId})`,
+    ...graphLinks(graphId),
+  }
+}

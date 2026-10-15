@@ -201,6 +201,64 @@ describe('lists and search reach the World stores the actor may use (G4)', () =>
   })
 })
 
+describe('moving a platform graph into a World (G6)', () => {
+  async function platformGraphWithHistory() {
+    const g = await gs.createGraph(env, { title: 'Gammel plan', metaArea: '#STINE', nodes: [{ id: 'n1', label: 'n1', info: 'v1' }], actor: admin })
+    await gs.updateNode(env, { graphId: g.graphId, nodeId: 'n1', fields: { info: 'v2' }, expectedVersion: 1, actor: admin })
+    await gs.addNode(env, { graphId: g.graphId, node: { id: 'n2', label: 'n2' }, actor: admin })
+    return g.graphId
+  }
+  test('row and every version land in the World, verified; the platform copy goes to the trash', async () => {
+    const id = await platformGraphWithHistory()
+    const before = env.vegvisr_org.db.prepare('SELECT data FROM knowledge_graphs WHERE id = ?').get(id).data
+    const r = await gs.moveGraphToWorld(env, { graphId: id, world: WORLD, actor: admin })
+    assert.equal(r.ok, true, r.message)
+    assert.equal(r.history, 3)
+    assert.deepEqual(r.verified.versions, [1, 2, 3])
+    assert.equal(world.db.prepare('SELECT data FROM knowledge_graphs WHERE id = ?').get(id).data, before)
+    assert.deepEqual(worldHistory(id), [1, 2, 3])
+    assert.equal(platformRows(id), 0)
+    assert.equal(env.vegvisr_org.db.prepare('SELECT COUNT(*) AS n FROM knowledge_graph_history WHERE graph_id = ?').get(id).n, 0)
+    assert.equal(env.vegvisr_org.db.prepare('SELECT COUNT(*) AS n FROM graph_trash WHERE graph_id = ?').get(id).n, 1)
+    assert.deepEqual({ ...locator(id) }, { world_domain: WORLD, status: 'active' })
+    // Same id, now served from the World to its founder.
+    const read = await gs.getGraph(env, id, { caller: stine })
+    assert.equal(read.world, WORLD)
+    assert.equal(read.graph.nodes.length, 2)
+    const upd = await gs.updateNode(env, { graphId: id, nodeId: 'n1', fields: { info: 'v4' }, expectedVersion: 3, actor: stine })
+    assert.equal(upd.newVersion, 4)
+  })
+  test('only a Superadmin may move', async () => {
+    const id = await platformGraphWithHistory()
+    const r = await gs.moveGraphToWorld(env, { graphId: id, world: WORLD, actor: stine })
+    assert.equal(r.code, 'FORBIDDEN_GRAPH')
+    assert.equal(platformRows(id), 1)
+  })
+  test('a failing World leaves the platform graph untouched and no locator behind', async () => {
+    const id = await platformGraphWithHistory()
+    proxyUp = false
+    const r = await gs.moveGraphToWorld(env, { graphId: id, world: WORLD, actor: admin })
+    assert.equal(r.ok, false)
+    assert.equal(platformRows(id), 1)
+    assert.equal(locator(id), undefined)
+  })
+  test('duplicate platform history versions are collapsed to the newest and reported', async () => {
+    const id = await platformGraphWithHistory()
+    env.vegvisr_org.db.prepare("INSERT INTO knowledge_graph_history (id, graph_id, version, timestamp, data) VALUES ('dup', ?, 2, '2999-01-01 00:00:00', '{\"dup\":true}')").run(id)
+    const r = await gs.moveGraphToWorld(env, { graphId: id, world: WORLD, actor: admin })
+    assert.equal(r.ok, true, r.message)
+    assert.equal(r.duplicatesDropped, 1)
+    assert.equal(JSON.parse(world.db.prepare('SELECT data FROM knowledge_graph_history WHERE graph_id = ? AND version = 2').get(id).data).dup, true)
+  })
+  test('a graph already in a World, or a #EMAIL- graph, is refused', async () => {
+    const w = await create(admin)
+    assert.equal((await gs.moveGraphToWorld(env, { graphId: w.graphId, world: WORLD, actor: admin })).code, 'INVALID_INPUT')
+    const e = await gs.createGraph(env, { title: 'Mal', metaArea: '#EMAIL-sodesign.no', actor: admin })
+    assert.equal((await gs.moveGraphToWorld(env, { graphId: e.graphId, world: WORLD, actor: admin })).code, 'INVALID_INPUT')
+    assert.equal(platformRows(e.graphId), 1)
+  })
+})
+
 describe('platform graphs are untouched by any of this', () => {
   test('an anonymous REST-style read of a platform graph still works', async () => {
     const r = await gs.createGraph(env, { title: 'P', metaArea: '#X', actor: stranger })

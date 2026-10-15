@@ -41,7 +41,13 @@ export const STORE_RPC_OPS = Object.freeze([
   'insertUnversioned', 'putData', 'getAiInstructions', 'setAiInstructions',
   'historyList', 'historyVersion',
   'trashCopy', 'deleteGraph', 'purgeTrash', 'listTrash', 'getTrashEntry', 'restoreFromTrash',
+  'importGraph', 'exportGraph',
 ])
+
+// The stored columns of a graph row — never the generated ones (meta_area, creator_email, …),
+// which SQLite computes and refuses to be given.
+const GRAPH_ROW_COLUMNS = ['id', 'title', 'description', 'created_date', 'created_by', 'parent_graph_id', 'data', 'updated_at', 'user_id', 'source_app', 'ai_instructions']
+const HISTORY_COLUMNS = ['id', 'graph_id', 'version', 'timestamp', 'data', 'user_id', 'source_app']
 
 /**
  * A graph store over one D1 database holding the three graph tables. The platform's store is one;
@@ -337,6 +343,58 @@ export class D1GraphStore {
         .run()
     }
     await this.db.prepare('DELETE FROM graph_trash WHERE id = ?').bind(entry.id).run()
+  }
+
+  // ── Moving a graph between stores (move_graph_to_world, G6) ─────────────────────────────────
+
+  /**
+   * Which of the known stored columns this database's table actually has. The test schema and
+   * production have already differed (ai_instructions), so a move reads the table instead of
+   * trusting a list. Generated columns are never in GRAPH_ROW_COLUMNS, so never selected.
+   */
+  async #rowColumns() {
+    if (!this.cols) {
+      const info = await this.db.prepare("SELECT name FROM pragma_table_info('knowledge_graphs')").all()
+      const present = new Set((info.results || []).map((r) => r.name))
+      this.cols = GRAPH_ROW_COLUMNS.filter((c) => present.has(c))
+    }
+    return this.cols
+  }
+
+  /** The whole graph as stored: the row's stored columns and every history row, oldest first. */
+  async exportGraph(id) {
+    const cols = await this.#rowColumns()
+    const row = await this.db.prepare(`SELECT ${cols.join(', ')} FROM knowledge_graphs WHERE id = ?`).bind(id).first()
+    if (!row) return null
+    const h = await this.db
+      .prepare(`SELECT ${HISTORY_COLUMNS.join(', ')} FROM knowledge_graph_history WHERE graph_id = ? ORDER BY version ASC, timestamp ASC`)
+      .bind(id)
+      .all()
+    return { row, history: h.results || [] }
+  }
+
+  /**
+   * Write an exported graph into this store as one batch — row and history, all or nothing — so a
+   * move can never leave half a graph behind. Refuses an id that already exists here.
+   */
+  async importGraph({ row, history = [] }) {
+    if (await this.exists(row.id)) throw new Error(`Graph ${row.id} already exists in this store.`)
+    const here = new Set(await this.#rowColumns())
+    const lost = Object.keys(row).filter((c) => row[c] != null && !here.has(c))
+    if (lost.length) throw new Error(`This store's table has no column for ${lost.join(', ')}; importing would drop that data.`)
+    const cols = GRAPH_ROW_COLUMNS.filter((c) => c in row && here.has(c))
+    const stmts = [
+      this.db
+        .prepare(`INSERT INTO knowledge_graphs (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
+        .bind(...cols.map((c) => row[c] ?? null)),
+      ...history.map((h) =>
+        this.db
+          .prepare(`INSERT INTO knowledge_graph_history (${HISTORY_COLUMNS.join(', ')}) VALUES (${HISTORY_COLUMNS.map(() => '?').join(', ')})`)
+          .bind(...HISTORY_COLUMNS.map((c) => h[c] ?? null)),
+      ),
+    ]
+    await this.db.batch(stmts)
+    return { ok: true, history: history.length }
   }
 
   /** History is capped at 20 versions per graph — drop the oldest once over. */

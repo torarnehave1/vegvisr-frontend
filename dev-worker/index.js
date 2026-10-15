@@ -12,6 +12,7 @@ import {
   addNode as gsAddNode,
   updateMetadata as gsUpdateMetadata,
   updateNode as gsUpdateNode,
+  moveGraphToWorld as gsMoveGraphToWorld,
   publishGraph as gsPublishGraph,
   createGraph as gsCreateGraph,
   validateNodesAndEdges,
@@ -7905,6 +7906,29 @@ const restHandler = {
             status: 500,
             headers: corsHeaders,
           })
+        }
+      }
+
+      // POST /moveGraphToWorld — move one platform graph into a World's own store (G6).
+      // Superadmin only; the service checks it. Agent-Builder reaches this over its service
+      // binding, naming its user with x-acting-user-email.
+      if (pathname === '/moveGraphToWorld' && request.method === 'POST') {
+        const tokenValidation = await validateAuth(request, env)
+        if (!tokenValidation.valid) {
+          return new Response(JSON.stringify({ error: tokenValidation.error }), { status: tokenValidation.status, headers: corsHeaders })
+        }
+        if (!hasScope(tokenValidation.scopes, 'graph:write')) {
+          return new Response(JSON.stringify({ error: 'Insufficient permissions. Required scope: graph:write' }), { status: 403, headers: corsHeaders })
+        }
+        try {
+          const { graphId, world } = await request.json()
+          const moved = await gsMoveGraphToWorld(env, { graphId, world, actor: normalizeActor(tokenValidation) })
+          if (!moved.ok) return new Response(JSON.stringify({ error: moved.message, code: moved.code }), { status: moved.status, headers: corsHeaders })
+          const { ok: _ok, ...body } = moved
+          return new Response(JSON.stringify({ success: true, ...body }), { status: 200, headers: corsHeaders })
+        } catch (error) {
+          if (error instanceof GraphStoreError) return graphStoreErrorResponse(error, corsHeaders)
+          return new Response(JSON.stringify({ error: 'Server error', details: error.message }), { status: 500, headers: corsHeaders })
         }
       }
 

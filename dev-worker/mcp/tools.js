@@ -359,6 +359,56 @@ export function registerTools(server, getContext) {
     },
   )
 
+  // ── move_graph_to_world ───────────────────────────────────────────────────
+  server.registerTool(
+    'move_graph_to_world',
+    {
+      title: "Move a graph into a World's own storage",
+      description:
+        "Move one existing graph from the platform's shared storage into a World's OWN storage (the " +
+        "World Founder's Cloudflare account), e.g. world \"sodesign.no\". Row and full version history " +
+        'are copied, every version is verified by SHA-256 against the original, and only then does the ' +
+        "graph's id start pointing at the World; the platform original goes to the platform trash for " +
+        '30 days. The graph id and its links do not change. Superadmin only. A #EMAIL- system graph ' +
+        'cannot be moved. Requires the graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The platform graph to move.'),
+        world: z.string().min(1).describe('The World domain to move it to, e.g. "sodesign.no".'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        world: z.string(),
+        title: z.string().nullable().optional(),
+        version: z.number().nullable(),
+        history: z.number().describe('Versions now stored in the World.'),
+        duplicatesDropped: z.number().describe('Platform history rows that repeated a version number; the newest of each was kept.'),
+        verified: z.object({ rowSha256: z.string(), versions: z.array(z.number()) }),
+        platformCopy: z.string(),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ graphId, world }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await gs.moveGraphToWorld(env, { graphId, world, actor })
+      if (!result.ok) return fromService(result)
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `Moved graph ${result.graphId} into ${result.world}: ${result.history} version(s), every one verified by SHA-256.` +
+          (result.duplicatesDropped ? ` ${result.duplicatesDropped} duplicate history row(s) on the platform were not carried over.` : '') +
+          `\nPlatform original: ${result.platformCopy}.\nEditor: ${result.editorUrl}`,
+      )
+    },
+  )
+
   // ── get_graph ─────────────────────────────────────────────────────────────
   server.registerTool(
     'get_graph',
@@ -3392,4 +3442,5 @@ export const TOOL_NAMES = [
   'list_meta_areas',
   'search',
   'fetch',
+  'move_graph_to_world',
 ]

@@ -22,7 +22,7 @@
 import { D1GraphStore, STORE_RPC_OPS } from '../graph-store.js'
 import { verifyWorldGraphToken } from '../world-graph-token.js'
 
-export const TEMPLATE_VERSION = '1'
+export const TEMPLATE_VERSION = '2' // 2: importGraph/exportGraph for move_graph_to_world (2026-10-15)
 
 const META_DDL = 'CREATE TABLE IF NOT EXISTS graph_store_meta (key TEXT PRIMARY KEY, value TEXT)'
 // Only reads may arrive through first/all, and only one statement.
