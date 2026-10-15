@@ -302,6 +302,14 @@ normal API; a copy of the content here would only be a second place for it to le
    posted to, and that nothing can be deleted afterwards. Ticking it adds the scope to that one
    authorization. RFC 6749 §3.3 permits an authorization server to issue a scope set different
    from the one requested as long as the token response reports it, which the provider does.
+4c. **`contacts:read` is the NINTH scope, added 2026-10-15 — and it cost a re-authorization.**
+   The vocabulary in `oauth/scopes.js` was declared frozen at eight. The architect chose a new
+   scope over widening `user:read` (offered as option A, declined): the platform directory and a
+   personal address book are different bodies of data. Every connection that wants
+   `list_contacts` / `search_contacts` must be deleted and added again, ticking the new box.
+   Both tools read only the CALLER's own ContactHub table — agent-worker resolves it from the
+   caller's token at `POST /contacts/list` and `/contacts/search`, never from an argument — and
+   return a lean projection (no notes, no interaction history, no photo).
 5. **Rate limiting is not enforced on `/mcp`.** `api_tokens.rate_limit` has never been enforced
    anywhere in this worker, and that is unchanged. The OTP path is throttled; tool calls are not.
 6. **`checkAccess` fails closed on 379 legacy graphs.** Their `created_by` names an app

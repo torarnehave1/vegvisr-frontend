@@ -413,3 +413,73 @@ export async function setUserRole(env, { email, role, actor }) {
     changed: data.changed === true,
   }
 }
+
+/**
+ * The caller's OWN ContactHub address book — list (optionally by label) or search.
+ *
+ * The table is a per-user drizzle table that agent-worker already knows how to find
+ * (resolveContactTableIds), so this goes through its /contacts/* doors with the caller's own
+ * token rather than re-deriving the lookup here. Whose book is read is decided there, from the
+ * token — nothing in the arguments can point it at someone else's.
+ *
+ * Whitelisted on the way back, like registerUser: a future field on the agent-worker side (notes,
+ * history) must not start flowing into a model's context because it was added there.
+ */
+async function contactsCall(env, actor, path, payload) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!env.AGENT_WORKER?.fetch) {
+    return fail(ERR.INTERNAL_ERROR, 'The AGENT_WORKER service binding is not configured on this worker.')
+  }
+  const token = await callerToken(env, actor)
+  if (!token) {
+    return fail(ERR.FORBIDDEN_GRAPH, 'No credential on your account. Sign in at vegvisr.org once, then try again.')
+  }
+  let res
+  let data
+  try {
+    res = await env.AGENT_WORKER.fetch(`https://agent-worker${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Token': token },
+      body: JSON.stringify(payload),
+    })
+    data = await res.json().catch(() => ({}))
+  } catch (e) {
+    console.error('[contacts] agent-worker unreachable:', e.message)
+    return fail(ERR.INTERNAL_ERROR, `Could not reach the contacts service: ${e.message}`)
+  }
+  if (res.status === 404) {
+    return fail(ERR.INVALID_INPUT, `You have no ContactHub contacts table yet. ${data?.error || ''}`.trim())
+  }
+  if (!res.ok || data?.success === false) {
+    return fail(ERR.INVALID_INPUT, data?.error || `Contacts request failed (status ${res.status}).`)
+  }
+  const str = (v) => (v == null || v === '' ? null : String(v))
+  const strs = (v) => (Array.isArray(v) ? v.map(String).filter(Boolean) : [])
+  const contacts = (Array.isArray(data.contacts) ? data.contacts : []).map((c) => ({
+    id: String(c.id ?? ''),
+    name: str(c.name),
+    emails: strs(c.emails),
+    phones: strs(c.phones),
+    labels: strs(c.labels),
+    organization: str(c.organization),
+    address: c.address
+      ? { street: str(c.address.street), postalCode: str(c.address.postalCode), city: str(c.address.city), country: str(c.address.country) }
+      : null,
+  }))
+  return { ok: true, count: contacts.length, total: Number(data.total) || contacts.length, contacts }
+}
+
+export function listContacts(env, { actor, label = null, limit = 50, offset = 0 }) {
+  const n = Math.min(Math.max(Number(limit) || 50, 1), 200)
+  return contactsCall(env, actor, '/contacts/list', {
+    ...(label ? { label: String(label).trim() } : {}),
+    limit: n,
+    offset: Math.max(Number(offset) || 0, 0),
+  })
+}
+
+export function searchContacts(env, { actor, query, limit = 20 }) {
+  if (!String(query || '').trim()) return Promise.resolve(fail(ERR.INVALID_INPUT, 'query is required.'))
+  const n = Math.min(Math.max(Number(limit) || 20, 1), 200)
+  return contactsCall(env, actor, '/contacts/search', { query: String(query).trim(), limit: n })
+}

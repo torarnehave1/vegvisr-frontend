@@ -1649,6 +1649,77 @@ describe('list_users answers who is already registered', () => {
 })
 
 
+describe('list_contacts / search_contacts read the caller\'s own ContactHub book', () => {
+  const READ = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'contacts:read'] } }
+
+  // agent-worker's /contacts/* doors, stubbed. It records what was asked so the tests can check
+  // the caller's own token is what decides whose book is read.
+  function withAgent(reply = {}) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    env.AGENT_WORKER = {
+      fetch: async (url, init) => {
+        calls.push({ path: new URL(url).pathname, token: init.headers['X-API-Token'], body: JSON.parse(init.body) })
+        return new Response(JSON.stringify({
+          success: true,
+          total: 1,
+          contacts: [{
+            id: 'c1', name: 'Liv Hinna Bora', emails: ['liv@example.com'], phones: ['+4797602470'],
+            labels: ['* myContacts', 'STILLEROM'], organization: null,
+            address: null, notes: 'PRIVATE NOTE', history: ['x'],
+          }],
+          ...reply,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      },
+    }
+    return { env, calls }
+  }
+
+  test('lists by label with the caller\'s own token, and drops fields it was not asked for', async () => {
+    const { env, calls } = withAgent()
+    const { client } = await connect(env, READ)
+    const r = await callOk(client, 'list_contacts', { label: 'STILLEROM' })
+    assert.equal(r.count, 1)
+    assert.equal(r.contacts[0].name, 'Liv Hinna Bora')
+    assert.deepEqual(r.contacts[0].labels, ['* myContacts', 'STILLEROM'])
+    assert.equal(calls[0].path, '/contacts/list')
+    assert.equal(calls[0].token, 'sess-alice', 'whose book is read comes from the caller, not an argument')
+    assert.equal(calls[0].body.label, 'STILLEROM')
+    const blob = JSON.stringify(r)
+    assert.ok(!blob.includes('PRIVATE NOTE') && !blob.includes('history'), 'notes and history must never reach the model')
+  })
+
+  test('search passes the query through', async () => {
+    const { env, calls } = withAgent()
+    const { client } = await connect(env, READ)
+    const r = await callOk(client, 'search_contacts', { query: 'Liv Bora' })
+    assert.equal(r.contacts[0].emails[0], 'liv@example.com')
+    assert.equal(calls[0].path, '/contacts/search')
+    assert.equal(calls[0].body.query, 'Liv Bora')
+  })
+
+  test('contacts:read is required — user:read is not enough', async () => {
+    const { env } = withAgent()
+    const { client } = await connect(env, { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'user:read'] } })
+    for (const name of ['list_contacts', 'search_contacts']) {
+      const e = await callErr(client, name, name === 'search_contacts' ? { query: 'x' } : {})
+      assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+      assert.equal(e.requiredScope, 'contacts:read')
+    }
+  })
+
+  test('both are read-only', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, READ)
+    const { tools } = await client.listTools()
+    for (const name of ['list_contacts', 'search_contacts']) {
+      assert.equal(tools.find((x) => x.name === name).annotations.readOnlyHint, true, name)
+    }
+  })
+})
+
+
 describe('set_user_groups tags someone who is already registered', () => {
   const REG = {
     auth: { ...ALICE_RW.auth, scope: ['graph:read', 'user:register'], userId: 'root@example.com' },

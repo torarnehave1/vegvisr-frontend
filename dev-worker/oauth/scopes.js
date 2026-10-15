@@ -30,6 +30,14 @@
  *   chat:read      reading messages other people wrote
  *   user:register  creating or altering an account in the user directory
  *   user:read      seeing other people's names, addresses and roles
+ *   contacts:read  reading the user's OWN address book (ContactHub)          ← the ninth
+ *
+ * contacts:read was added 2026-10-15 by the architect's explicit decision, with user:read
+ * offered as the alternative and declined. The cost was paid knowingly: every connection that
+ * wants list_contacts / search_contacts must be deleted and added again. The reason it is not
+ * user:read: that scope is the PLATFORM directory — people who have accounts. An address book
+ * is a different body of data (1800+ people who never signed up for anything here), and ticking
+ * "see registered users" should not silently also mean "read my whole phone book".
  *
  * Before adding a ninth, answer: which of these does the new damage resemble? If the honest
  * answer is "none", the scope is justified — and the runbook must say what it cost. If the
@@ -58,7 +66,7 @@ export const CONNECT_SCOPES = ['graph:read', 'graph:write']
  * graph:delete is reserved and unused. It is listed so the vocabulary is complete and so a
  * future delete tool costs a tool-list refresh rather than a re-authorization.
  */
-export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'graph:delete', 'chat:write', 'chat:read', 'user:register', 'user:read']
+export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'graph:delete', 'chat:write', 'chat:read', 'user:register', 'user:read', 'contacts:read']
 
 /** Human text for the consent screen. Covers every known scope, advertised or not. */
 export const SCOPE_TEXT = {
@@ -70,6 +78,7 @@ export const SCOPE_TEXT = {
   'chat:read': 'Lese meldinger andre har skrevet',
   'user:register': 'Opprette brukerkontoer og endre dem — rolle og gruppe',
   'user:read': 'Se andre registrerte personer: navn, e-post, rolle og gruppe',
+  'contacts:read': 'Lese din egen kontaktliste (ContactHub): navn, e-post, telefon, adresse og etiketter',
 }
 
 /**
@@ -110,6 +119,7 @@ export const OPT_IN_SCOPES = [
   'graph:delete',
   'user:register',
   'user:read',
+  'contacts:read',
 ]
 
 /** Longer copy for the consent screen: the one-liner is not enough for an outward-facing scope. */
@@ -124,6 +134,13 @@ export const OPT_IN_SCOPE_DETAIL = {
     'rolle og gruppe. Dette er ANDRE personers kontaktopplysninger, og de blir en del av ' +
     'samtalen din hos AI-leverandøren. Innloggingsnøkler vises aldri. Egen avkryssing fra ' +
     'det å opprette brukere, fordi det å lese om andre er noe annet enn å legge til én.',
+  'contacts:read':
+    'Lar assistenten lese og søke i DIN EGEN kontaktliste i ContactHub: navn, e-postadresser, ' +
+    'telefonnumre, første adresse, organisasjon og etiketter. Dette er ANDRE personers ' +
+    'kontaktopplysninger — folk som ikke selv har registrert seg her — og det som hentes blir en ' +
+    'del av samtalen din hos AI-leverandøren. Notater og samtalehistorikk tas ikke med. Den kan ' +
+    'aldri lese andres kontaktlister, og den kan ikke endre eller slette kontakter. Egen ' +
+    'avkryssing fra å se registrerte brukere, fordi en adressebok er noe annet enn brukerkatalogen.',
   'user:register':
     'Lar assistenten skrive i brukerkatalogen på dine vegne: opprette en konto for en annen ' +
     'person med navn og e-post, og endre ' +

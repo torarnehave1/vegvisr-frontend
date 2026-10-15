@@ -2756,6 +2756,115 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── list_contacts / search_contacts ───────────────────────────────────────
+  //
+  // The caller's OWN ContactHub address book. Behind contacts:read, the ninth scope (2026-10-15):
+  // an address book is other people's details who never signed up here, a different decision
+  // from seeing the platform directory (user:read). The pair exists so a contact can be found
+  // and then registered with register_user without retyping name, e-mail and phone.
+  const CONTACT_SHAPE = z.object({
+    id: z.string(),
+    name: z.string().nullable(),
+    emails: z.array(z.string()),
+    phones: z.array(z.string()),
+    labels: z.array(z.string()),
+    organization: z.string().nullable(),
+    address: z
+      .object({
+        street: z.string().nullable(),
+        postalCode: z.string().nullable(),
+        city: z.string().nullable(),
+        country: z.string().nullable(),
+      })
+      .nullable(),
+  })
+  const contactLines = (r) => {
+    const head = r.count === 0
+      ? 'No contacts matched.'
+      : `${r.count}${r.total > r.count ? ` of ${r.total}` : ''} contact${r.count === 1 ? '' : 's'}:`
+    const lines = r.contacts.map(
+      (c) => `• ${c.name || '(no name)'} — ${c.emails[0] || 'no e-mail'} · ${c.phones[0] || 'no phone'}` +
+        `${c.labels.length ? ` · ${c.labels.join(', ')}` : ''}`,
+    )
+    return [head, ...lines].join('\n')
+  }
+
+  server.registerTool(
+    'list_contacts',
+    {
+      title: 'List my contacts (ContactHub)',
+      description:
+        'List contacts from YOUR OWN ContactHub address book, optionally only those carrying one ' +
+        'label (e.g. "STILLEROM" — the label exactly as shown in ContactHub, without #). Returns ' +
+        'name, e-mail addresses, phone numbers, labels, organization and first address — never ' +
+        'notes or interaction history. THESE ARE OTHER PEOPLE\'S CONTACT DETAILS — filter by label ' +
+        'rather than paging through the whole book. To give one of them a platform account, pass ' +
+        'their name, e-mail and phone to register_user (check list_users first). Requires the ' +
+        'contacts:read scope.',
+      inputSchema: {
+        label: z.string().optional().describe('Only contacts with this ContactHub label, matched exactly (case-insensitive).'),
+        limit: z.number().int().optional().describe('Maximum contacts to return, 1–200. Default 50.'),
+        offset: z.number().int().optional().describe('How many to skip, for paging.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        count: z.number(),
+        total: z.number(),
+        contacts: z.array(CONTACT_SHAPE),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ label, limit, offset }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'contacts:read')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await users.listContacts(env, { actor, label, limit, offset })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, ...payload } = r
+      return ok({ success: true, ...payload }, contactLines(r))
+    },
+  )
+
+  server.registerTool(
+    'search_contacts',
+    {
+      title: 'Search my contacts (ContactHub)',
+      description:
+        'Search YOUR OWN ContactHub address book by name, organization, e-mail or phone. Every word ' +
+        'must appear somewhere, in any order, so "Liv Bora" finds "Liv Hinna Bora". Returns the ' +
+        'same fields as list_contacts. THESE ARE OTHER PEOPLE\'S CONTACT DETAILS. Requires the ' +
+        'contacts:read scope.',
+      inputSchema: {
+        query: z.string().min(1).describe('Words to look for, e.g. a name.'),
+        limit: z.number().int().optional().describe('Maximum contacts to return, 1–200. Default 20.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        count: z.number(),
+        total: z.number(),
+        contacts: z.array(CONTACT_SHAPE),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ query, limit }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'contacts:read')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await users.searchContacts(env, { actor, query, limit })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, ...payload } = r
+      return ok({ success: true, ...payload }, contactLines(r))
+    },
+  )
+
   // ── set_user_groups ───────────────────────────────────────────────────────
   //
   // register_user refuses an email that already exists, which left no way to tag someone who is
@@ -3432,6 +3541,8 @@ export const TOOL_NAMES = [
   'publish_html_node',
   'register_user',
   'list_users',
+  'list_contacts',
+  'search_contacts',
   'set_user_groups',
   'update_user_profile',
   'set_user_role',

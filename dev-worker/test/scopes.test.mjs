@@ -123,6 +123,9 @@ describe('chat:read is consented to separately from chat:write', () => {
     assert.deepEqual(KNOWN_SCOPES, [
       'graph:read', 'graph:write', 'graph:publish', 'graph:delete',
       'chat:write', 'chat:read', 'user:register', 'user:read',
+      // The ninth, 2026-10-15 — architect's decision, re-authorization cost accepted. See
+      // the header of oauth/scopes.js and MCP_OAUTH.md.
+      'contacts:read',
     ])
   })
 
@@ -168,7 +171,7 @@ describe('chat:read is consented to separately from chat:write', () => {
   })
 
   test('every opt-in stays out of the advertised set', () => {
-    assert.deepEqual(OPT_IN_SCOPES, ['chat:write', 'chat:read', 'graph:publish', 'graph:delete', 'user:register', 'user:read'])
+    assert.deepEqual(OPT_IN_SCOPES, ['chat:write', 'chat:read', 'graph:publish', 'graph:delete', 'user:register', 'user:read', 'contacts:read'])
     for (const s of OPT_IN_SCOPES) assert.equal(CONNECT_SCOPES.includes(s), false, `${s} leaked into the advertised set`)
   })
 
