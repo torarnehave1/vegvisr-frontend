@@ -4,7 +4,7 @@
  * behaviour I would be choosing myself. Mocks confirm the test author's assumptions;
  * a real engine confirms the SQL.
  *
- * Implements only the surface graph-service uses: prepare().bind().first()/run()/all().
+ * Implements only the surface graph-service uses: prepare().bind().first()/run()/all(), and batch().
  */
 import { DatabaseSync } from 'node:sqlite'
 
@@ -40,6 +40,19 @@ export class D1Like {
   }
   prepare(sql) {
     return new Stmt(this.db, sql)
+  }
+  /** D1's batch: the statements run in one transaction, all or nothing, results in order. */
+  async batch(stmts) {
+    this.db.exec('BEGIN')
+    try {
+      const out = []
+      for (const st of stmts) out.push(await st.run())
+      this.db.exec('COMMIT')
+      return out
+    } catch (e) {
+      this.db.exec('ROLLBACK')
+      throw e
+    }
   }
 }
 

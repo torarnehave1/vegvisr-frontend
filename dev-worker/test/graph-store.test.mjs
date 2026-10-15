@@ -9,7 +9,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { freshDb } from './d1-adapter.mjs'
-import { PlatformStore, platformStore, resolveGraphStore } from '../graph-store.js'
+import { PlatformStore, D1GraphStore, platformStore, resolveGraphStore } from '../graph-store.js'
 
 const ID = '11111111-1111-4111-8111-111111111111'
 const blob = (version, extra = {}) => JSON.stringify({ metadata: { version, ...extra }, nodes: [], edges: [] })
@@ -167,5 +167,42 @@ describe('trash', () => {
     assert.equal(JSON.parse((await store.getRow(ID)).data).metadata.version, 2)
     assert.deepEqual(await historyVersions(store), [1, 2])
     assert.deepEqual(await store.listTrash(), [])
+  })
+})
+
+describe('atomic commit (the World proxy mode)', () => {
+  async function atomicSeeded() {
+    const { env } = freshDb()
+    const store = new D1GraphStore(env.vegvisr_org, { kind: 'world', world: 'sodesign.no', atomic: true })
+    await store.commit({ id: ID, create: true, data: blob(1), version: 1, now: NOW, title: 'T', description: 'D', createdBy: 'a@b.no' })
+    return store
+  }
+  test('create and update write row and history in one batch', async () => {
+    const store = await atomicSeeded()
+    assert.deepEqual(await store.commit({ id: ID, data: blob(2), version: 2, casVersion: 1, now: NOW }), { ok: true })
+    assert.deepEqual(await historyVersions(store), [1, 2])
+    assert.equal((await store.first('SELECT title FROM knowledge_graphs WHERE id = ?', [ID])).title, 'T')
+  })
+  test('a lost race writes neither row nor history', async () => {
+    const store = await atomicSeeded()
+    await store.commit({ id: ID, data: blob(2, { winner: true }), version: 2, casVersion: 1, now: NOW })
+    const r = await store.commit({ id: ID, data: blob(2, { winner: false }), version: 2, casVersion: 1, now: NOW })
+    assert.deepEqual(r, { ok: false, conflict: true })
+    assert.equal(JSON.parse((await store.getRow(ID)).data).metadata.winner, true)
+    assert.deepEqual(await historyVersions(store), [1, 2])
+  })
+  test('a failing statement rolls the whole commit back', async () => {
+    const store = await atomicSeeded()
+    // A second create of the same id violates the primary key: nothing from that batch may remain.
+    await assert.rejects(store.commit({ id: ID, create: true, data: blob(5), version: 5, now: NOW, title: 'X', createdBy: 'a@b.no' }))
+    assert.deepEqual(await historyVersions(store), [1])
+    assert.equal((await store.first('SELECT title FROM knowledge_graphs WHERE id = ?', [ID])).title, 'T')
+  })
+  test('trim keeps the newest 20 by version number, even after a gap', async () => {
+    const store = await atomicSeeded()
+    for (let v = 2; v <= 30; v++) await store.commit({ id: ID, data: blob(v), version: v, now: NOW })
+    const versions = await historyVersions(store)
+    assert.equal(versions.length, 20)
+    assert.deepEqual([versions[0], versions.at(-1)], [11, 30])
   })
 })

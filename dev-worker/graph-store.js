@@ -25,12 +25,37 @@
 
 const HISTORY_CAP = 20
 const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+const VERSION_SQL = `COALESCE(CAST(json_extract(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.metadata.version') AS INTEGER), 0)`
 
-export class PlatformStore {
-  constructor(db) {
+/**
+ * The store methods a World graph proxy exposes over RPC. Anything not listed is unreachable from
+ * outside the proxy. `first` and `all` are listed here but the proxy refuses them for anything
+ * that is not a read.
+ */
+export const STORE_RPC_OPS = Object.freeze([
+  'getRow', 'exists', 'currentVersion', 'first', 'all', 'commit',
+  'insertUnversioned', 'putData', 'getAiInstructions', 'setAiInstructions',
+  'historyList', 'historyVersion',
+  'trashCopy', 'deleteGraph', 'purgeTrash', 'listTrash', 'getTrashEntry', 'restoreFromTrash',
+])
+
+/**
+ * A graph store over one D1 database holding the three graph tables. The platform's store is one;
+ * a World's graph proxy runs the same class over the D1 in the founder's own account, so the SQL
+ * for both lives here and only here.
+ *
+ *   kind     'platform' | 'world'
+ *   world    the World's domain, or null
+ *   atomic   commit() as one db.batch (a transaction) instead of statements in sequence. The World
+ *            proxy sets it. The platform does not yet, because its commit has always been
+ *            sequential and changing that is a separate decision from moving where graphs live.
+ */
+export class D1GraphStore {
+  constructor(db, { kind = 'platform', world = null, atomic = false } = {}) {
     this.db = db
-    this.kind = 'platform'
-    this.world = null
+    this.kind = kind
+    this.world = world
+    this.atomic = atomic
   }
 
   async getRow(id) {
@@ -81,28 +106,12 @@ export class PlatformStore {
    * this file's first job is to change nothing. A store that is one network hop away must do
    * them atomically; this one inherits the platform's existing behaviour.
    */
-  async commit({ id, create = false, data, version, casVersion = null, now, title = null, description = null, createdBy = null, userId = null, sourceApp = null }) {
-    if (create) {
-      await this.db
-        .prepare(
-          `INSERT INTO knowledge_graphs (id, title, description, created_by, data, created_date, updated_at, user_id, source_app)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .bind(id, title, description, createdBy, data, now, now, userId, sourceApp)
-        .run()
-    } else {
-      const cas = Number.isInteger(casVersion)
-      const sql = `UPDATE knowledge_graphs
-         SET data = ?, title = COALESCE(?, title), description = COALESCE(?, description), created_by = COALESCE(?, created_by), updated_at = ?,
-             user_id = COALESCE(?, user_id), source_app = COALESCE(?, source_app)
-         WHERE id = ?${cas ? `
-           AND COALESCE(CAST(json_extract(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.metadata.version') AS INTEGER), 0) = ?` : ''}`
-      const args = [data, title, description, createdBy, now, userId, sourceApp, id]
-      if (cas) args.push(casVersion)
-      const result = await this.db.prepare(sql).bind(...args).run()
-      // Zero rows changed means another request won the race between the caller's read and this write.
-      if (cas && !result.meta?.changes) return { ok: false, conflict: true }
-    }
+  async commit(input) {
+    if (this.atomic) return this.#commitAtomic(input)
+    const { id, create = false, data, version, casVersion = null, userId = null, sourceApp = null } = input
+    const result = await this.#rowStatement(input).run()
+    // Zero rows changed means another request won the race between the caller's read and this write.
+    if (!create && Number.isInteger(casVersion) && !result.meta?.changes) return { ok: false, conflict: true }
 
     await this.db
       .prepare('INSERT INTO knowledge_graph_history (id, graph_id, version, data, user_id, source_app) VALUES (?, ?, ?, ?, ?, ?)')
@@ -110,6 +119,54 @@ export class PlatformStore {
       .run()
 
     await this.#trimHistory(id)
+    return { ok: true }
+  }
+
+  /** The INSERT (create) or UPDATE (with optional compare-and-swap) of the graph row. */
+  #rowStatement({ id, create = false, data, casVersion = null, now, title = null, description = null, createdBy = null, userId = null, sourceApp = null }) {
+    if (create) {
+      return this.db
+        .prepare(
+          `INSERT INTO knowledge_graphs (id, title, description, created_by, data, created_date, updated_at, user_id, source_app)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(id, title, description, createdBy, data, now, now, userId, sourceApp)
+    }
+    const cas = Number.isInteger(casVersion)
+    const sql = `UPDATE knowledge_graphs
+         SET data = ?, title = COALESCE(?, title), description = COALESCE(?, description), created_by = COALESCE(?, created_by), updated_at = ?,
+             user_id = COALESCE(?, user_id), source_app = COALESCE(?, source_app)
+         WHERE id = ?${cas ? `
+           AND ${VERSION_SQL} = ?` : ''}`
+    const args = [data, title, description, createdBy, now, userId, sourceApp, id]
+    if (cas) args.push(casVersion)
+    return this.db.prepare(sql).bind(...args)
+  }
+
+  /**
+   * One transaction: row, history row, trim. The history row is inserted only if the row
+   * statement just before it changed a row (`changes()`), so a compare-and-swap that lost its race
+   * writes nothing at all, inside the same batch, with no second round trip to find out. Checking
+   * the row's version instead is wrong: the winner already moved it to the same number, and the
+   * loser then wrote a duplicate history row (caught by the test, 2026-10-15). The trim keeps the newest HISTORY_CAP
+   * versions by number, which also catches up after a restore inserted many rows at once.
+   */
+  async #commitAtomic(input) {
+    const { id, create = false, data, version, casVersion = null, userId = null, sourceApp = null } = input
+    const results = await this.db.batch([
+      this.#rowStatement(input),
+      this.db
+        .prepare(
+          `INSERT INTO knowledge_graph_history (id, graph_id, version, data, user_id, source_app)
+           SELECT ?, ?, ?, ?, ?, ?
+           WHERE changes() > 0`,
+        )
+        .bind(crypto.randomUUID(), id, version, data, userId, sourceApp),
+      this.db
+        .prepare('DELETE FROM knowledge_graph_history WHERE graph_id = ? AND version <= ?')
+        .bind(id, version - HISTORY_CAP),
+    ])
+    if (!create && Number.isInteger(casVersion) && !results[0]?.meta?.changes) return { ok: false, conflict: true }
     return { ok: true }
   }
 
@@ -295,9 +352,12 @@ export class PlatformStore {
   }
 }
 
+/** The name graph-service and the tests have always used for the platform's store. */
+export const PlatformStore = D1GraphStore
+
 /** The platform's own store. Listings and searches that span every graph start here. */
 export function platformStore(env) {
-  return new PlatformStore(env.vegvisr_org)
+  return new D1GraphStore(env.vegvisr_org)
 }
 
 /**
