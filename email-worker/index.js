@@ -505,7 +505,9 @@ async function isLoginAllowed(env2, redirectUrl, targetEmail) {
   } catch {
     host = "";
   }
-  if (!host || host.endsWith("vegvisr.org"))
+  // vegvisr.org itself or a real subdomain of it. A bare endsWith("vegvisr.org") also admitted
+  // look-alike hosts such as "evilvegvisr.org", where the magic token would then land (2026-10-15).
+  if (!host || host === "vegvisr.org" || host.endsWith(".vegvisr.org"))
     return true;
   const email = (targetEmail || "").toLowerCase().trim();
   if (!email)

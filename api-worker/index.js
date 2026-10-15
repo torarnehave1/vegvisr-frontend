@@ -5329,25 +5329,29 @@ export default {
 
     if (pathname === '/get-auth-token' && request.method === 'GET') {
       try {
-        const email = request.headers.get('X-Email')
-        const existingToken = request.headers.get('X-API-Token')
-        if (!email && !existingToken) {
+        // A caller must PROVE who it is: X-API-Token, the account's token. Until 2026-10-15 an
+        // X-Email header alone was enough, and the endpoint returned that user's session token —
+        // anyone who knew an address could act as that person, a Superadmin included. A client
+        // that has just verified a magic link holds the token already (verify returns it as
+        // apiToken) and sends it here to learn the account's user_id. X-Email, when also sent,
+        // must name the same account.
+        const email = (request.headers.get('X-Email') || '').trim().toLowerCase()
+        const existingToken = (request.headers.get('X-API-Token') || '').trim()
+        if (!existingToken || existingToken === 'null') {
           return new Response(
-            JSON.stringify({ error: 'Authentication required. Provide X-Email or X-API-Token header.' }),
+            JSON.stringify({ error: 'Authentication required. Send X-API-Token (the token a verified magic link returns as apiToken).' }),
             { status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
           )
         }
-        let userRecord
-        if (email) {
-          userRecord = await env.vegvisr_org
-            .prepare('SELECT emailVerificationToken, email, user_id FROM config WHERE email = ? LIMIT 1')
-            .bind(email)
-            .first()
-        } else {
-          userRecord = await env.vegvisr_org
-            .prepare('SELECT emailVerificationToken, email, user_id FROM config WHERE emailVerificationToken = ? LIMIT 1')
-            .bind(existingToken)
-            .first()
+        const userRecord = await env.vegvisr_org
+          .prepare('SELECT emailVerificationToken, email, user_id FROM config WHERE emailVerificationToken = ? LIMIT 1')
+          .bind(existingToken)
+          .first()
+        if (userRecord && email && String(userRecord.email || '').toLowerCase() !== email) {
+          return new Response(JSON.stringify({ error: 'X-Email does not match the account of X-API-Token.' }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders },
+          })
         }
         if (!userRecord) {
           return new Response(JSON.stringify({ error: 'User not found' }), {
