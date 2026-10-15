@@ -34,8 +34,10 @@ import { platformStore, resolveGraphStore, GraphStoreError, setLocationStatus, w
 async function optionalCaller(request, env) {
   const token = request.headers.get('X-API-Token')
   const session = request.headers.get('X-Session-Token')
+  const acting = request.headers.get('x-acting-user-email')
   const has = (v) => v && v !== 'null' && v.trim() !== ''
-  if (!has(token) && !has(session)) return null
+  // x-acting-user-email only counts on the service-binding path; validateAuth decides that.
+  if (!has(token) && !has(session) && !has(acting)) return null
   const v = await validateAuth(request, env)
   return v.valid ? normalizeActor(v) : null
 }
@@ -6290,6 +6292,7 @@ const restHandler = {
           // Anyone else asking for a tag (a member page's portfolio): the Worlds carrying that tag,
           // PUBLISHED graphs only — the filter is forced here whatever the caller's headers said.
           const sumPubFilter = `(json_extract(${safeJsonDataSql}, '$.metadata.publicationState') = 'published' OR json_extract(${safeJsonDataSql}, '$.metadata.seoSlug') IS NOT NULL)`
+          if (!sumCaller) sumCaller = await optionalCaller(request, env)
           const sumWorlds = []
           for (const ws of await worldStoresFor(env, sumCaller)) sumWorlds.push({ ws, where: whereSql })
           if (!sumCaller && metaAreaParam) {
@@ -6706,6 +6709,7 @@ const restHandler = {
           // A token caller also searches each World store they may use. Then every store returns
           // its newest (offset + limit) matches and the page is cut from the merge, so paging stays
           // true across stores; without World stores the query is exactly the old one.
+          if (!srchCaller) srchCaller = await optionalCaller(request, env)
           const srchWorlds = await worldStoresFor(env, srchCaller)
           let rows
           let srchTotal = total
@@ -6897,7 +6901,7 @@ const restHandler = {
 
           // 5. The graphs of each World store this caller may use, marked with their World. Only
           //    for an identified caller: a World's graphs are never listed anonymously.
-          const worldStores = await worldStoresFor(env, listCaller)
+          const worldStores = await worldStoresFor(env, listCaller || (await optionalCaller(request, env)))
           for (const ws of worldStores) {
             const rows = await ws.all('SELECT id, title, created_date, updated_at FROM knowledge_graphs ORDER BY COALESCE(updated_at, created_date) DESC', [])
             for (const row of rows) {
@@ -7763,7 +7767,7 @@ const restHandler = {
           const read = await gsGetGraph(env, id, {
             nodeId: url.searchParams.get('nodeId'),
             nodeTitle: url.searchParams.get('nodeTitle'),
-            caller: readCaller,
+            caller: readCaller || (await optionalCaller(request, env)),
           })
           if (!read.ok) {
             return new Response(JSON.stringify({ error: read.message }), {
@@ -7846,7 +7850,7 @@ const restHandler = {
 
         try {
           const requestBody = await request.json()
-          const { id, graphData, override } = requestBody
+          const { id, graphData, override, world } = requestBody
 
           if (!id || !graphData) {
             return new Response(
@@ -7861,7 +7865,15 @@ const restHandler = {
           // No `actor` is passed here: existing REST clients keep supplying metadata.createdBy
           // themselves, which is the historical contract. The MCP path passes an actor and
           // therefore gets the authenticated-user stamp instead.
-          const saved = await gsSaveGraph(env, { caller: normalizeActor(tokenValidation), id, graphData, override: Boolean(override) })
+          const saved = await gsSaveGraph(env, {
+            caller: normalizeActor(tokenValidation),
+            id,
+            graphData,
+            override: Boolean(override),
+            // Place a NEW graph in this World's own store. Only that World's founder or a
+            // Superadmin may; a service binding names its user with x-acting-user-email.
+            world: typeof world === 'string' && world.trim() ? world.trim().toLowerCase() : null,
+          })
           if (!saved.ok) {
             const body = { error: saved.message }
             if (saved.currentVersion !== undefined) body.currentVersion = saved.currentVersion
@@ -7875,14 +7887,16 @@ const restHandler = {
 
           console.log('[Worker] Graph with history saved successfully')
 
-          // Auto-classify in the background (non-blocking)
-          if (ctx && ctx.waitUntil) {
+          // Auto-classify in the background (non-blocking). Not for a World's graph: the classifier
+          // runs with no caller, so it could not write the result back there, and the graph's
+          // content is the founder's, not the platform's to send to a model on its own initiative.
+          if (ctx && ctx.waitUntil && !saved.world) {
             ctx.waitUntil(classifyAndStore(env, id, enrichedGraphData))
             ctx.waitUntil(notifyNibiGraphUpdate(env, id, enrichedGraphData))
           }
 
           return new Response(
-            JSON.stringify({ message: 'Graph with history saved successfully', id, newVersion }),
+            JSON.stringify({ message: 'Graph with history saved successfully', id, newVersion, ...(saved.world ? { world: saved.world } : {}) }),
             { status: 200, headers: corsHeaders },
           )
         } catch (error) {
