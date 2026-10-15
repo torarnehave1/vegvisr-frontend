@@ -6814,17 +6814,46 @@ const restHandler = {
             if (!store) {
               return new Response(JSON.stringify({ results: [], world: worldParam, store: false }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
             }
+            const J = `CASE WHEN json_valid(data) THEN data ELSE '{}' END`
             const rows = await store.all(
               `SELECT id, title, created_date, updated_at,
-                      json_extract(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.metadata.publicationState') AS publication_state,
-                      json_extract(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.metadata.metaArea') AS meta_area
+                      json_extract(${J}, '$.metadata.title') AS m_title,
+                      json_extract(${J}, '$.metadata.description') AS m_description,
+                      json_extract(${J}, '$.metadata.publicationState') AS publication_state,
+                      json_extract(${J}, '$.metadata.metaArea') AS meta_area,
+                      json_extract(${J}, '$.metadata.version') AS m_version,
+                      COALESCE(json_array_length(json_extract(${J}, '$.nodes')), 0) AS node_count,
+                      (SELECT json_extract(value, '$.path') FROM json_each(COALESCE(json_extract(${J}, '$.nodes'), '[]'))
+                        WHERE json_extract(value, '$.type') = 'portfolio-image' LIMIT 1) AS portfolio_image_path
                FROM knowledge_graphs ORDER BY COALESCE(updated_at, created_date) DESC`,
               [],
             )
+            // The same row shape as /getknowgraphsummaries (id, title, nodeCount, portfolioImagePath,
+            // metadata{…}), so a component written for summaries — graph-portfolio — reads it as is.
             return new Response(JSON.stringify({
               world: worldParam,
               store: true,
-              results: rows.map((r) => ({ id: r.id, title: r.title, createdAt: r.created_date || null, updatedAt: r.updated_at || r.created_date || null, publicationState: r.publication_state || 'private', metaArea: r.meta_area || '', world: worldParam })),
+              total: rows.length,
+              hasMore: false,
+              results: rows.map((r) => ({
+                id: r.id,
+                title: r.m_title || r.title,
+                createdAt: r.created_date || null,
+                updatedAt: r.updated_at || r.created_date || null,
+                nodeCount: Number(r.node_count || 0),
+                portfolioImagePath: r.portfolio_image_path || null,
+                publicationState: r.publication_state || 'private',
+                metaArea: r.meta_area || '',
+                world: worldParam,
+                metadata: {
+                  title: r.m_title || r.title,
+                  description: r.m_description || '',
+                  metaArea: r.meta_area || '',
+                  publicationState: r.publication_state || 'private',
+                  version: Number(r.m_version || 1),
+                  updatedAt: r.updated_at || r.created_date || null,
+                },
+              })),
             }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
           }
 
