@@ -431,9 +431,10 @@ export async function saveGraph(env, { id, graphData, override = false, actor = 
     const target = await storeFor(env, { world, actor: who })
     if (target.error) return target.error
     store = target.store
-  } else if (world && graphExists && store.world !== String(world).toLowerCase()) {
-    return fail(ERR.INVALID_INPUT, `Graph ${id} already exists ${store.world ? `in ${store.world}` : 'on the platform'}; world only applies when creating a graph.`)
   }
+  // world only PLACES a new graph. On an existing graph it is ignored — the graph stays where it
+  // lives; moving one is move_graph_to_world. (Until 2026-10-15 this was an error, which would
+  // have refused every save of a platform graph from an editor running on a World's host.)
 
   // UUID v4 required for NEW graphs. Existing graphs (semantic-named legacy ids are
   // common here) keep updating at their current id. Additive rule from 2026-05-28.

@@ -150,11 +150,13 @@ describe('working with a graph that lives in a World', () => {
     const r = await gs.getGraph(env, graphId, { caller: stine })
     assert.equal(r.code, 'STORE_UNAVAILABLE')
   })
-  test('world on an existing graph does not move it', async () => {
+  test('world on an existing graph is ignored: it is saved where it lives and does not move', async () => {
     const platformGraph = await create(admin, { world: null })
     const r = await gs.saveGraph(env, { id: platformGraph.graphId, graphData: { metadata: { version: 1 }, nodes: [], edges: [] }, actor: admin, world: WORLD })
-    assert.equal(r.code, 'INVALID_INPUT')
+    assert.equal(r.ok, true, r.message)
+    assert.equal(r.world, null)
     assert.equal(worldRows(platformGraph.graphId), 0)
+    assert.equal(platformRows(platformGraph.graphId), 1)
   })
 })
 
@@ -308,6 +310,31 @@ describe('default World for its founder (G7)', () => {
       INSERT INTO world_graph_stores VALUES ('other.no', 'x', 'u2', 'world-graphs-other', 'other-graphs-proxy', 'https://graphs.other.no', 'v', '2', 'active', '', '');
     `)
     assert.equal((await gs.createGraph(env, { title: 'To', metaArea: '#X', actor: stine })).world, null)
+  })
+})
+
+describe('system owners (2026-10-15)', () => {
+  const owner = actor('owner@example.com', 'Admin') // NOT Superadmin
+  const addOwner = () => env.vegvisr_org.db.exec(`CREATE TABLE IF NOT EXISTS system_owners (id TEXT PRIMARY KEY, email TEXT NOT NULL); INSERT INTO system_owners VALUES ('so1', 'Owner@Example.com');`)
+  test('a system owner reaches every World store without being Superadmin', async () => {
+    const w = await create(admin)
+    assert.equal((await gs.getGraph(env, w.graphId, { caller: owner })).code, 'FORBIDDEN_GRAPH')
+    addOwner()
+    const read = await gs.getGraph(env, w.graphId, { caller: owner })
+    assert.equal(read.ok, true, read.message)
+    const upd = await gs.updateNode(env, { graphId: w.graphId, nodeId: 'n1', fields: { info: 'eier' }, expectedVersion: 1, actor: owner })
+    assert.equal(upd.newVersion, 2)
+    const c = await create(owner, { title: 'Fra systemeier' })
+    assert.equal(c.world, WORLD)
+    assert.equal(worldRows(c.graphId), 1)
+    const found = await gs.searchGraphs(env, { query: 'systemeier', actor: owner })
+    assert.equal(found.results[0]?.world, WORLD)
+  })
+  test('a system owner is never defaulted into a World', async () => {
+    addOwner()
+    env.vegvisr_org.db.prepare("UPDATE world_graph_stores SET status = 'active' WHERE domain = ?").run(WORLD)
+    const r = await gs.createGraph(env, { title: 'Plattform', metaArea: '#X', actor: owner })
+    assert.equal(r.world, null)
   })
 })
 

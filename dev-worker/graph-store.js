@@ -501,12 +501,24 @@ async function worldStoreRow(env, domain) {
 }
 
 /**
- * Who may reach a World's graphs: a Superadmin, or the World's founder or account holder. An
- * actor with no identity — a trusted origin, a service binding that names no user — never may.
+ * A system owner (a row in system_owners) runs the platform for every World — sets up stores,
+ * migrates data, trains founders — so may reach every World's graphs in their own right,
+ * whatever their role says (2026-10-15). A missing table means no system owners.
+ */
+export async function isSystemOwner(env, actor) {
+  if (!actor || !actor.email) return false
+  const row = await registryRead(env, 'SELECT 1 AS ok FROM system_owners WHERE LOWER(email) = ? LIMIT 1', [actor.email])
+  return Boolean(row)
+}
+
+/**
+ * Who may reach a World's graphs: a Superadmin, a system owner, or the World's founder or account
+ * holder. An actor with no identity — a trusted origin, a service binding that names no user —
+ * never may.
  */
 export async function mayUseWorld(env, actor, domain) {
   if (!actor || actor.anonymous || (!actor.email && !actor.isSuperadmin)) return false
-  if (actor.isSuperadmin) return true
+  if (actor.isSuperadmin || (await isSystemOwner(env, actor))) return true
   const row = await registryRead(
     env,
     'SELECT 1 AS ok FROM world_founders WHERE domain = ? AND (LOWER(founder_email) = ? OR LOWER(COALESCE(account_holder_email, \'\')) = ?) LIMIT 1',
@@ -597,16 +609,17 @@ export async function setLocationStatus(env, graphId, status, now = new Date().t
  */
 export async function worldStoresFor(env, actor) {
   if (!actor || actor.anonymous || (!actor.email && !actor.isSuperadmin)) return []
+  const seesAll = actor.isSuperadmin || (await isSystemOwner(env, actor))
   let rows
   try {
-    const sql = actor.isSuperadmin
+    const sql = seesAll
       ? "SELECT * FROM world_graph_stores WHERE status IN ('provisioned', 'active') ORDER BY domain"
       : `SELECT DISTINCT s.* FROM world_graph_stores s JOIN world_founders f ON f.domain = s.domain
          WHERE s.status IN ('provisioned', 'active')
            AND (LOWER(f.founder_email) = ? OR LOWER(COALESCE(f.account_holder_email, '')) = ?)
          ORDER BY s.domain`
     const stmt = env.vegvisr_org.prepare(sql)
-    rows = (await (actor.isSuperadmin ? stmt : stmt.bind(actor.email, actor.email)).all()).results || []
+    rows = (await (seesAll ? stmt : stmt.bind(actor.email, actor.email)).all()).results || []
   } catch (e) {
     if (/no such table/i.test(e.message)) return []
     throw new GraphStoreError('STORE_UNAVAILABLE', `The graph registry could not be read: ${e.message}`)
@@ -655,6 +668,8 @@ export async function publicWorldStoresByTag(env, metaArea) {
  */
 export async function defaultWorldFor(env, actor) {
   if (!actor || actor.anonymous || actor.isSuperadmin || !actor.email) return null
+  // A system owner works across Worlds too: the World is named, never guessed.
+  if (await isSystemOwner(env, actor)) return null
   let rows
   try {
     rows = await env.vegvisr_org
