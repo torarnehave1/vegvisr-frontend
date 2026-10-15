@@ -265,6 +265,7 @@ const graphSummaryShape = {
   version: z.number().nullable(),
   editorUrl: z.string(),
   viewerUrl: z.string(),
+  world: z.string().nullable().optional().describe("The World whose own storage holds this graph, e.g. sodesign.no. Null or absent: the platform's shared storage."),
 }
 
 const listShape = {
@@ -314,6 +315,13 @@ export function registerTools(server, getContext) {
           .describe('Meta-area tags used for filtering, written with leading hashes, e.g. "#HISTORY #NORWAY".'),
         nodes: z.array(NodeInput).optional().describe('Nodes to create the graph with. May be empty.'),
         edges: z.array(EdgeInput).optional().describe('Edges between those nodes. Each end must be a node in this call.'),
+        world: z
+          .string()
+          .optional()
+          .describe(
+            "Store the graph in this World's OWN storage instead of the platform's, e.g. \"sodesign.no\". " +
+              'Only that World\'s founder or a Superadmin may. Omit it to store on the platform as before.',
+          ),
       },
       outputSchema: {
         success: z.boolean(),
@@ -321,7 +329,7 @@ export function registerTools(server, getContext) {
       },
       annotations: ADDITIVE_WRITE,
     },
-    async ({ title, description, metaArea, nodes, edges }) => {
+    async ({ title, description, metaArea, nodes, edges, world }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:write')
       if (scopeErr) return scopeErr
@@ -336,13 +344,15 @@ export function registerTools(server, getContext) {
         nodes: nodes || [],
         edges: edges || [],
         actor,
+        world: world ? String(world).trim().toLowerCase() : null,
       })
       if (!result.ok) return fromService(result)
 
       const { ok: _o, ...payload } = result
       return ok(
         { success: true, ...payload },
-        `Created private graph "${result.title}" (${result.graphId}) at version ${result.version}.\n` +
+        `Created private graph "${result.title}" (${result.graphId}) at version ${result.version}` +
+          (result.world ? `, stored in ${result.world}'s own storage.\n` : '.\n') +
           `Editor: ${result.editorUrl}\nViewer: ${result.viewerUrl}\n` +
           `It is private — nobody else can see it until you publish it explicitly.`,
       )
@@ -398,7 +408,7 @@ export function registerTools(server, getContext) {
       const access = await gs.checkAccess(env, actor, graphId, 'read')
       if (!access.ok) return fromService(access)
 
-      const read = await gs.getGraph(env, graphId, nodeId ? { nodeId } : {})
+      const read = await gs.getGraph(env, graphId, nodeId ? { nodeId, caller: actor } : { caller: actor })
       if (!read.ok) return fromService(read)
 
       const g = read.graph
@@ -643,7 +653,7 @@ export function registerTools(server, getContext) {
       // metadata.
       let patch = fields
       if (fields.metadata) {
-        const read = await gs.getGraph(env, graphId)
+        const read = await gs.getGraph(env, graphId, { caller: actor })
         if (!read.ok) return fromService(read)
         const existing = (read.graph?.nodes || []).find((n) => n.id === nodeId)
         if (!existing) {
@@ -2454,7 +2464,7 @@ ${result.warnings.join('\n')}` : ''),
       // source the service actually reads removes the trap.
       const version = Number.isInteger(expectedVersion)
         ? expectedVersion
-        : await gs.currentVersion(env, graphId)
+        : await gs.currentVersion(env, graphId, actor)
 
       const result = await gs.updateMetadata(env, { graphId, fields, expectedVersion: version, actor })
       if (!result.ok) return fromService(result)
@@ -3250,7 +3260,7 @@ ${result.warnings.join('\n')}` : ''),
       const access = await gs.checkAccess(env, actor, id, 'read')
       if (!access.ok) return fromService(access)
 
-      const read = await gs.getGraph(env, id)
+      const read = await gs.getGraph(env, id, { caller: actor })
       if (!read.ok) return fromService(read)
 
       const g = read.graph

@@ -1077,6 +1077,30 @@ async function validateAuth(request, env) {
   const INTERNAL_SERVICE_HOSTS = new Set(['knowledge-graph-worker'])
   try {
     if (INTERNAL_SERVICE_HOSTS.has(new URL(request.url).hostname)) {
+      // A bound worker may say which of ITS users it acts for (x-acting-user-email). It already
+      // authenticated that user; this only names them, so a graph in a World store can be
+      // reached for that World's founder. The header is honoured ONLY here, on the unforgeable
+      // binding path — over the internet it is ignored like any other header. The name must
+      // match a config row; role comes from that row, never from the caller.
+      const acting = String(request.headers.get('x-acting-user-email') || '').trim().toLowerCase()
+      if (acting) {
+        const row = await env.vegvisr_org
+          .prepare('SELECT email, Role FROM config WHERE LOWER(email) = ? LIMIT 1')
+          .bind(acting)
+          .first()
+          .catch(() => null)
+        if (row) {
+          return {
+            valid: true,
+            userId: String(row.email).toLowerCase(),
+            userEmail: String(row.email).toLowerCase(),
+            userRole: row.Role || null,
+            scopes: ['all'],
+            rateLimit: null,
+            authMethod: 'service_binding',
+          }
+        }
+      }
       return {
         valid: true,
         userId: null,
@@ -5953,7 +5977,7 @@ const restHandler = {
             )
           }
 
-          await (await resolveGraphStore(env, { graphId: id })).insertUnversioned({
+          await (await resolveGraphStore(env, { graphId: id, actor: normalizeActor(tokenValidation) })).insertUnversioned({
             id,
             title: graphData.metadata.title,
             description: graphData.metadata.description,
@@ -6066,7 +6090,7 @@ const restHandler = {
 
           console.log(`[Worker] Updating graph with ID: ${id}`)
 
-          await (await resolveGraphStore(env, { graphId: id })).putData(id, JSON.stringify(graphData), new Date().toISOString())
+          await (await resolveGraphStore(env, { graphId: id, actor: normalizeActor(tokenValidation) })).putData(id, JSON.stringify(graphData), new Date().toISOString())
 
           console.log('[Worker] Graph updated successfully')
           return new Response(JSON.stringify({ message: 'Graph updated successfully', id }), {
@@ -7590,8 +7614,12 @@ const restHandler = {
           // Backward compatible — unauthenticated requests still pass through.
           const apiToken = request.headers.get('X-API-Token')
           const pluginAuthenticated = isPluginAuthenticated(request)
+          // Who is reading, when known — a graph stored in a World is served only to that
+          // World's founder or a Superadmin; an anonymous read of one is refused.
+          let readCaller = null
           if (apiToken && apiToken !== 'null' && apiToken.trim() !== '') {
             const tokenValidation = await validateAuth(request, env)
+            readCaller = normalizeActor(tokenValidation)
             if (!tokenValidation.valid) {
               return new Response(JSON.stringify({ error: tokenValidation.error || 'Invalid API token' }), {
                 status: tokenValidation.status || 401,
@@ -7623,6 +7651,7 @@ const restHandler = {
           const read = await gsGetGraph(env, id, {
             nodeId: url.searchParams.get('nodeId'),
             nodeTitle: url.searchParams.get('nodeTitle'),
+            caller: readCaller,
           })
           if (!read.ok) {
             return new Response(JSON.stringify({ error: read.message }), {
@@ -7719,7 +7748,7 @@ const restHandler = {
           // No `actor` is passed here: existing REST clients keep supplying metadata.createdBy
           // themselves, which is the historical contract. The MCP path passes an actor and
           // therefore gets the authenticated-user stamp instead.
-          const saved = await gsSaveGraph(env, { id, graphData, override: Boolean(override) })
+          const saved = await gsSaveGraph(env, { caller: normalizeActor(tokenValidation), id, graphData, override: Boolean(override) })
           if (!saved.ok) {
             const body = { error: saved.message }
             if (saved.currentVersion !== undefined) body.currentVersion = saved.currentVersion
@@ -7801,7 +7830,7 @@ const restHandler = {
           console.log(`[Worker] patchNode: graph=${graphId} node=${nodeId} fields=${fields && typeof fields === 'object' ? Object.keys(fields).join(',') : '?'}`)
 
           // Patch through graphService — the SAME function the MCP update_node tool calls.
-          const patched = await gsUpdateNode(env, { graphId, nodeId, fields, expectedVersion })
+          const patched = await gsUpdateNode(env, { caller: normalizeActor(tokenValidation), graphId, nodeId, fields, expectedVersion })
           if (!patched.ok) {
             const body = { error: patched.message }
             if (patched.currentVersion !== undefined) body.currentVersion = patched.currentVersion
@@ -7852,7 +7881,7 @@ const restHandler = {
           console.log(`[Worker] patchGraphMetadata: graph=${graphId} fields=${Object.keys(fields).join(',')}`)
 
           // 1. Read graph from D1
-          const store = await resolveGraphStore(env, { graphId })
+          const store = await resolveGraphStore(env, { graphId, actor: normalizeActor(tokenValidation) })
           const result = await store.getRow(graphId)
 
           if (!result) {
@@ -7953,7 +7982,7 @@ const restHandler = {
           // Insert through graphService — the SAME function the MCP add_node tool calls.
           // expectedVersion is honoured when the caller sends it and ignored otherwise, so the
           // historical REST contract (no concurrency check) is unchanged for existing clients.
-          const inserted = await gsAddNode(env, {
+          const inserted = await gsAddNode(env, { caller: normalizeActor(tokenValidation),
             graphId,
             node,
             expectedVersion: Number.isInteger(expectedVersion) ? expectedVersion : null,
@@ -8006,7 +8035,7 @@ const restHandler = {
 
           console.log(`[Worker] addEdge: graph=${graphId} source=${edge.source} target=${edge.target}`)
 
-          const store = await resolveGraphStore(env, { graphId })
+          const store = await resolveGraphStore(env, { graphId, actor: normalizeActor(tokenValidation) })
           const result = await store.getRow(graphId)
 
           if (!result) {
@@ -8104,7 +8133,7 @@ const restHandler = {
 
           console.log(`[Worker] removeEdge: graph=${graphId} edgeId=${edgeId} source=${source} target=${target}`)
 
-          const store = await resolveGraphStore(env, { graphId })
+          const store = await resolveGraphStore(env, { graphId, actor: normalizeActor(tokenValidation) })
           const result = await store.getRow(graphId)
 
           if (!result) {
@@ -8191,7 +8220,7 @@ const restHandler = {
           console.log(`[Worker] removeNode: graph=${graphId} nodeId=${nodeId} removeEdges=${removeEdges}`)
 
           // 1. Read graph from D1
-          const store = await resolveGraphStore(env, { graphId })
+          const store = await resolveGraphStore(env, { graphId, actor: normalizeActor(tokenValidation) })
           const result = await store.getRow(graphId)
 
           if (!result) {
@@ -8514,7 +8543,7 @@ const restHandler = {
 
           // If sourceId is provided (OpenAPI spec usage), fetch the source graph from D1
           if (sourceId && !graphData) {
-            const sourceRow = await (await resolveGraphStore(env, { graphId: sourceId })).getRow(sourceId)
+            const sourceRow = await (await resolveGraphStore(env, { graphId: sourceId, actor: normalizeActor(tokenValidation) })).getRow(sourceId)
             if (!sourceRow) {
               return new Response(
                 JSON.stringify({ error: `Source graph '${sourceId}' not found.` }),
@@ -8567,7 +8596,7 @@ const restHandler = {
           }
 
           // The copy is written as version 1: the row and its history entry in one commit.
-          await (await resolveGraphStore(env, { graphId: newGraphId })).commit({
+          await (await resolveGraphStore(env, { graphId: newGraphId, actor: normalizeActor(tokenValidation) })).commit({
             id: newGraphId,
             create: true,
             data: JSON.stringify(duplicatedGraphData),
@@ -9270,7 +9299,7 @@ const restHandler = {
           console.log(`[Worker] Deleting graph with ID: ${id}`)
 
           // First check if the graph exists and fetch its data for trash
-          const store = await resolveGraphStore(env, { graphId: id })
+          const store = await resolveGraphStore(env, { graphId: id, actor: normalizeActor(tokenValidation) })
           const graphExists = await store.getRow(id)
 
           if (!graphExists) {

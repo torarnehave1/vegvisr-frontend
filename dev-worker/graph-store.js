@@ -18,10 +18,14 @@
  *   first(sql, params)    read-only query, first row
  *   all(sql, params)      read-only query, all rows (array)
  *
- * Today there is exactly one implementation and resolveGraphStore() always returns it, so this
- * file changes no behaviour. The SQL below is the SQL graph-service.js ran before, statement for
- * statement — see the note on commit() for the one place four variants became one.
+ * Two implementations: D1GraphStore over a D1 binding (the platform, and — inside the World's
+ * graph proxy — the World's own database), and WorldStore, which reaches a World's proxy over
+ * signed HTTPS. resolveGraphStore() picks one per graph from graph_locations. The platform SQL is
+ * the SQL graph-service.js ran before, statement for statement — see the note on commit() for the
+ * one place four variants became one.
  */
+
+import { signWorldGraphToken } from './world-graph-token.js'
 
 const HISTORY_CAP = 20
 const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
@@ -360,12 +364,166 @@ export function platformStore(env) {
   return new D1GraphStore(env.vegvisr_org)
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// World stores — graphs that live in a World Founder's own Cloudflare account (G3, 2026-10-15)
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** A routing failure with a code graph-service maps to its own error vocabulary. */
+export class GraphStoreError extends Error {
+  constructor(code, message) {
+    super(message)
+    this.code = code
+  }
+}
+
 /**
- * The store that holds — or, for a graph about to be created, will hold — `graphId`.
- *
- * Always the platform today. It is async and takes the graph id because the answer is about to
- * depend on a lookup; callers written against this signature will not need touching when it does.
+ * The same methods as D1GraphStore, each one a signed RPC to the World's graph proxy, which runs
+ * D1GraphStore over the World's own database. Errors are thrown, never returned as data: a write
+ * that may or may not have landed must stop the caller, not be reported as a result.
  */
-export async function resolveGraphStore(env, { graphId = null } = {}) {
+export class WorldStore {
+  constructor(env, row) {
+    this.env = env
+    this.kind = 'world'
+    this.world = row.domain
+    this.endpoint = row.endpoint_base
+  }
+
+  async rpc(op, args) {
+    if (!this.env.WORLD_GRAPH_SIGNING_KEY) {
+      throw new GraphStoreError('STORE_UNAVAILABLE', `This worker cannot sign requests to the graph store of ${this.world}.`)
+    }
+    const body = JSON.stringify({ op, args })
+    const token = await signWorldGraphToken(this.env.WORLD_GRAPH_SIGNING_KEY, { aud: this.world, op, body })
+    let res, out
+    try {
+      res = await fetch(`${this.endpoint}/__graphs/rpc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body,
+      })
+      out = await res.json()
+    } catch (e) {
+      throw new GraphStoreError('STORE_UNAVAILABLE', `The graph store of ${this.world} did not answer (${e.message}). Nothing was stored anywhere else.`)
+    }
+    if (!res.ok || !out?.ok) {
+      throw new GraphStoreError('STORE_UNAVAILABLE', `The graph store of ${this.world} refused ${op}: ${out?.error || `HTTP ${res.status}`}. Nothing was stored anywhere else.`)
+    }
+    return out.result
+  }
+}
+for (const op of STORE_RPC_OPS) {
+  WorldStore.prototype[op] = function (...args) {
+    return this.rpc(op, args)
+  }
+}
+
+// Reads that treat a table that does not exist yet as "no row": before the first World store is
+// provisioned, graph_locations and world_graph_stores simply are not there, and every graph is
+// the platform's. Any OTHER failure is an error — rule 2 of the plan: a registry that cannot be
+// read must never be taken to mean "platform", or a World graph would be written to the platform.
+async function registryRead(env, sql, params) {
+  try {
+    return await env.vegvisr_org.prepare(sql).bind(...params).first()
+  } catch (e) {
+    if (/no such table/i.test(e.message)) return null
+    throw new GraphStoreError('STORE_UNAVAILABLE', `The graph registry could not be read: ${e.message}`)
+  }
+}
+
+const LIVE_STORE_STATES = new Set(['provisioned', 'active'])
+
+async function worldStoreRow(env, domain) {
+  const row = await registryRead(env, 'SELECT * FROM world_graph_stores WHERE domain = ?', [String(domain).toLowerCase()])
+  if (!row) return null
+  if (!LIVE_STORE_STATES.has(row.status)) {
+    throw new GraphStoreError('STORE_UNAVAILABLE', `The graph store of ${row.domain} is ${row.status}.`)
+  }
+  return row
+}
+
+/**
+ * Who may reach a World's graphs: a Superadmin, or the World's founder or account holder. An
+ * actor with no identity — a trusted origin, a service binding that names no user — never may.
+ */
+export async function mayUseWorld(env, actor, domain) {
+  if (!actor || actor.anonymous || (!actor.email && !actor.isSuperadmin)) return false
+  if (actor.isSuperadmin) return true
+  const row = await registryRead(
+    env,
+    'SELECT 1 AS ok FROM world_founders WHERE domain = ? AND (LOWER(founder_email) = ? OR LOWER(COALESCE(account_holder_email, \'\')) = ?) LIMIT 1',
+    [String(domain).toLowerCase(), actor.email, actor.email],
+  )
+  return Boolean(row)
+}
+
+async function authorizedWorldStore(env, row, actor, graphId) {
+  if (!(await mayUseWorld(env, actor, row.domain))) {
+    throw new GraphStoreError(
+      'FORBIDDEN_GRAPH',
+      graphId
+        ? `Graph ${graphId} is stored in the World ${row.domain}, and this request is not signed in as that World's founder.`
+        : `Only the founder of ${row.domain} or a Superadmin may store graphs there.`,
+    )
+  }
+  return new WorldStore(env, row)
+}
+
+/**
+ * The store that holds — or, for a graph about to be created, will hold — a graph.
+ *
+ *   graphId   route by where the graph lives (graph_locations); no row means the platform
+ *   world     a NEW graph is to be created in this World's store (an explicit choice)
+ *   actor     who is asking. Required to reach a World store at all; ignored for the platform,
+ *             whose own access rules are unchanged. Omitting it is the same as being anonymous.
+ *
+ * Throws GraphStoreError: FORBIDDEN_GRAPH when the actor may not use that World, INVALID_INPUT
+ * for a World with no graph store, STORE_UNAVAILABLE when the registry cannot be read.
+ */
+export async function resolveGraphStore(env, { graphId = null, world = null, actor = null } = {}) {
+  if (world) {
+    const row = await worldStoreRow(env, world)
+    if (!row) throw new GraphStoreError('INVALID_INPUT', `${world} has no graph store. Provision it with provision_world_graphs first.`)
+    return authorizedWorldStore(env, row, actor, null)
+  }
+  if (graphId) {
+    const loc = await registryRead(env, 'SELECT world_domain, status FROM graph_locations WHERE graph_id = ?', [graphId])
+    if (loc && loc.status !== 'moved_out') {
+      const row = await worldStoreRow(env, loc.world_domain)
+      if (!row) throw new GraphStoreError('STORE_UNAVAILABLE', `Graph ${graphId} is located in ${loc.world_domain}, which has no graph store registered.`)
+      return authorizedWorldStore(env, row, actor, graphId)
+    }
+  }
   return platformStore(env)
+}
+
+// ── The locator: which World holds a graph. Ids only — no title, owner or content (decided 2026-10-13).
+
+const LOCATOR_DDL = `CREATE TABLE IF NOT EXISTS graph_locations (
+  graph_id TEXT PRIMARY KEY,
+  world_domain TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+)`
+
+/**
+ * Claim an id for a World BEFORE its row is written there. A graph whose World commit succeeds
+ * but whose locator write fails would be unreachable; a pending locator with no graph behind it
+ * is merely a dangling id, and dropLocation() clears it when the commit fails.
+ */
+export async function reserveLocation(env, graphId, domain, now = new Date().toISOString()) {
+  await env.vegvisr_org.prepare(LOCATOR_DDL).run()
+  await env.vegvisr_org
+    .prepare("INSERT INTO graph_locations (graph_id, world_domain, status, created_at, updated_at) VALUES (?, ?, 'pending', ?, ?)")
+    .bind(graphId, domain, now, now)
+    .run()
+}
+
+export async function activateLocation(env, graphId, now = new Date().toISOString()) {
+  await env.vegvisr_org.prepare("UPDATE graph_locations SET status = 'active', updated_at = ? WHERE graph_id = ?").bind(now, graphId).run()
+}
+
+export async function dropPendingLocation(env, graphId) {
+  await env.vegvisr_org.prepare("DELETE FROM graph_locations WHERE graph_id = ? AND status = 'pending'").bind(graphId).run()
 }

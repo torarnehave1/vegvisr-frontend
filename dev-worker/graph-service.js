@@ -19,7 +19,31 @@
  * format. That is what lets one implementation serve both HTTP/REST and MCP/JSON-RPC.
  */
 
-import { platformStore, resolveGraphStore } from './graph-store.js'
+import { platformStore, resolveGraphStore, GraphStoreError, reserveLocation, activateLocation, dropPendingLocation } from './graph-store.js'
+
+/**
+ * resolveGraphStore() throws on routing failures; the service speaks in fail() results. `caller`
+ * is who is asking, for the World-store check only — distinct from `actor`, which on the REST
+ * paths also decides who a new graph's creator is and is deliberately absent there.
+ */
+async function storeFor(env, args) {
+  try {
+    return { store: await resolveGraphStore(env, args) }
+  } catch (e) {
+    if (e instanceof GraphStoreError) return { error: fail(ERR[e.code] || ERR.INTERNAL_ERROR, e.message) }
+    throw e
+  }
+}
+
+/** A World store's failures arrive as thrown GraphStoreErrors; turn them into results too. */
+async function guarded(fn) {
+  try {
+    return await fn()
+  } catch (e) {
+    if (e instanceof GraphStoreError) return fail(ERR[e.code] || ERR.INTERNAL_ERROR, e.message)
+    throw e
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Error codes — the structured vocabulary shared by REST and MCP
@@ -34,6 +58,7 @@ export const ERR = {
   NODE_EXISTS: 'NODE_EXISTS',
   VERSION_CONFLICT: 'VERSION_CONFLICT',
   RATE_LIMITED: 'RATE_LIMITED',
+  STORE_UNAVAILABLE: 'STORE_UNAVAILABLE',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 }
 
@@ -47,6 +72,7 @@ const ERR_STATUS = {
   [ERR.NODE_EXISTS]: 409,
   [ERR.VERSION_CONFLICT]: 409,
   [ERR.RATE_LIMITED]: 429,
+  [ERR.STORE_UNAVAILABLE]: 503,
   [ERR.INTERNAL_ERROR]: 500,
 }
 
@@ -215,8 +241,8 @@ export function isUuidV4(id) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** The authoritative current version of a graph: MAX(version) in the history table. */
-export async function currentVersion(env, graphId) {
-  const store = await resolveGraphStore(env, { graphId })
+export async function currentVersion(env, graphId, caller = null) {
+  const store = await resolveGraphStore(env, { graphId, actor: caller })
   return store.currentVersion(graphId)
 }
 
@@ -244,7 +270,9 @@ export async function currentVersion(env, graphId) {
 export async function checkAccess(env, actor, graphId, action = 'read') {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
 
-  const store = await resolveGraphStore(env, { graphId })
+  const { store, error } = await storeFor(env, { graphId, actor })
+  if (error) return error
+  return guarded(async () => {
   const row = await store.getRow(graphId)
   if (!row) return fail(ERR.GRAPH_NOT_FOUND, `Graph ${graphId} not found.`)
 
@@ -256,6 +284,11 @@ export async function checkAccess(env, actor, graphId, action = 'read') {
   }
 
   const isPublished = meta.publicationState === 'published'
+
+  // A graph in a World store: resolveGraphStore() has already admitted this actor (Superadmin, or
+  // the World's founder or account holder), and that is the whole rule there — the World's
+  // graphs are the founder's, whoever typed them in.
+  if (store.kind === 'world') return { ok: true, graph: row, owner: ownerOf(row, meta), isPublished, world: store.world }
 
   // Superadmin passes everything.
   if (actor.isSuperadmin) return { ok: true, graph: row, owner: ownerOf(row, meta), isPublished }
@@ -274,6 +307,7 @@ export async function checkAccess(env, actor, graphId, action = 'read') {
       ? `Graph ${graphId} is private and belongs to another user.`
       : `You do not have permission to ${action} graph ${graphId}.`,
   )
+  })
 }
 
 /** The owner e-mail of a graph, or null when the creator field names an app, not a person. */
@@ -297,7 +331,9 @@ function ownerOf(row, meta) {
 export async function getGraph(env, id, opts = {}) {
   if (!id) return fail(ERR.INVALID_INPUT, 'Graph ID is required.')
 
-  const store = await resolveGraphStore(env, { graphId: id })
+  const { store, error } = await storeFor(env, { graphId: id, actor: opts.caller ?? null })
+  if (error) return error
+  return guarded(async () => {
   const result = await store.getRow(id)
   if (!result) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
 
@@ -351,7 +387,8 @@ export async function getGraph(env, id, opts = {}) {
     }
   }
 
-  return { ok: true, graph: graphData, version: graphData.metadata?.version ?? null }
+  return { ok: true, graph: graphData, version: graphData.metadata?.version ?? null, world: store.world }
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -367,13 +404,25 @@ export async function getGraph(env, id, opts = {}) {
  *
  * Returns { ok, id, newVersion, graphData } or a structured failure.
  */
-export async function saveGraph(env, { id, graphData, override = false, actor = null }) {
+export async function saveGraph(env, { id, graphData, override = false, actor = null, caller = undefined, world = null }) {
   if (!id || !graphData) {
     return fail(ERR.INVALID_INPUT, 'Graph ID and graph data are required.')
   }
 
-  const store = await resolveGraphStore(env, { graphId: id })
+  // `world` only places a NEW graph; an existing graph is written wherever it already lives.
+  const who = caller === undefined ? actor : caller
+  const located = await storeFor(env, { graphId: id, actor: who })
+  if (located.error) return located.error
+  let store = located.store
+  return guarded(async () => {
   const graphExists = await store.exists(id)
+  if (world && !graphExists && store.kind === 'platform') {
+    const target = await storeFor(env, { world, actor: who })
+    if (target.error) return target.error
+    store = target.store
+  } else if (world && graphExists && store.world !== String(world).toLowerCase()) {
+    return fail(ERR.INVALID_INPUT, `Graph ${id} already exists ${store.world ? `in ${store.world}` : 'on the platform'}; world only applies when creating a graph.`)
+  }
 
   // UUID v4 required for NEW graphs. Existing graphs (semantic-named legacy ids are
   // common here) keep updating at their current id. Additive rule from 2026-05-28.
@@ -420,6 +469,9 @@ export async function saveGraph(env, { id, graphData, override = false, actor = 
   // A new row stores '' for a missing title/description/creator; an existing row keeps its
   // column when the incoming value is missing (null → COALESCE in the store).
   const blank = graphExists ? null : ''
+  const placing = store.kind === 'world' && !graphExists
+  if (placing) await reserveLocation(env, id, store.world, now)
+  try {
   await store.commit({
     id,
     create: !graphExists,
@@ -432,8 +484,14 @@ export async function saveGraph(env, { id, graphData, override = false, actor = 
     userId,
     sourceApp,
   })
+  } catch (e) {
+    if (placing) await dropPendingLocation(env, id)
+    throw e
+  }
+  if (placing) await activateLocation(env, id)
 
-  return { ok: true, id, newVersion, graphData: enriched, created: !graphExists }
+  return { ok: true, id, newVersion, graphData: enriched, created: !graphExists, world: store.world }
+  })
 }
 
 /**
@@ -443,7 +501,7 @@ export async function saveGraph(env, { id, graphData, override = false, actor = 
  * VEGR.AI rules applied here: UUID v4 id, createdBy from the authenticated user,
  * publicationState 'private' (rule 1 — never published without an explicit publish).
  */
-export async function createGraph(env, { title, description = '', metaArea, nodes = [], edges = [], actor }) {
+export async function createGraph(env, { title, description = '', metaArea, nodes = [], edges = [], actor, world = null }) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   if (!title || !String(title).trim()) return fail(ERR.INVALID_INPUT, 'title is required.')
   if (!metaArea || !String(metaArea).trim()) return fail(ERR.INVALID_INPUT, 'metaArea is required.')
@@ -466,7 +524,7 @@ export async function createGraph(env, { title, description = '', metaArea, node
     edges: validation.edges,
   }
 
-  const saved = await saveGraph(env, { id, graphData, override: false, actor })
+  const saved = await saveGraph(env, { id, graphData, override: false, actor, world })
   if (!saved.ok) return saved
 
   return {
@@ -476,6 +534,7 @@ export async function createGraph(env, { title, description = '', metaArea, node
     metaArea: graphData.metadata.metaArea,
     publicationState: 'private',
     version: saved.newVersion,
+    world: saved.world || null,
     ...graphLinks(id),
   }
 }
@@ -486,12 +545,15 @@ export async function createGraph(env, { title, description = '', metaArea, node
  * with VERSION_CONFLICT instead of silently interleaving. Omitting it preserves the
  * existing REST contract for POST /addNode, which never had the check.
  */
-export async function addNode(env, { graphId, node, expectedVersion = null, actor = null }) {
+export async function addNode(env, { graphId, node, expectedVersion = null, actor = null , caller = undefined}) {
   if (!graphId || !node || typeof node !== 'object') {
     return fail(ERR.INVALID_INPUT, 'graphId and node are required.')
   }
 
-  const store = await resolveGraphStore(env, { graphId })
+  const located = await storeFor(env, { graphId, actor: caller === undefined ? actor : caller })
+  if (located.error) return located.error
+  const { store } = located
+  return guarded(async () => {
   const result = await store.getRow(graphId)
   if (!result) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
 
@@ -546,6 +608,7 @@ export async function addNode(env, { graphId, node, expectedVersion = null, acto
     publicationState: graphData.metadata?.publicationState || 'private',
     ...graphLinks(graphId),
   }
+  })
 }
 
 /**
@@ -553,7 +616,7 @@ export async function addNode(env, { graphId, node, expectedVersion = null, acto
  * `allowPublicationState` gates the one field that must go through publishGraph() instead,
  * so publishing cannot happen as a side effect of an ordinary metadata edit (rule 2).
  */
-export async function updateMetadata(env, { graphId, fields, expectedVersion, actor = null, allowPublicationState = false }) {
+export async function updateMetadata(env, { graphId, fields, expectedVersion, actor = null, allowPublicationState = false , caller = undefined}) {
   if (!graphId || !fields || typeof fields !== 'object' || !Number.isInteger(expectedVersion)) {
     return fail(ERR.INVALID_INPUT, 'graphId, fields (object), and expectedVersion (integer) are required.')
   }
@@ -561,7 +624,10 @@ export async function updateMetadata(env, { graphId, fields, expectedVersion, ac
     return fail(ERR.INVALID_INPUT, 'publicationState cannot be set through a metadata update — use the explicit publish action.')
   }
 
-  const store = await resolveGraphStore(env, { graphId })
+  const located = await storeFor(env, { graphId, actor: caller === undefined ? actor : caller })
+  if (located.error) return located.error
+  const { store } = located
+  return guarded(async () => {
   const row = await store.getRow(graphId)
   if (!row) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
 
@@ -598,6 +664,7 @@ export async function updateMetadata(env, { graphId, fields, expectedVersion, ac
     publicationState: graphData.metadata.publicationState || 'private',
     ...graphLinks(graphId),
   }
+  })
 }
 
 /**
@@ -929,12 +996,15 @@ export async function listMyGraphs(env, { limit = 20, offset = 0, metaArea = nul
  * The node's `id` is never patchable: renaming a node id out from under the edges that point at
  * it would silently orphan them.
  */
-export async function updateNode(env, { graphId, nodeId, fields, expectedVersion, actor = null }) {
+export async function updateNode(env, { graphId, nodeId, fields, expectedVersion, actor = null , caller = undefined}) {
   if (!graphId || !nodeId || !fields || typeof fields !== 'object' || !Number.isInteger(expectedVersion)) {
     return fail(ERR.INVALID_INPUT, 'graphId, nodeId, fields (object), and expectedVersion (integer) are required.')
   }
 
-  const store = await resolveGraphStore(env, { graphId })
+  const located = await storeFor(env, { graphId, actor: caller === undefined ? actor : caller })
+  if (located.error) return located.error
+  const { store } = located
+  return guarded(async () => {
   const result = await store.getRow(graphId)
   if (!result) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
 
@@ -1000,6 +1070,7 @@ export async function updateNode(env, { graphId, nodeId, fields, expectedVersion
     publicationState: graphData.metadata?.publicationState || 'private',
     ...graphLinks(graphId),
   }
+  })
 }
 
 
