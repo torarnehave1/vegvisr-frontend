@@ -145,6 +145,6 @@ export async function publishHtmlNode(env, { graphId, nodeId, host, versionPill 
     siteUrl: `https://${target}`,
     verified: data.verified === true,
     message: data.message || null,
-    ...graphLinks(graphId),
+    ...graphLinks(graphId, access.world),
   }
 }

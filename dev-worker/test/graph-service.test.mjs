@@ -301,6 +301,12 @@ describe('17. editor and viewer links', () => {
     assert.equal(l.editorUrl, 'https://editor.vegvisr.org/?graphId=abc-123')
     assert.equal(l.viewerUrl, 'https://editor.vegvisr.org/view?graphId=abc-123')
   })
+  test("a World graph links to that World's own editor", () => {
+    const l = gs.graphLinks('abc-123', 'SoDesign.no')
+    assert.equal(l.editorUrl, 'https://editor.sodesign.no/?graphId=abc-123')
+    assert.equal(l.viewerUrl, 'https://editor.sodesign.no/view?graphId=abc-123')
+    assert.equal(gs.graphLinks('abc-123', null).viewerUrl, 'https://editor.vegvisr.org/view?graphId=abc-123')
+  })
   test('createGraph and addNode both return the links', async () => {
     const { env } = freshDb()
     const r = await makeGraph(env, alice)

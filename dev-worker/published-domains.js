@@ -184,7 +184,7 @@ async function readableGraphs(env, actor, ids) {
   const platformIds = ids.filter((id) => !inWorld.has(id))
 
   const out = new Map()
-  const keep = (row, worldGranted) => {
+  const keep = (row, worldGranted, world = null) => {
     // The same rule checkAccess applies, decided per row: your own graph, or a published one —
     // or, for a World's graph, being allowed into that World at all.
     const isOwner = Boolean(row.owner && actor.email && row.owner === actor.email)
@@ -196,6 +196,7 @@ async function readableGraphs(env, actor, ids) {
       metaArea: row.meta_area || null,
       publicationState: row.publication_state || 'private',
       owner: row.owner || null,
+      world,
     })
   }
 
@@ -206,7 +207,7 @@ async function readableGraphs(env, actor, ids) {
   for (const [domain, worldIds] of byWorld) {
     if (!(await mayUseWorld(env, actor, domain))) continue
     const store = await resolveGraphStore(env, { graphId: worldIds[0], actor })
-    for (const row of await store.all(READABLE_SQL(worldIds.length), worldIds)) keep(row, true)
+    for (const row of await store.all(READABLE_SQL(worldIds.length), worldIds)) keep(row, true, domain)
   }
   return out
 }
@@ -252,7 +253,7 @@ export async function listPublishedSites(env, { actor, domain = null, graphId = 
         metaArea: g.metaArea,
         publicationState: g.publicationState,
         publishedAt: e.publishedAt,
-        ...graphLinks(e.graphId),
+        ...graphLinks(e.graphId, g.world),
       }
     })
 

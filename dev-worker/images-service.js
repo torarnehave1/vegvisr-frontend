@@ -18,7 +18,7 @@
 
 import * as gs from './graph-service.js'
 
-const { ERR, statusForCode, graphLinks, checkAccess, updateNode } = gs
+const { ERR, statusForCode, checkAccess, updateNode } = gs
 
 function fail(code, message, extra = {}) {
   return { ok: false, code, status: statusForCode(code), message, ...extra }
@@ -694,7 +694,9 @@ async function swapPlaceholder(env, { graphId, nodeId, placement, info, placehol
     remainingPlaceholders: countOccurrences(newInfo, placeholder),
     currentVersion: patched.currentVersion,
     newVersion: patched.newVersion,
-    ...graphLinks(graphId),
+    // updateNode built these from the store the graph lives in, so a World graph links to its own editor.
+    editorUrl: patched.editorUrl,
+    viewerUrl: patched.viewerUrl,
   }
 }
 

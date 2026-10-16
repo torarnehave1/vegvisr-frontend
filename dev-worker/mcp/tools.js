@@ -483,7 +483,7 @@ export function registerTools(server, getContext) {
         nodes: g.nodes,
         edges: g.edges,
         world: read.world || null,
-        ...gs.graphLinks(graphId),
+        ...gs.graphLinks(graphId, read.world),
       }
 
       // The text has to carry the ids too, not just a count.
@@ -621,7 +621,7 @@ export function registerTools(server, getContext) {
       const access = await gs.checkAccess(env, actor, graphId, 'read')
       if (!access.ok) return fromService(access)
 
-      const links = gs.graphLinks(graphId)
+      const links = gs.graphLinks(graphId, access.world)
       return ok(
         { success: true, ...links },
         `Editor: ${links.editorUrl}\nViewer: ${links.viewerUrl}`,
@@ -3437,7 +3437,7 @@ ${result.warnings.join('\n')}` : ''),
         id,
         title: meta.title || '(untitled)',
         text,
-        url: gs.graphLinks(id).viewerUrl,
+        url: gs.graphLinks(id, read.world).viewerUrl,
         metadata: {
           metaArea: meta.metaArea || null,
           publicationState: meta.publicationState || 'private',

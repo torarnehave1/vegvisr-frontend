@@ -90,11 +90,21 @@ export function statusForCode(code) {
 
 export const EDITOR_BASE = 'https://editor.vegvisr.org'
 
-export function graphLinks(graphId) {
+/**
+ * A graph stored in a World opens in that World's own editor (editor.<domain>, the same
+ * convention as graphs.<domain>), where its founder is signed in — editor.vegvisr.org has no
+ * session for her, so a link there is refused (403) for a private World graph.
+ */
+export function editorBaseFor(world) {
+  return world ? `https://editor.${String(world).toLowerCase()}` : EDITOR_BASE
+}
+
+export function graphLinks(graphId, world = null) {
+  const base = editorBaseFor(world)
   return {
     graphId,
-    editorUrl: `${EDITOR_BASE}/?graphId=${graphId}`,
-    viewerUrl: `${EDITOR_BASE}/view?graphId=${graphId}`,
+    editorUrl: `${base}/?graphId=${graphId}`,
+    viewerUrl: `${base}/view?graphId=${graphId}`,
   }
 }
 
@@ -547,7 +557,7 @@ export async function createGraph(env, { title, description = '', metaArea, node
     publicationState: 'private',
     version: saved.newVersion,
     world: saved.world || null,
-    ...graphLinks(id),
+    ...graphLinks(id, saved.world),
   }
 }
 
@@ -618,7 +628,7 @@ export async function addNode(env, { graphId, node, expectedVersion = null, acto
     title: graphData.metadata?.title || null,
     metaArea: graphData.metadata?.metaArea || null,
     publicationState: graphData.metadata?.publicationState || 'private',
-    ...graphLinks(graphId),
+    ...graphLinks(graphId, store.world),
   }
   })
 }
@@ -674,7 +684,7 @@ export async function updateMetadata(env, { graphId, fields, expectedVersion, ac
     title: graphData.metadata.title || null,
     metaArea: graphData.metadata.metaArea || null,
     publicationState: graphData.metadata.publicationState || 'private',
-    ...graphLinks(graphId),
+    ...graphLinks(graphId, store.world),
   }
   })
 }
@@ -762,7 +772,7 @@ export function validateNodesAndEdges(nodes = [], edges = []) {
 }
 
 /** The standard success envelope for a graph operation (oppgavens standardresultat). */
-export function graphResult(env, { graphId, title, metaArea, publicationState, version }) {
+export function graphResult(env, { graphId, title, metaArea, publicationState, version, world = null }) {
   return {
     success: true,
     graphId,
@@ -770,7 +780,7 @@ export function graphResult(env, { graphId, title, metaArea, publicationState, v
     metaArea: metaArea ?? null,
     publicationState: publicationState || 'private',
     version: version ?? null,
-    ...graphLinks(graphId),
+    ...graphLinks(graphId, world),
   }
 }
 
@@ -935,7 +945,7 @@ export async function searchGraphs(env, { query, metaArea = null, nodeType = nul
     // authority on who serves a host today — the same two-step the REST listings do.
     publishedDomainsCsv: r.published_domains_csv || '',
     world: r._world || null,
-    ...graphLinks(r.id),
+    ...graphLinks(r.id, r._world),
   }))
 
   return { ok: true, results, total, limit: lim, offset: off, hasMore: off + results.length < total }
@@ -1005,7 +1015,7 @@ export async function listMyGraphs(env, { limit = 20, offset = 0, metaArea = nul
     // authority on who serves a host today — the same two-step the REST listings do.
     publishedDomainsCsv: r.published_domains_csv || '',
     world: r._world || null,
-    ...graphLinks(r.id),
+    ...graphLinks(r.id, r._world),
   }))
 
   return { ok: true, results, total, limit: lim, offset: off, hasMore: off + results.length < total }
@@ -1101,7 +1111,7 @@ export async function updateNode(env, { graphId, nodeId, fields, expectedVersion
     title: graphData.metadata?.title || null,
     metaArea: graphData.metadata?.metaArea || null,
     publicationState: graphData.metadata?.publicationState || 'private',
-    ...graphLinks(graphId),
+    ...graphLinks(graphId, store.world),
   }
   })
 }
@@ -1259,7 +1269,7 @@ export async function moveGraphToWorld(env, { graphId, world, actor }) {
     return {
       ok: true, graphId, world: domain, version: meta.version ?? null, history: verified.versions.length,
       duplicatesDropped, verified, platformCopy: `NOT removed: ${e.message} (unreachable — reads go to ${domain})`,
-      ...graphLinks(graphId),
+      ...graphLinks(graphId, domain),
     }
   }
 
@@ -1273,6 +1283,6 @@ export async function moveGraphToWorld(env, { graphId, world, actor }) {
     duplicatesDropped,
     verified,
     platformCopy: `in the platform trash until ${trash.expiresAt} (${trash.trashId})`,
-    ...graphLinks(graphId),
+    ...graphLinks(graphId, domain),
   }
 }
