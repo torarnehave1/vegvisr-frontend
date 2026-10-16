@@ -7834,9 +7834,11 @@ const restHandler = {
           }
 
           console.log('[Worker] Graph fetched successfully')
+          // The World the graph lives in rides as a header, so the body keeps its shape.
+          const worldHeaders = read.world ? { 'X-Graph-World': read.world, 'Access-Control-Expose-Headers': 'X-Graph-World' } : {}
           return new Response(JSON.stringify(read.graph), {
             status: 200,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            headers: { ...corsHeaders, 'Content-Type': 'application/json', ...worldHeaders },
           })
         } catch (error) {
           console.error('[Worker] Error fetching graph:', error)
