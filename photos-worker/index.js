@@ -154,9 +154,9 @@ const validateAuth = async (request, env) => {
 // Fails closed to 'shared': any missing column, any D1 error, and the caller behaves exactly as
 // before. No existing user can be affected by this until their own row is filled in.
 // What the gallery lists: images, and the videos the app accepts (photos-vegvisr src/lib/media.ts,
-// VIDEO_EXTENSIONS). Images only until 2026-10-16, so an uploaded video was stored and never shown —
+// VIDEO_EXTENSIONS), and PDFs (course recipes, shown as document cards). Images only until 2026-10-16, so an uploaded video was stored and never shown —
 // course videos in a World's album, and videos uploaded through the app itself.
-const GALLERY_MEDIA = /\.(png|jpe?g|gif|webp|svg|mp4|m4v|webm|mov)$/i
+const GALLERY_MEDIA = /\.(png|jpe?g|gif|webp|svg|mp4|m4v|webm|mov|pdf)$/i
 
 const resolvePhotoStorage = async (auth, env) => {
   const shared = { mode: 'shared', owner: auth?.email || null, deliveryBase: null, bucket: null }
