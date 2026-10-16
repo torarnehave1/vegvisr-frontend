@@ -153,6 +153,11 @@ const validateAuth = async (request, env) => {
 //
 // Fails closed to 'shared': any missing column, any D1 error, and the caller behaves exactly as
 // before. No existing user can be affected by this until their own row is filled in.
+// What the gallery lists: images, and the videos the app accepts (photos-vegvisr src/lib/media.ts,
+// VIDEO_EXTENSIONS). Images only until 2026-10-16, so an uploaded video was stored and never shown —
+// course videos in a World's album, and videos uploaded through the app itself.
+const GALLERY_MEDIA = /\.(png|jpe?g|gif|webp|svg|mp4|m4v|webm|mov)$/i
+
 const resolvePhotoStorage = async (auth, env) => {
   const shared = { mode: 'shared', owner: auth?.email || null, deliveryBase: null, bucket: null }
   if (!auth?.valid || !auth.email) return shared
@@ -406,7 +411,7 @@ const handleListR2Images = async (request, env) => {
           )
         }
         for (const obj of body.objects) {
-          if (!/\.(png|jpe?g|gif|webp|svg)$/i.test(obj.key)) continue
+          if (!GALLERY_MEDIA.test(obj.key)) continue
           images.push(await enrichImageWithMetadata(env, {
             key: obj.key,
             url: obj.url || `${storage.deliveryBase}/photos/${obj.key}`,
@@ -430,7 +435,7 @@ const handleListR2Images = async (request, env) => {
 
   const images = await Promise.all(allObjects
     .filter((obj) => !obj.key.startsWith('trash/'))
-    .filter((obj) => /\.(png|jpe?g|gif|webp|svg)$/i.test(obj.key))
+    .filter((obj) => GALLERY_MEDIA.test(obj.key))
     .map(async (obj) => enrichImageWithMetadata(env, {
       key: obj.key,
       url: `${baseUrl}${obj.key}`,
