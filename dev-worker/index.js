@@ -6300,10 +6300,10 @@ const restHandler = {
             const forced = isPrivileged ? (whereSql ? `${whereSql} AND ${sumPubFilter}` : `WHERE ${sumPubFilter}`) : whereSql
             for (const ws of await publicWorldStoresByTag(env, metaAreaParam)) sumWorlds.push({ ws, where: forced })
           }
-          for (const w of sumWorlds) {
-            const n = await w.ws.first(`SELECT COUNT(*) AS total FROM knowledge_graphs ${w.where}`, whereBindings)
-            total += Number(n?.total || 0)
-          }
+          const worldCounts = await Promise.all(
+            sumWorlds.map((w) => w.ws.first(`SELECT COUNT(*) AS total FROM knowledge_graphs ${w.where}`, whereBindings)),
+          )
+          for (const n of worldCounts) total += Number(n?.total || 0)
 
           if (total === 0) {
             return new Response(
@@ -6321,7 +6321,11 @@ const restHandler = {
             )
           }
 
-          const summaryQuery = `
+          // One order everywhere — the id breaks ties so pages never overlap or skip a row.
+          const sumOrderSql = 'ORDER BY COALESCE(updated_at, created_date) DESC, id DESC'
+          // The rich columns (json_each per row) are computed only for the page: the inner select
+          // picks the page's ids, so SQLite does not build every row's columns before it sorts.
+          const summaryQueryFor = (where) => `
             SELECT
               id,
               title,
@@ -6372,14 +6376,13 @@ const restHandler = {
                 WHERE json_extract(value, '$.publishedDomain') IS NOT NULL
               ), '') AS published_domains_csv
             FROM knowledge_graphs
-            ${whereSql}
-            ORDER BY COALESCE(updated_at, created_date) DESC
-            LIMIT ? OFFSET ?
+            WHERE id IN (SELECT id FROM knowledge_graphs ${where} ${sumOrderSql} LIMIT ? OFFSET ?)
+            ${sumOrderSql}
           `
 
           // Safety net: if the rich summary query fails on edge-case data,
           // serve a minimal summary response instead of failing the endpoint.
-          const fallbackSummaryQuery = `
+          const fallbackSummaryQueryFor = (where) => `
             SELECT
               id,
               title,
@@ -6426,37 +6429,67 @@ const restHandler = {
               CASE WHEN json_valid(data) THEN json_extract(data, '$.metadata.mystmkraNodeId') END AS metadata_mystmkra_node_id,
               CASE WHEN json_valid(data) THEN json_extract(data, '$.metadata.affiliates') END AS metadata_affiliates
             FROM knowledge_graphs
-            ${whereSql}
-            ORDER BY COALESCE(updated_at, created_date) DESC
+            ${where}
+            ${sumOrderSql}
             LIMIT ? OFFSET ?
           `
 
-          let rows = []
-          try {
-            const result = await env.vegvisr_org
-              .prepare(summaryQuery)
-              .bind(...whereBindings, limit, offset)
-              .all()
-            rows = result.results || result.rows || []
-          } catch (summaryQueryError) {
-            console.error('[Worker] Rich summary query failed, using minimal fallback:', summaryQueryError)
-            const fallbackResult = await env.vegvisr_org
-              .prepare(fallbackSummaryQuery)
-              .bind(...whereBindings, limit, offset)
-              .all()
-            rows = fallbackResult.results || fallbackResult.rows || []
+          const platformRun = async (sql, params) => {
+            const result = await env.vegvisr_org.prepare(sql).bind(...params).all()
+            return result.results || result.rows || []
+          }
+          const pageRows = async (run, where, lim, off) => {
+            try {
+              return await run(summaryQueryFor(where), [...whereBindings, lim, off])
+            } catch (summaryQueryError) {
+              console.error('[Worker] Rich summary query failed, using minimal fallback:', summaryQueryError)
+              return run(fallbackSummaryQueryFor(where), [...whereBindings, lim, off])
+            }
           }
 
-          if (sumWorlds.length) {
-            // Every store returns its newest (offset + limit) rows; the page is cut from the merge.
-            const head = await env.vegvisr_org.prepare(summaryQuery).bind(...whereBindings, offset + limit, 0).all()
-            const merged = [...(head.results || [])]
-            for (const w of sumWorlds) {
-              const q = w.where === whereSql ? summaryQuery : summaryQuery.replace(whereSql, w.where)
-              for (const row of await w.ws.all(q, [...whereBindings, offset + limit, 0])) merged.push({ ...row, _world: w.ws.world })
+          let rows = []
+          if (!sumWorlds.length) {
+            rows = await pageRows(platformRun, whereSql, limit, offset)
+          } else {
+            // Each store lists only id + timestamp for its newest (offset + limit) rows; the merge
+            // decides which rows form the page, and only those get the rich columns. A store's
+            // share of the page is a contiguous run of its own order, so it is one LIMIT/OFFSET.
+            const stores = [
+              { run: platformRun, where: whereSql, world: null },
+              ...sumWorlds.map((w) => ({ run: (sql, params) => w.ws.all(sql, params), where: w.where, world: w.ws.world })),
+            ]
+            const keyLists = await Promise.all(
+              stores.map((s) =>
+                s.run(`SELECT id, COALESCE(updated_at, created_date) AS ts FROM knowledge_graphs ${s.where} ${sumOrderSql} LIMIT ?`, [...whereBindings, offset + limit]),
+              ),
+            )
+            // k-way merge in the same order as the SQL (binary compare), keeping each store's own order.
+            const after = (a, b) => (a.ts !== b.ts ? String(a.ts || '') < String(b.ts || '') : String(a.id) < String(b.id))
+            const heads = keyLists.map(() => 0)
+            const taken = stores.map(() => ({ before: 0, inPage: [] }))
+            for (let pos = 0; pos < offset + limit; pos++) {
+              let pick = -1
+              for (let si = 0; si < stores.length; si++) {
+                const k = keyLists[si][heads[si]]
+                if (k && (pick < 0 || after(keyLists[pick][heads[pick]], k))) pick = si
+              }
+              if (pick < 0) break
+              const k = keyLists[pick][heads[pick]++]
+              if (pos < offset) taken[pick].before++
+              else taken[pick].inPage.push({ pos, id: k.id })
             }
-            merged.sort((x, y) => String(y.updated_at || y.created_date || '').localeCompare(String(x.updated_at || x.created_date || '')))
-            rows = merged.slice(offset, offset + limit)
+            const pageById = new Map()
+            await Promise.all(
+              stores.map(async (s, si) => {
+                const t = taken[si]
+                if (!t.inPage.length) return
+                for (const row of await pageRows(s.run, s.where, t.inPage.length, t.before)) {
+                  pageById.set(`${si}:${row.id}`, s.world ? { ...row, _world: s.world } : row)
+                }
+              }),
+            )
+            const order = taken.flatMap((t, si) => t.inPage.map((p) => ({ ...p, si }))).sort((a, b) => a.pos - b.pos)
+            rows = order.map((p) => pageById.get(`${p.si}:${p.id}`)).filter(Boolean)
           }
 
           const domainRegistry = await readPublishedDomainRegistry(env)
