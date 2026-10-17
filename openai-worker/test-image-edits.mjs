@@ -21,8 +21,8 @@ const grab = (name) => {
 };
 const consts = src.slice(src.indexOf('const ALLOWED_IMAGE_HOSTS'), src.indexOf('function isAllowedImageUrl'));
 const mod = consts + grab('isAllowedImageUrl') + '\n' + grab('validateEditSize') +
-  '\nexport { isAllowedImageUrl, validateEditSize };';
-const { isAllowedImageUrl, validateEditSize } = await import('data:text/javascript,' + encodeURIComponent(mod));
+  '\nexport { isAllowedImageUrl, validateEditSize, worldImageHosts };';
+const { isAllowedImageUrl, validateEditSize, worldImageHosts } = await import('data:text/javascript,' + encodeURIComponent(mod));
 
 let fail = 0;
 const ok = (name, cond, detail='') => { if (cond) console.log('ok   ' + name); else { fail++; console.error('FAIL ' + name + '  ' + detail); } };
@@ -40,6 +40,22 @@ ok('a lookalike suffix is refused', !isAllowedImageUrl('https://evilvegvisr.org/
    JSON.stringify(isAllowedImageUrl('https://evilvegvisr.org/a.png', env)));
 ok('a suffix in the PATH does not help', !isAllowedImageUrl('https://evil.example/.vegvisr.org/a.png', env).ok);
 ok('EXTRA_IMAGE_HOSTS extends it', isAllowedImageUrl('https://cdn.nibi.no/a.png', { EXTRA_IMAGE_HOSTS: 'cdn.nibi.no' }).ok);
+
+// ── a World's own photo host, from config.photos_delivery_base (Stine, 2026-10-17) ──
+const fakeDb = (rows) => ({ prepare: () => ({ all: async () => ({ results: rows }) }) });
+const worlds = await worldImageHosts({ DB: fakeDb([
+  { photos_delivery_base: 'https://cdn.sodesign.no' },
+  { photos_delivery_base: 'https://cdn.universi.no/' },
+  { photos_delivery_base: 'http://cdn.plain.no' },
+  { photos_delivery_base: 'not a url' },
+]) });
+ok('world hosts are read from config', JSON.stringify(worlds) === JSON.stringify(['cdn.sodesign.no', 'cdn.universi.no']), JSON.stringify(worlds));
+ok('a World image host is allowed', isAllowedImageUrl('https://cdn.sodesign.no/photos/kurs/enkel-hals/kursbilde.jpg', env, worlds).ok);
+ok('without the World list it is refused', !isAllowedImageUrl('https://cdn.sodesign.no/photos/a.jpg', env).ok);
+ok('a subdomain of a World host is refused', !isAllowedImageUrl('https://evil.cdn.sodesign.no/a.jpg', env, worlds).ok);
+ok('the refusal names what is accepted', /cdn\.sodesign\.no/.test(isAllowedImageUrl('https://evil.example/a.png', env, worlds).reason));
+ok('no DB binding: no world hosts', (await worldImageHosts({})).length === 0);
+ok('a DB error allows nothing extra', (await worldImageHosts({ DB: { prepare: () => ({ all: async () => { throw new Error('x'); } }) } })).length === 0);
 ok('garbage is refused',          !isAllowedImageUrl('not a url', env).ok);
 
 // ── the size rules, from OpenAI's guide ──

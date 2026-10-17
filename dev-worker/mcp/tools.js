@@ -2331,8 +2331,11 @@ ${result.warnings.join('\n')}` : ''),
         'ORDER MATTERS: write the prompt referring to "the first reference image", "the second", ' +
         'and so on, matching the order of referenceImageUrls — that wording is the only thing ' +
         'telling them apart. List every feature that must survive (exact colours, markings, ' +
-        'clothing), because what you do not name may change. The URLs must be on a VEGR.AI host ' +
-        'such as vegvisr.imgix.net; anything else is refused. Requires the graph:write scope.',
+        'clothing), because what you do not name may change. The URLs must be images stored in ' +
+        'VEGR.AI: vegvisr.imgix.net, *.vegvisr.org, *.vegr.ai, or a World\'s own image storage ' +
+        '(cdn.<the World\'s domain>, e.g. https://cdn.sodesign.no/photos/...). Images already in the ' +
+        'user\'s graphs — including ones generate_node_image just made — qualify; take the URL from ' +
+        'the node. Any other host is refused. Requires the graph:write scope.',
       inputSchema: {
         graphId: z.string().min(1).describe('The graph containing the node.'),
         nodeId: z.string().min(1).describe('The node whose placeholder to fill.'),
@@ -2349,7 +2352,7 @@ ${result.warnings.join('\n')}` : ''),
           .array(z.string().min(1))
           .min(1)
           .max(4)
-          .describe('One to four https image URLs on a VEGR.AI host, in the order the prompt refers to them.'),
+          .describe('One to four https image URLs stored in VEGR.AI or in a World\'s own image storage (cdn.<domain>), in the order the prompt refers to them.'),
         placement: z
           .enum(['header', 'side', 'fancy'])
           .optional()

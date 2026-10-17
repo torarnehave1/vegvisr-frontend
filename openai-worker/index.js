@@ -476,13 +476,44 @@ async function handleImages(request, env, corsHeaders) {
  * Hosts a reference image may be fetched from.
  *
  * An allowlist rather than a blocklist, and fixed hostnames rather than a pattern the caller
- * supplies. EXTRA_IMAGE_HOSTS in wrangler vars extends it comma-separated for a World on its
- * own domain.
+ * supplies. EXTRA_IMAGE_HOSTS in wrangler vars extends it comma-separated by hand.
+ *
+ * A World's OWN image host (cdn.sodesign.no) is allowed too, read from config.photos_delivery_base
+ * by worldImageHosts below. photos-worker sends a World Founder's uploads there — including the
+ * images this route's own callers just generated — so leaving those hosts out refused every
+ * picture a World Founder owns (Stine, 2026-10-17). Still an allowlist: those values are written
+ * only by provision_world_photos, never by the caller of this route.
  */
 const ALLOWED_IMAGE_HOSTS = ['vegvisr.imgix.net', 'photos-api.vegvisr.org'];
 const ALLOWED_IMAGE_SUFFIXES = ['.vegvisr.org', '.vegr.ai'];
 
-function isAllowedImageUrl(raw, env) {
+/**
+ * Hostnames of every World's own photo delivery, matching photos-worker's rule for when a
+ * founder's uploads go to their own bucket: delivery base and bucket both recorded.
+ */
+async function worldImageHosts(env) {
+  if (!env.DB) return [];
+  try {
+    const { results } = await env.DB
+      .prepare('SELECT photos_delivery_base FROM config WHERE photos_delivery_base IS NOT NULL AND photos_bucket_name IS NOT NULL')
+      .all();
+    const hosts = [];
+    for (const row of results || []) {
+      try {
+        const u = new URL(String(row.photos_delivery_base));
+        if (u.protocol === 'https:') hosts.push(u.hostname.toLowerCase());
+      } catch {
+        // A malformed base allows nothing rather than failing the whole request.
+      }
+    }
+    return hosts;
+  } catch (e) {
+    console.error('[images/edits] could not read World image hosts:', e.message);
+    return [];
+  }
+}
+
+function isAllowedImageUrl(raw, env, worldHosts = []) {
   let url;
   try {
     url = new URL(raw);
@@ -500,9 +531,18 @@ function isAllowedImageUrl(raw, env) {
   const allowed =
     ALLOWED_IMAGE_HOSTS.includes(host) ||
     extra.includes(host) ||
+    worldHosts.includes(host) ||
     ALLOWED_IMAGE_SUFFIXES.some(suffix => host.endsWith(suffix));
   if (!allowed) {
-    return { ok: false, reason: `host ${host} is not allowed` };
+    // Says what IS accepted, so the caller can tell the user where the picture has to live
+    // instead of inventing an upload step.
+    return {
+      ok: false,
+      reason:
+        `host ${host} is not allowed. Accepted: images in VEGR.AI (vegvisr.imgix.net, *.vegvisr.org, *.vegr.ai)` +
+        (worldHosts.length ? ` or a World's own image storage (${worldHosts.join(', ')})` : '') +
+        '. An image anywhere else has to be uploaded in VEGR.AI first; a World Founder\'s upload lands in their own storage, which is accepted.',
+    };
   }
   return { ok: true, url };
 }
@@ -592,8 +632,9 @@ async function handleImageEdits(request, env, corsHeaders) {
 
     // Fetch every reference up front, so one bad URL fails before anything reaches OpenAI.
     const files = [];
+    const worldHosts = await worldImageHosts(env);
     for (const [index, raw] of referenceImageUrls.entries()) {
-      const check = isAllowedImageUrl(raw, env);
+      const check = isAllowedImageUrl(raw, env, worldHosts);
       if (!check.ok) {
         return jsonError(`referenceImageUrls[${index}]: ${check.reason}`, 400, corsHeaders);
       }
@@ -1307,7 +1348,7 @@ function handleOpenApiJson(corsHeaders) {
           description:
             'Edit or compose using one to four REFERENCE IMAGES, named by https URL — the only route here that takes pictures in. ' +
             'The worker fetches each URL itself, so a caller sends short strings rather than base64; the hosts it will fetch from ' +
-            'are allowlisted (vegvisr.imgix.net, photos-api.vegvisr.org, *.vegvisr.org, *.vegr.ai, plus EXTRA_IMAGE_HOSTS). ' +
+            'are allowlisted (vegvisr.imgix.net, photos-api.vegvisr.org, *.vegvisr.org, *.vegr.ai, every World\'s own photo host from config.photos_delivery_base, plus EXTRA_IMAGE_HOSTS). ' +
             'ORDER MATTERS: refer to them in the prompt as "the first reference image", "the second", and so on. ' +
             'Size must have both edges a multiple of 16, each at most 3840, a ratio within 1:3 to 3:1, and 655,360 to 8,294,400 total pixels. ' +
             'Quality defaults to "low" on purpose — measured, "max" costs about 15x more and takes about 8x longer for the same request ' +
