@@ -53,7 +53,8 @@ import { NODE_TYPES } from './node-types.js'
 import * as emailService from './email-service.js'
 import * as smsService from './sms-service.js'
 import { imapProbe, imapFindSentFolder, fileSentCopy } from './imap-service.js'
-import { OAuthProvider } from '@cloudflare/workers-oauth-provider'
+import { OAuthProvider, getOAuthApi } from '@cloudflare/workers-oauth-provider'
+import { resolveLoginToken } from './oauth/external-token.js'
 import { handleAuthorize, ISSUER, MCP_RESOURCE, SUPPORTED_SCOPES } from './oauth/authorize.js'
 import { mcpHandler } from './mcp/server.js'
 
@@ -11187,7 +11188,7 @@ function getProvider(env) {
   const origin = (env.MCP_PUBLIC_ORIGIN || ISSUER).replace(/\/+$/, '')
   const resource = `${origin}/mcp`
 
-  providerInstance = new OAuthProvider({
+  const options = {
     // /mcp is the one protected route. Every protected route must be the canonical resource path
     // or a descendant of it; the provider refuses to construct otherwise.
     apiRoute: '/mcp',
@@ -11215,7 +11216,17 @@ function getProvider(env) {
 
     // Short-lived access tokens so a leaked one expires on its own; refresh tokens rotate on use.
     accessTokenTTL: 3600,
-  })
+
+    // The account's own login token, for Agent-Builder's mcp_call (and "Login as"): see
+    // oauth/external-token.js. Runs only after the internal token lookup fails. Scopes mirror the
+    // user's own grants to this server.
+    resolveExternalToken: ({ token, env: e }) =>
+      resolveLoginToken(
+        { token, env: e },
+        { resource, listUserGrants: (userId, o) => getOAuthApi(options, e).listUserGrants(userId, o) },
+      ),
+  }
+  providerInstance = new OAuthProvider(options)
   return providerInstance
 }
 

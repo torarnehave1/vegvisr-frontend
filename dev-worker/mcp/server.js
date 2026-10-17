@@ -233,8 +233,14 @@ export const mcpHandler = {
       return json({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed.' }, id: null }, 405)
     }
 
-    const auth = ctx?.auth
+    let auth = ctx?.auth
     const props = ctx?.props
+    // A login token (oauth/external-token.js) arrives with an empty ctx.auth.scope and no client:
+    // the provider cannot know either. Its scopes were resolved into props; move them where every
+    // tool's requireScope looks.
+    if (auth && props?.authMethod === 'login-token') {
+      auth = { ...auth, scope: Array.isArray(props.scopes) ? props.scopes : [], clientId: 'login-token' }
+    }
     if (!auth || !props) {
       // Belt and braces: the provider should never route an unauthenticated request here.
       return json({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthenticated.' }, id: null }, 401)
