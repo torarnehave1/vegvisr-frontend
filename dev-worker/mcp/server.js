@@ -24,6 +24,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
+import { allowedNodeTypes } from '../node-type-registry.js'
 import { registerTools, registerWorkerTools, actorFromAuth, TOOL_NAMES } from './tools.js'
 import { discoverWorkerTools } from '../worker-tools.js'
 
@@ -264,7 +265,9 @@ export const mcpHandler = {
     })
 
     // One context per request; the tools read it when they run.
-    registerTools(server, () => ({ auth, env, props }))
+    // The allowed node types include the data types registered in graph_system_registry, so the
+    // schemas are built for this request (cached a minute in node-type-registry.js).
+    registerTools(server, () => ({ auth, env, props }), { nodeTypes: await allowedNodeTypes(env) })
 
     // The create_worker workers' own tools, for the Superadmin only, and only on the two methods
     // that can use them — discovery costs a GitHub call and one fetch per worker (cached a minute),

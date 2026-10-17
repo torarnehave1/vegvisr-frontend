@@ -30,6 +30,7 @@ import * as images from '../images-service.js'
 import * as sites from '../published-domains.js'
 import * as publish from '../publish-service.js'
 import { NODE_TYPES, DEFAULT_NODE_TYPE, suggestNodeType } from '../node-types.js'
+import { REGISTRY_GRAPH_ID, REGISTRY_NODE_TYPE, TYPE_NAME, invalidateNodeTypeCache } from '../node-type-registry.js'
 import * as users from '../users-service.js'
 import * as sms from '../sms-service.js'
 import * as workerSource from '../worker-source-service.js'
@@ -76,7 +77,10 @@ const NodeMetadata = z
     }
   })
 
-const NodeInput = z
+// Built per request: the allowed types are the renderable list PLUS the data types registered in
+// graph_system_registry (node-type-registry.js), so a type registered a minute ago is accepted
+// without a deploy. NodeInput is the default for callers that pass no list (tests).
+const makeNodeInput = (nodeTypes) => z
   .object({
     id: z.string().min(1).optional().describe('Node id. A UUID v4 is generated when omitted.'),
     label: z.string().min(1).describe('Node display label. Required.'),
@@ -85,14 +89,16 @@ const NodeInput = z
     // displays as raw text. A wrong value is now refused by the protocol before anything is
     // stored, and the list a model sees is the same one openapi.json publishes.
     type: z
-      .enum(NODE_TYPES)
+      .enum(nodeTypes)
       .optional()
       .describe(
         `The node's content type — it selects the renderer, so the exact string matters and a ` +
           `wrong one would display as plain text. Note the -node suffix: "html-node", not "html". ` +
           `Defaults to ${DEFAULT_NODE_TYPE}. Common: fulltext (markdown), html-node (a full HTML ` +
           `document in an iframe), css-node (a stylesheet for the html-nodes in the same graph), ` +
-          `info (markdown in an info panel), markdown-image, youtube-video, mermaid-diagram.`,
+          `info (markdown in an info panel), markdown-image, youtube-video, mermaid-diagram. ` +
+          `Types after youtube-video in the list are DATA types, read by a program rather than ` +
+          `displayed (e.g. work-context: an Agent-Builder work-context card).`,
       ),
     info: z.string().optional().describe('Node content. Markdown for fulltext nodes.'),
     color: z.string().optional().describe('Hex colour, e.g. #4f6d7a.'),
@@ -296,7 +302,8 @@ const listShape = {
  * `getContext()` returns { auth, env } for the request currently being served. It is a function
  * rather than a value because one registration serves every request in a stateless transport.
  */
-export function registerTools(server, getContext) {
+export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {}) {
+  const NodeInput = makeNodeInput(nodeTypes)
   // ── create_graph ──────────────────────────────────────────────────────────
   server.registerTool(
     'create_graph',
@@ -406,6 +413,73 @@ export function registerTools(server, getContext) {
           (result.duplicatesDropped ? ` ${result.duplicatesDropped} duplicate history row(s) on the platform were not carried over.` : '') +
           `\nPlatform original: ${result.platformCopy}.\nEditor: ${result.editorUrl}`,
       )
+    },
+  )
+
+  // ── register_node_type ────────────────────────────────────────────────────
+  server.registerTool(
+    'register_node_type',
+    {
+      title: 'Register a data node type',
+      description:
+        'Make a new node TYPE writable through add_node, update_node and create_graph — a DATA type ' +
+        'that a program reads rather than the viewer displays, e.g. "work-context" (Agent-Builder ' +
+        'work-context cards). It is recorded as a system-nodetype node in graph_system_registry, ' +
+        'which is where the allowed types come from, and is usable within a minute with no deploy. ' +
+        'Renderable types cannot be added here: those follow the viewer\'s renderers. Superadmin ' +
+        'only. Requires the graph:write scope.',
+      inputSchema: {
+        type: z.string().min(2).max(40).describe('The type name: lowercase letters, digits, - or _, starting with a letter, e.g. "work-context".'),
+        description: z.string().min(10).describe('What a node of this type holds, in a sentence or two.'),
+        consumer: z.string().min(3).describe('What reads these nodes, e.g. "agent-worker GET /work-contexts".'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        type: z.string(),
+        registryNodeId: z.string(),
+        alreadyRegistered: z.boolean(),
+      },
+      annotations: ADDITIVE_WRITE,
+    },
+    async ({ type, description, consumer }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      if (!actor.isSuperadmin) return err(gs.ERR.FORBIDDEN_GRAPH, 'Registering a node type is for the Superadmin only.')
+
+      const name = String(type).trim()
+      if (!TYPE_NAME.test(name)) {
+        return err(gs.ERR.INVALID_INPUT, `"${name}" is not a valid type name: lowercase letters, digits, - or _, starting with a letter, 2–40 characters.`)
+      }
+      if (NODE_TYPES.includes(name)) {
+        return ok({ success: true, type: name, registryNodeId: '', alreadyRegistered: true },
+          `"${name}" is already a renderable type; nothing to register.`)
+      }
+      const registryNodeId = `nodetype-${name}`
+      const result = await gs.addNode(env, {
+        graphId: REGISTRY_GRAPH_ID,
+        node: {
+          id: registryNodeId,
+          label: name,
+          type: REGISTRY_NODE_TYPE,
+          info: String(description).trim(),
+          metadata: { consumer: String(consumer).trim(), renders: false, registeredAt: new Date().toISOString() },
+        },
+        actor,
+      })
+      if (!result.ok) {
+        if (result.code === 'NODE_EXISTS' || /exist/i.test(result.message || '')) {
+          invalidateNodeTypeCache()
+          return ok({ success: true, type: name, registryNodeId, alreadyRegistered: true },
+            `"${name}" was already registered (${registryNodeId} in ${REGISTRY_GRAPH_ID}).`)
+        }
+        return fromService(result)
+      }
+      invalidateNodeTypeCache()
+      return ok({ success: true, type: name, registryNodeId, alreadyRegistered: false },
+        `Registered node type "${name}" as ${registryNodeId} in ${REGISTRY_GRAPH_ID}. add_node and update_node accept it from the next request.`)
     },
   )
 
@@ -647,7 +721,7 @@ export function registerTools(server, getContext) {
           .object({
             label: z.string().optional().describe('New display label.'),
             info: z.string().optional().describe('New content. Markdown for fulltext nodes. Replaces the old content entirely.'),
-            type: z.enum(NODE_TYPES).optional().describe('New node type. Must be one of the known types — "html-node", not "html".'),
+            type: z.enum(nodeTypes).optional().describe('New node type. Must be one of the known types — "html-node", not "html". Data types registered with register_node_type (e.g. work-context) are accepted too.'),
             color: z.string().optional().describe('New hex colour.'),
             path: z.string().nullable().optional().describe('New media path.'),
             bibl: z.array(z.string()).optional().describe('New source list — replaces the old one.'),
@@ -3557,4 +3631,5 @@ export const TOOL_NAMES = [
   'search',
   'fetch',
   'move_graph_to_world',
+  'register_node_type',
 ]

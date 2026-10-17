@@ -50,6 +50,7 @@ function graphStoreErrorResponse(error, corsHeaders) {
 import { listTemplates as gsListTemplates } from './templates-service.js'
 import { readPublishedDomainRegistry, mergePublishedDomains, recordPublishedSite } from './published-domains.js'
 import { NODE_TYPES } from './node-types.js'
+import { allowedNodeTypes, registeredNodeTypes } from './node-type-registry.js'
 import * as emailService from './email-service.js'
 import * as smsService from './sms-service.js'
 import { imapProbe, imapFindSentFolder, fileSentCopy } from './imap-service.js'
@@ -6139,6 +6140,17 @@ const restHandler = {
       }
 
 
+
+      // GET /node-types — every node type a write may carry: the renderable list (node-types.js)
+      // plus the data types registered in graph_system_registry (node-type-registry.js). Names
+      // only, nothing private. Agent-Builder's create_node/patch_node validate against this so
+      // both doors into the graphs accept the same types.
+      if (pathname === '/node-types' && request.method === 'GET') {
+        const registered = await registeredNodeTypes(env)
+        return new Response(JSON.stringify({ renderable: NODE_TYPES, registered, all: await allowedNodeTypes(env) }), {
+          headers: { ...corsHeaders, 'Cache-Control': 'max-age=60' },
+        })
+      }
 
       if (pathname === '/getmetaareas' && request.method === 'GET') {
         try {
