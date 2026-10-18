@@ -8,7 +8,7 @@
 // runs that renderer in an isolated iframe (no cookies, storage, parent access or network). It is
 // a Component Registry component served from api.vegvisr.org. The element is created here in
 // code, so Vue never has to resolve it as a component.
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, ref, toRaw, watch } from 'vue'
 import { loadApprovedNodeTypes } from '@/utils/vegvisrNode'
 
 const props = defineProps({
@@ -22,14 +22,14 @@ const props = defineProps({
 const host = ref(null)
 let el = null
 
-const payload = () => ({
-  id: props.node.id,
-  label: props.node.label,
-  type: props.node.type,
-  info: props.node.info,
-  color: props.node.color,
-  metadata: props.node.metadata || {},
-})
+// Plain data, not Vue's reactive Proxy: postMessage cannot clone a Proxy (DataCloneError), which
+// left the frame on its "Loading…" text (2026-10-18). The engine copies too; this is belt and braces.
+const payload = () => {
+  const n = toRaw(props.node)
+  let metadata = {}
+  try { metadata = JSON.parse(JSON.stringify(toRaw(n.metadata) || {})) } catch { metadata = {} }
+  return { id: n.id, label: n.label, type: n.type, info: n.info, color: n.color, metadata }
+}
 
 onMounted(async () => {
   await loadApprovedNodeTypes()
