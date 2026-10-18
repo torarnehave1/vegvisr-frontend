@@ -483,6 +483,133 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
     },
   )
 
+  // ── set_node_type_renderer ────────────────────────────────────────────────
+  // How a registered type is DISPLAYED. Stored on the type's registry node as PENDING; nothing
+  // runs until approve_node_type_renderer. Changing the code bumps the version and resets the
+  // approval, so an approved renderer can never be swapped for unreviewed code.
+  server.registerTool(
+    'set_node_type_renderer',
+    {
+      title: 'Set the renderer for a node type',
+      description:
+        'Give a registered DATA node type (see register_node_type) a renderer: the HTML/CSS/JS that ' +
+        'the <vegvisr-node> element runs to display nodes of that type in every viewer (GNewViewer, ' +
+        'Knowledge Editor, Agent-Builder). It runs in an isolated iframe (sandbox allow-scripts only, ' +
+        'CSP default-src none): no network, no cookies, no other nodes. It receives one message ' +
+        '{ node: {id,label,type,info,metadata}, theme, locale } via window.addEventListener("message") ' +
+        'and should draw the node into document.body; height is reported automatically. Pass impl, ' +
+        'or component = the label of a Component Registry node whose metadata.impl to use. Saved as ' +
+        'PENDING with a new version; it does not run anywhere until approve_node_type_renderer. ' +
+        'Superadmin only (platform types). Requires the graph:write scope.',
+      inputSchema: {
+        type: z.string().min(2).max(40).describe('A registered data type, e.g. "work-context".'),
+        impl: z.string().min(20).optional().describe('The renderer: a full HTML document or fragment with inline <style> and <script>.'),
+        component: z.string().min(2).optional().describe('Instead of impl: a Component Registry component label whose metadata.impl is the renderer.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        type: z.string(),
+        version: z.number(),
+        status: z.string(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ type, impl, component }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      if (!actor.isSuperadmin) return err(gs.ERR.FORBIDDEN_GRAPH, 'Setting a platform type renderer is for the Superadmin only.')
+      if (!impl === !component) return err(gs.ERR.INVALID_INPUT, 'Pass exactly one of impl or component.')
+
+      if (NODE_TYPES.includes(type)) {
+        return err(gs.ERR.INVALID_INPUT, `"${type}" is a built-in renderable type; its renderer is part of the viewers, not data.`)
+      }
+      // A fresh read, not the cache: the write below merges into this node's metadata.
+      const reg = await gs.getGraph(env, REGISTRY_GRAPH_ID)
+      if (!reg.ok) return fromService(reg)
+      const entry = reg.graph.nodes.find((n) => n.type === REGISTRY_NODE_TYPE && String(n.label || '').trim() === String(type).trim())
+      if (!entry) return err(gs.ERR.INVALID_INPUT, `"${type}" is not registered. Call register_node_type first.`)
+      const prev = entry.metadata?.renderer || {}
+      const renderer = {
+        version: (Number(prev.version) || 0) + 1,
+        ...(impl ? { impl } : { component: String(component).trim() }),
+        status: 'pending',
+        scope: 'platform',
+        updatedBy: actor.userEmail || actor.userId,
+        updatedAt: new Date().toISOString(),
+      }
+      // gs.updateNode REPLACES metadata, so the node's other keys (consumer, renders…) are carried.
+      const result = await gs.updateNode(env, {
+        graphId: REGISTRY_GRAPH_ID, nodeId: entry.id, fields: { metadata: { ...(entry.metadata || {}), renderer } },
+        expectedVersion: reg.version, actor,
+      })
+      if (!result.ok) return fromService(result)
+      invalidateNodeTypeCache()
+      return ok({ success: true, type, version: renderer.version, status: 'pending' },
+        `Renderer v${renderer.version} for "${type}" saved as PENDING on ${entry.id}. It runs nowhere until approve_node_type_renderer({ type: "${type}", version: ${renderer.version} }).`)
+    },
+  )
+
+  // ── approve_node_type_renderer ────────────────────────────────────────────
+  server.registerTool(
+    'approve_node_type_renderer',
+    {
+      title: 'Approve a node type renderer',
+      description:
+        'Approve the PENDING renderer of a registered data type so <vegvisr-node> may run it in every ' +
+        'viewer. Pass the version you reviewed: if the code changed since, the approval is refused. ' +
+        'Record how it was checked (e.g. "Playwright screenshot + isolation checks"). Superadmin ' +
+        'only (platform types). Requires the graph:write scope.',
+      inputSchema: {
+        type: z.string().min(2).max(40).describe('The type, e.g. "work-context".'),
+        version: z.number().int().min(1).describe('The renderer version you reviewed.'),
+        verifyMethod: z.string().min(5).describe('How it was checked before approval.'),
+        observed: z.string().optional().describe('What the check showed.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        type: z.string(),
+        version: z.number(),
+        status: z.string(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ type, version, verifyMethod, observed }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      if (!actor.isSuperadmin) return err(gs.ERR.FORBIDDEN_GRAPH, 'Approving a platform type renderer is for the Superadmin only.')
+
+      const reg = await gs.getGraph(env, REGISTRY_GRAPH_ID)
+      if (!reg.ok) return fromService(reg)
+      const entry = reg.graph.nodes.find((n) => n.type === REGISTRY_NODE_TYPE && String(n.label || '').trim() === String(type).trim())
+      const prev = entry?.metadata?.renderer
+      if (!entry || !prev) return err(gs.ERR.INVALID_INPUT, `"${type}" has no renderer to approve. Call set_node_type_renderer first.`)
+      if (Number(prev.version) !== version) {
+        return err(gs.ERR.VERSION_CONFLICT, `Renderer for "${type}" is at v${prev.version}, not v${version}. Review the current version and approve that.`)
+      }
+      const renderer = {
+        ...prev,
+        status: 'approved',
+        approvedBy: actor.userEmail || actor.userId,
+        approvedAt: new Date().toISOString(),
+        verify: { method: verifyMethod, ...(observed ? { observed } : {}) },
+      }
+      const result = await gs.updateNode(env, {
+        graphId: REGISTRY_GRAPH_ID, nodeId: entry.id, fields: { metadata: { ...(entry.metadata || {}), renderer } },
+        expectedVersion: reg.version, actor,
+      })
+      if (!result.ok) return fromService(result)
+      invalidateNodeTypeCache()
+      return ok({ success: true, type, version, status: 'approved' },
+        `Renderer v${version} for "${type}" approved. <vegvisr-node> serves it from GET /node-types/${type}/renderer within a minute.`)
+    },
+  )
+
   // ── get_graph ─────────────────────────────────────────────────────────────
   server.registerTool(
     'get_graph',
@@ -3632,4 +3759,6 @@ export const TOOL_NAMES = [
   'fetch',
   'move_graph_to_world',
   'register_node_type',
+  'set_node_type_renderer',
+  'approve_node_type_renderer',
 ]

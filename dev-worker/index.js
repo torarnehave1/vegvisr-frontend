@@ -50,7 +50,7 @@ function graphStoreErrorResponse(error, corsHeaders) {
 import { listTemplates as gsListTemplates } from './templates-service.js'
 import { readPublishedDomainRegistry, mergePublishedDomains, recordPublishedSite } from './published-domains.js'
 import { NODE_TYPES } from './node-types.js'
-import { allowedNodeTypes, registeredNodeTypes } from './node-type-registry.js'
+import { allowedNodeTypes, registeredNodeTypes, nodeTypeRenderers, approvedRenderer } from './node-type-registry.js'
 import * as emailService from './email-service.js'
 import * as smsService from './sms-service.js'
 import { imapProbe, imapFindSentFolder, fileSentCopy } from './imap-service.js'
@@ -6147,8 +6147,27 @@ const restHandler = {
       // both doors into the graphs accept the same types.
       if (pathname === '/node-types' && request.method === 'GET') {
         const registered = await registeredNodeTypes(env)
-        return new Response(JSON.stringify({ renderable: NODE_TYPES, registered, all: await allowedNodeTypes(env) }), {
-          headers: { ...corsHeaders, 'Cache-Control': 'max-age=60' },
+        return new Response(JSON.stringify({
+          renderable: NODE_TYPES,
+          registered,
+          all: await allowedNodeTypes(env),
+          // Which registered types have a renderer, and whether it may run. No code here — a
+          // viewer asks /node-types/<type>/renderer for that, and only for an approved one.
+          renderers: await nodeTypeRenderers(env),
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'max-age=60' },
+        })
+      }
+
+      // GET /node-types/<type>/renderer — the code <vegvisr-node> runs for a registered type, in an
+      // isolated iframe. 404 unless the renderer exists AND is approved: an unapproved one is never
+      // served, so it cannot run in anyone's browser.
+      const rendererMatch = pathname.match(/^\/node-types\/([a-z][a-z0-9_-]{1,39})\/renderer$/)
+      if (rendererMatch && request.method === 'GET') {
+        const r = await approvedRenderer(env, rendererMatch[1])
+        return new Response(JSON.stringify(r || { error: `No approved renderer for type "${rendererMatch[1]}".` }), {
+          status: r ? 200 : 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': r ? 'max-age=60' : 'no-store' },
         })
       }
 
