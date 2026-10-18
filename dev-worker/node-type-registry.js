@@ -121,6 +121,19 @@ export async function worldNodeTypes(env, world, opts) {
   return [...new Set(nodes.map((n) => String(n.label).trim()))]
 }
 
+/**
+ * { type: { title, fields } } for a World's own types — what a form needs to edit a node of the
+ * type (Knowledge Editor) and what a picker shows. Public like the names: no code, no drafts' content.
+ */
+export async function worldTypeInfo(env, world, opts) {
+  const out = {}
+  for (const n of await worldTypeNodes(env, world, opts)) {
+    const m = n.metadata || {}
+    out[String(n.label).trim()] = { title: m.title || String(n.label).trim(), fields: Array.isArray(m.fields) ? m.fields : [] }
+  }
+  return out
+}
+
 /** Type names registered as system-nodetype nodes: the platform's, then — with `world` — that World's. */
 export async function registeredNodeTypes(env, opts = {}) {
   const nodes = await registryTypeNodes(env, opts)

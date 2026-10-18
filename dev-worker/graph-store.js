@@ -672,6 +672,33 @@ export async function publicWorldStoresByTag(env, metaArea) {
 }
 
 /**
+ * The Worlds with a live graph store that this person founded or holds the account of — by the
+ * founder rows, never by role (decided 2026-10-18, V4 A): post@universi.no is a Superadmin and
+ * still gets universi.no. Used where a founder acts on "their" World without naming it (the
+ * node-type tools). [] when there are none or the registry does not exist yet; throws when it
+ * cannot be read.
+ */
+export async function worldsFoundedBy(env, email) {
+  const e = String(email || '').trim().toLowerCase()
+  if (!e) return []
+  try {
+    const rows = await env.vegvisr_org
+      .prepare(
+        `SELECT DISTINCT s.domain FROM world_graph_stores s JOIN world_founders f ON f.domain = s.domain
+         WHERE s.status IN ('provisioned', 'active')
+           AND (LOWER(f.founder_email) = ? OR LOWER(COALESCE(f.account_holder_email, '')) = ?)
+         ORDER BY s.domain`,
+      )
+      .bind(e, e)
+      .all()
+    return (rows.results || []).map((r) => r.domain)
+  } catch (err) {
+    if (/no such table/i.test(err.message)) return []
+    throw new GraphStoreError('STORE_UNAVAILABLE', `The graph registry could not be read: ${err.message}`)
+  }
+}
+
+/**
  * Where a NEW graph goes when the caller names no World (G7). A founder or account holder of
  * exactly ONE World whose store is 'active' gets that World; everyone else — a Superadmin, a
  * founder of several active Worlds, anyone with none — gets null, meaning the platform as before.

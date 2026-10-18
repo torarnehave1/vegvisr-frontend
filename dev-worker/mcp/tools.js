@@ -35,6 +35,7 @@ import {
   normalizeWorld, registeredNodeTypes, worldRegistryGraph, nodeTypeAllowedIn,
 } from '../node-type-registry.js'
 import { mayUseWorld, defaultWorldFor } from '../graph-store.js'
+import * as nts from '../node-type-service.js'
 import * as users from '../users-service.js'
 import * as sms from '../sms-service.js'
 import * as workerSource from '../worker-source-service.js'
@@ -340,50 +341,15 @@ async function nodeTypeRefusal(env, type, world) {
     : `"${type}" is a World's own node type; it can only be used in a graph stored in that World.`)
 }
 
-/**
- * register_node_type with `world`: the type goes into the World's own registry graph (tag
- * #WORLD-NODE-TYPES in its store), which the first registration creates. A name the platform has
- * is refused — a World never shadows a platform type (D2 A).
- */
+/** register_node_type with `world` — the rules live in node-type-service.js, shared with REST. */
 async function registerWorldNodeType(env, actor, { name, description, consumer, world }) {
-  const reg = await typeRegistryFor(env, actor, world, 'Registering a node type')
-  if (reg.error) return reg.error
-  const domain = reg.world
-  if (NODE_TYPES.includes(name) || (await registeredNodeTypes(env)).includes(name)) {
-    return err(gs.ERR.INVALID_INPUT, `"${name}" is already a platform node type; a World cannot redefine it. Use it as it is, or pick another name.`)
-  }
-  const registryNodeId = `nodetype-${name}`
-  const node = {
-    id: registryNodeId,
-    label: name,
-    type: REGISTRY_NODE_TYPE,
-    info: String(description).trim(),
-    metadata: { consumer: String(consumer).trim(), scope: `world:${domain}`, renders: false, registeredAt: new Date().toISOString() },
-  }
-  const shape = (registryGraphId, alreadyRegistered) => ({ success: true, type: name, registryNodeId, alreadyRegistered, registryGraphId, world: domain })
-  if (reg.graphId && typeEntryIn(reg.nodes, name)) {
-    return ok(shape(reg.graphId, true), `"${name}" was already registered in ${domain} (${registryNodeId} in ${reg.graphId}).`)
-  }
-  let registryGraphId = reg.graphId
-  if (!registryGraphId) {
-    const created = await gs.createGraph(env, {
-      title: `Node types — ${domain}`,
-      description: `The node types of ${domain}: system-nodetype nodes, each with its renderer in metadata.renderer. Written by register_node_type / set_node_type_renderer / approve_node_type_renderer with world "${domain}".`,
-      metaArea: WORLD_TYPES_TAG,
-      nodes: [node],
-      actor,
-      world: domain,
-    })
-    if (!created.ok) return fromService(created)
-    if (created.world !== domain) return err(gs.ERR.INTERNAL_ERROR, `The registry graph was stored in ${created.world || 'the platform'}, not ${domain}.`)
-    registryGraphId = created.graphId
-  } else {
-    const added = await gs.addNode(env, { graphId: registryGraphId, node, actor })
-    if (!added.ok) return fromService(added)
-  }
-  invalidateNodeTypeCache(domain)
-  return ok(shape(registryGraphId, false),
-    `Registered node type "${name}" for ${domain} as ${registryNodeId} in its own registry (${registryGraphId}). Graphs in ${domain} accept it from the next request; it is not valid anywhere else.`)
+  const r = await nts.createWorldType(env, actor, { world, type: name, title: name, description, consumer })
+  if (!r.ok) return fromService(r)
+  const registryNodeId = `nodetype-${r.type}`
+  return ok({ success: true, type: r.type, registryNodeId, alreadyRegistered: r.alreadyExisted, registryGraphId: r.registryGraphId, world: r.world },
+    r.alreadyExisted
+      ? `"${r.type}" was already registered in ${r.world} (${registryNodeId} in ${r.registryGraphId}).`
+      : `Registered node type "${r.type}" for ${r.world} as ${registryNodeId} in its own registry (${r.registryGraphId}). Graphs in ${r.world} accept it from the next request; it is not valid anywhere else.`)
 }
 
 export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {}) {
@@ -627,6 +593,12 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
       if (NODE_TYPES.includes(type)) {
         return err(gs.ERR.INVALID_INPUT, `"${type}" is a built-in renderable type; its renderer is part of the viewers, not data.`)
       }
+      if (normalizeWorld(world)) {
+        const r = await nts.setWorldTypeLook(env, actor, { world, type, impl, component })
+        if (!r.ok) return fromService(r)
+        return ok({ success: true, type, version: r.look.version, status: 'pending' },
+          `Renderer v${r.look.version} for "${type}" saved as PENDING on nodetype-${type} in ${r.world}'s registry. It runs nowhere until approve_node_type_renderer({ type: "${type}", version: ${r.look.version}, world: "${r.world}" }).`)
+      }
       // A fresh read, not the cache: the write below merges into this node's metadata.
       const reg = await typeRegistryFor(env, actor, world, 'Setting a renderer')
       if (reg.error) return reg.error
@@ -687,6 +659,12 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
+      if (normalizeWorld(world)) {
+        const r = await nts.useWorldType(env, actor, { world, type, version, verifyMethod, observed })
+        if (!r.ok) return fromService(r)
+        return ok({ success: true, type, version, status: 'approved' },
+          `Renderer v${version} for "${type}" approved in ${r.world}. <vegvisr-node> serves it from GET /node-types/${type}/renderer?world=${r.world} within a minute.`)
+      }
       const reg = await typeRegistryFor(env, actor, world, 'Approving a renderer')
       if (reg.error) return reg.error
       const entry = reg.graphId ? typeEntryIn(reg.nodes, type) : null

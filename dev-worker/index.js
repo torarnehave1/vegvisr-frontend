@@ -50,7 +50,8 @@ function graphStoreErrorResponse(error, corsHeaders) {
 import { listTemplates as gsListTemplates } from './templates-service.js'
 import { readPublishedDomainRegistry, mergePublishedDomains, recordPublishedSite } from './published-domains.js'
 import { NODE_TYPES } from './node-types.js'
-import { allowedNodeTypes, registeredNodeTypes, nodeTypeRenderers, approvedRenderer, worldNodeTypes, normalizeWorld } from './node-type-registry.js'
+import { allowedNodeTypes, registeredNodeTypes, nodeTypeRenderers, approvedRenderer, worldNodeTypes, worldTypeInfo, normalizeWorld } from './node-type-registry.js'
+import * as nodeTypeService from './node-type-service.js'
 import * as emailService from './email-service.js'
 import * as smsService from './sms-service.js'
 import { imapProbe, imapFindSentFolder, fileSentCopy } from './imap-service.js'
@@ -6141,6 +6142,42 @@ const restHandler = {
 
 
 
+      // A World's own node types for its FOUNDER — Agent-Builder's "Nodetyper" work context
+      // (PLAN-nodetyper-chat.md, 2026-10-18). Same rules as the MCP tools: node-type-service.js.
+      //   GET  /node-types/world/mine[?world=]   their types, drafts' code included
+      //   POST /node-types/world/create          { world?, title, description, fields, type? }
+      //   POST /node-types/world/look            { world?, type, impl, fields?, title? } → a draft
+      //   POST /node-types/world/use             { world?, type, version } → put to use (approve)
+      // The caller is the signed-in user (X-API-Token / X-Session-Token, or x-acting-user-email on
+      // the service binding); no world = the one World they founded (V4 A).
+      if (pathname.startsWith('/node-types/world/')) {
+        const op = pathname.slice('/node-types/world/'.length)
+        const ops = { mine: 'GET', create: 'POST', look: 'POST', use: 'POST' }
+        if (ops[op] && request.method === ops[op]) {
+          const actor = await optionalCaller(request, env)
+          let body = {}
+          if (request.method === 'POST') {
+            try { body = await request.json() } catch { body = {} }
+          }
+          const world = body.world || url.searchParams.get('world') || null
+          let r
+          try {
+            if (op === 'mine') r = await nodeTypeService.listWorldTypes(env, actor, { world })
+            else if (op === 'create') r = await nodeTypeService.createWorldType(env, actor, { world, type: body.type, title: body.title, description: body.description, fields: body.fields })
+            else if (op === 'look') r = await nodeTypeService.setWorldTypeLook(env, actor, { world, type: body.type, impl: body.impl, fields: body.fields, title: body.title })
+            else r = await nodeTypeService.useWorldType(env, actor, { world, type: body.type, version: body.version, verifyMethod: body.verifyMethod || 'Put to use by the founder in Agent-Builder', observed: body.observed })
+          } catch (e) {
+            if (e instanceof GraphStoreError) return graphStoreErrorResponse(e, corsHeaders)
+            throw e
+          }
+          const { ok: good, status, ...rest } = r
+          return new Response(JSON.stringify(good ? { success: true, ...rest } : { success: false, error: rest.message, code: rest.code, ...rest }), {
+            status: good ? 200 : (status || 400),
+            headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+          })
+        }
+      }
+
       // GET /node-types — every node type a write may carry: the renderable list (node-types.js)
       // plus the data types registered in graph_system_registry (node-type-registry.js). Names
       // only, nothing private. Agent-Builder's create_node/patch_node validate against this so
@@ -6158,7 +6195,7 @@ const restHandler = {
           // Which registered types have a renderer, and whether it may run. No code here — a
           // viewer asks /node-types/<type>/renderer for that, and only for an approved one.
           renderers: await nodeTypeRenderers(env, { world }),
-          ...(world ? { world, worldTypes: await worldNodeTypes(env, world) } : {}),
+          ...(world ? { world, worldTypes: await worldNodeTypes(env, world), worldTypeInfo: await worldTypeInfo(env, world) } : {}),
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'max-age=60' },
         })

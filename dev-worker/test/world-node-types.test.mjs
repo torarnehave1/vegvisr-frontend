@@ -258,3 +258,92 @@ describe('World renderers: set → pending → founder approves → served with 
     assert.equal(types.includes('test-card'), false)
   })
 })
+
+// ── node-type-service.js: the founder-facing rules behind Agent-Builder's "Nodetyper" (2026-10-18) ──
+import * as nts from '../node-type-service.js'
+import { worldTypeInfo } from '../node-type-registry.js'
+
+const actorOf = ({ props }) => gs.normalizeActor({ valid: true, userId: props.email, userEmail: props.email, userRole: props.role, scopes: ['all'] })
+const FIELDS = [
+  { label: 'Tittel', kind: 'text' },
+  { label: 'Beskrivelse', kind: 'longtext' },
+  { label: 'Varighet', kind: 'number' },
+  { label: 'Lærer navn', kind: 'text' },
+]
+
+describe('node-type-service', () => {
+  test('a title becomes the type name; fields get keys; the World is the founder’s own', async () => {
+    const r = await nts.createWorldType(env, actorOf(FOUNDER), { title: 'Kursmodul – del én', description: 'One module of a course.', fields: FIELDS })
+    assert.equal(r.ok, true, r.message)
+    assert.equal(r.world, WORLD, 'no world named: the one the founder founded')
+    assert.equal(r.type, 'kursmodul-del-en')
+    assert.equal(r.title, 'Kursmodul – del én')
+    assert.deepEqual(r.fields.map((f) => f.key), ['tittel', 'beskrivelse', 'varighet', 'laererNavn'])
+    assert.equal(r.look, null)
+    invalidateNodeTypeCache()
+    assert.deepEqual(await worldTypeInfo(env, WORLD), { 'kursmodul-del-en': { title: 'Kursmodul – del én', fields: r.fields } })
+  })
+
+  test('the same title twice gets -2; a platform name gets the World’s stem', async () => {
+    const a = actorOf(FOUNDER)
+    await nts.createWorldType(env, a, { title: 'Kort', description: 'A first card type.' })
+    const again = await nts.createWorldType(env, a, { title: 'Kort', description: 'A second card type.' })
+    assert.equal(again.type, 'kort-2')
+    const shadow = await nts.createWorldType(env, a, { title: 'Work context', description: 'Would shadow a platform type.' })
+    assert.equal(shadow.type, 'work-context-test-world')
+  })
+
+  test('bad fields are refused, naming the field', async () => {
+    const r = await nts.createWorldType(env, actorOf(FOUNDER), { title: 'X type', description: 'A type with a bad field.', fields: [{ label: 'Pris', kind: 'money' }] })
+    assert.equal(r.ok, false)
+    assert.match(r.message, /Pris/)
+  })
+
+  test('look → draft (version 1, code visible to the founder only), use → served; a stale version is refused', async () => {
+    const a = actorOf(FOUNDER)
+    const t = await nts.createWorldType(env, a, { title: 'Kursmodul', description: 'One module of a course.', fields: FIELDS.slice(0, 2) })
+    const d1 = await nts.setWorldTypeLook(env, a, { type: t.type, impl: IMPL, fields: FIELDS })
+    assert.deepEqual([d1.look.version, d1.look.status], [1, 'pending'])
+    assert.equal(d1.fields.length, 4, 'fields replaced with the look')
+    const mine = await nts.listWorldTypes(env, a, {})
+    assert.equal(mine.types.find((x) => x.type === t.type).look.impl, IMPL)
+    const other = await nts.listWorldTypes(env, actorOf(OTHER_FOUNDER), { world: WORLD })
+    assert.equal(other.ok, false, 'another founder never sees drafts')
+    invalidateNodeTypeCache()
+    assert.equal(await approvedRenderer(env, t.type, { world: WORLD }), null)
+
+    const stale = await nts.useWorldType(env, a, { type: t.type, version: 2 })
+    assert.equal(stale.code, gs.ERR.VERSION_CONFLICT)
+    const used = await nts.useWorldType(env, a, { type: t.type, version: 1 })
+    assert.equal(used.look.status, 'approved')
+    assert.equal(used.look.approvedBy, 'founder@example.com')
+    invalidateNodeTypeCache()
+    assert.equal((await approvedRenderer(env, t.type, { world: WORLD })).impl, IMPL)
+  })
+
+  test('another World’s founder cannot create, change or use here; signed-out is refused', async () => {
+    const a = actorOf(FOUNDER)
+    const t = await nts.createWorldType(env, a, { title: 'Kursmodul', description: 'One module of a course.' })
+    const o = actorOf(OTHER_FOUNDER)
+    assert.equal((await nts.createWorldType(env, o, { world: WORLD, title: 'Y', description: 'Not theirs to make.' })).code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.equal((await nts.setWorldTypeLook(env, o, { world: WORLD, type: t.type, impl: IMPL })).code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.equal((await nts.useWorldType(env, o, { world: WORLD, type: t.type, version: 1 })).code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.equal((await nts.listWorldTypes(env, null, {})).code, gs.ERR.UNAUTHENTICATED)
+  })
+
+  test('a Superadmin who founded a World gets it without naming it (V4 A); one with none must name one', async () => {
+    env.vegvisr_org.db.exec(`INSERT INTO world_founders VALUES ('c', 'boss@example.com', NULL, 'own_account', 'acc', '${WORLD}', '2026-10-18')`)
+    const boss = actorOf(authFor('boss@example.com', 'Superadmin'))
+    assert.equal((await nts.resolveTypeWorld(env, boss, null)).world, WORLD)
+    assert.equal((await nts.resolveTypeWorld(env, actorOf(SUPER), null)).ok, false)
+    assert.equal((await nts.resolveTypeWorld(env, actorOf(SUPER), OTHER)).world, OTHER)
+  })
+
+  test('slugFromTitle and normalizeFields edge cases', () => {
+    assert.equal(nts.slugFromTitle('  Ærlig Øving på Åsen! '), 'aerlig-oving-pa-asen')
+    assert.equal(nts.slugFromTitle('123 Go'), 'go')
+    assert.equal(nts.slugFromTitle('!'), '')
+    assert.equal(nts.normalizeFields([{ label: 'A', key: 'a' }, { label: 'B', key: 'a' }]).ok, false)
+    assert.equal(nts.normalizeFields(new Array(21).fill({ label: 'x' })).ok, false)
+  })
+})
