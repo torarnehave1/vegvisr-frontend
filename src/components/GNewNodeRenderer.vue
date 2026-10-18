@@ -67,6 +67,8 @@ import GNewNodeControlBar from './GNewNodeControlBar.vue'
 
 // Import all node components
 import GNewDefaultNode from './GNewNodes/GNewDefaultNode.vue'
+import GNewRegisteredTypeNode from './GNewNodes/GNewRegisteredTypeNode.vue'
+import { approvedNodeTypes, loadApprovedNodeTypes } from '@/utils/vegvisrNode'
 import GNewComponentNode from './GNewNodes/GNewComponentNode.vue'
 import GNewImageNode from './GNewNodes/GNewImageNode.vue'
 import GNewVideoNode from './GNewNodes/GNewVideoNode.vue'
@@ -333,7 +335,17 @@ const nodeComponent = computed(() => {
     }
   }
 
-  return nodeComponents[nodeType] || nodeComponents['default']
+  if (nodeComponents[nodeType]) return nodeComponents[nodeType]
+  // A type this viewer has no component for, but which is REGISTERED with an approved renderer
+  // (graph_system_registry) — the rendering engine draws it. Built-in types never reach here.
+  if (approvedNodeTypes.value.has(nodeType)) return GNewRegisteredTypeNode
+  return nodeComponents['default']
+})
+
+// The approved types are fetched once per page, and only when a node of an unknown type shows up.
+onMounted(() => {
+  const t = props.node.type
+  if (t && !nodeComponents[t]) loadApprovedNodeTypes()
 })
 
 // Event handlers
