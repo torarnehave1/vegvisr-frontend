@@ -24,7 +24,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
-import { allowedNodeTypes } from '../node-type-registry.js'
+import { allowedNodeTypes, worldNodeTypes } from '../node-type-registry.js'
+import { worldStoresFor } from '../graph-store.js'
 import { registerTools, registerWorkerTools, actorFromAuth, TOOL_NAMES } from './tools.js'
 import { discoverWorkerTools } from '../worker-tools.js'
 
@@ -267,7 +268,9 @@ export const mcpHandler = {
     // One context per request; the tools read it when they run.
     // The allowed node types include the data types registered in graph_system_registry, so the
     // schemas are built for this request (cached a minute in node-type-registry.js).
-    registerTools(server, () => ({ auth, env, props }), { nodeTypes: await allowedNodeTypes(env) })
+    // Plus the own types of every World this caller may use (phase 2): the schema lists them, and
+    // add_node / update_node / create_graph check each one against the graph's own World.
+    registerTools(server, () => ({ auth, env, props }), { nodeTypes: await requestNodeTypes(env, actorFromAuth(auth, props)) })
 
     // The create_worker workers' own tools, for the Superadmin only, and only on the two methods
     // that can use them — discovery costs a GitHub call and one fetch per worker (cached a minute),
@@ -423,3 +426,17 @@ export { TOOL_NAMES, SERVER_INFO, INSTRUCTIONS }
 // Exported for the tests: what lands in an audit row is a contract, and the one field that was
 // derived here and then silently not written is the reason it now has one.
 export { describeCall }
+
+/**
+ * The node types this request's schema lists: the platform's, then the own types of each World
+ * the caller may use. A World that cannot be read only hides its types; the platform list stands.
+ */
+async function requestNodeTypes(env, actor) {
+  const types = await allowedNodeTypes(env)
+  let stores = []
+  try { stores = actor ? await worldStoresFor(env, actor) : [] } catch (e) { console.error('[node-types] world stores:', e.message) }
+  for (const store of stores) {
+    for (const t of await worldNodeTypes(env, store.world)) if (!types.includes(t)) types.push(t)
+  }
+  return types
+}

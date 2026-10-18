@@ -50,7 +50,7 @@ function graphStoreErrorResponse(error, corsHeaders) {
 import { listTemplates as gsListTemplates } from './templates-service.js'
 import { readPublishedDomainRegistry, mergePublishedDomains, recordPublishedSite } from './published-domains.js'
 import { NODE_TYPES } from './node-types.js'
-import { allowedNodeTypes, registeredNodeTypes, nodeTypeRenderers, approvedRenderer } from './node-type-registry.js'
+import { allowedNodeTypes, registeredNodeTypes, nodeTypeRenderers, approvedRenderer, worldNodeTypes, normalizeWorld } from './node-type-registry.js'
 import * as emailService from './email-service.js'
 import * as smsService from './sms-service.js'
 import { imapProbe, imapFindSentFolder, fileSentCopy } from './imap-service.js'
@@ -6145,15 +6145,20 @@ const restHandler = {
       // plus the data types registered in graph_system_registry (node-type-registry.js). Names
       // only, nothing private. Agent-Builder's create_node/patch_node validate against this so
       // both doors into the graphs accept the same types.
+      // ?world=<domain> (phase 2): also that World's own types, from its own store — platform
+      // first, a World never shadows a platform type. Public like the platform list: names and
+      // renderer status only (decided 2026-10-18, D4 A).
       if (pathname === '/node-types' && request.method === 'GET') {
-        const registered = await registeredNodeTypes(env)
+        const world = normalizeWorld(url.searchParams.get('world'))
+        const registered = await registeredNodeTypes(env, { world })
         return new Response(JSON.stringify({
           renderable: NODE_TYPES,
           registered,
-          all: await allowedNodeTypes(env),
+          all: await allowedNodeTypes(env, { world }),
           // Which registered types have a renderer, and whether it may run. No code here — a
           // viewer asks /node-types/<type>/renderer for that, and only for an approved one.
-          renderers: await nodeTypeRenderers(env),
+          renderers: await nodeTypeRenderers(env, { world }),
+          ...(world ? { world, worldTypes: await worldNodeTypes(env, world) } : {}),
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'max-age=60' },
         })
@@ -6164,7 +6169,7 @@ const restHandler = {
       // served, so it cannot run in anyone's browser.
       const rendererMatch = pathname.match(/^\/node-types\/([a-z][a-z0-9_-]{1,39})\/renderer$/)
       if (rendererMatch && request.method === 'GET') {
-        const r = await approvedRenderer(env, rendererMatch[1])
+        const r = await approvedRenderer(env, rendererMatch[1], { world: normalizeWorld(url.searchParams.get('world')) })
         return new Response(JSON.stringify(r || { error: `No approved renderer for type "${rendererMatch[1]}".` }), {
           status: r ? 200 : 404,
           headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': r ? 'max-age=60' : 'no-store' },

@@ -30,7 +30,11 @@ import * as images from '../images-service.js'
 import * as sites from '../published-domains.js'
 import * as publish from '../publish-service.js'
 import { NODE_TYPES, DEFAULT_NODE_TYPE, suggestNodeType } from '../node-types.js'
-import { REGISTRY_GRAPH_ID, REGISTRY_NODE_TYPE, TYPE_NAME, invalidateNodeTypeCache } from '../node-type-registry.js'
+import {
+  REGISTRY_GRAPH_ID, REGISTRY_NODE_TYPE, TYPE_NAME, WORLD_TYPES_TAG, invalidateNodeTypeCache,
+  normalizeWorld, registeredNodeTypes, worldRegistryGraph, nodeTypeAllowedIn,
+} from '../node-type-registry.js'
+import { mayUseWorld, defaultWorldFor } from '../graph-store.js'
 import * as users from '../users-service.js'
 import * as sms from '../sms-service.js'
 import * as workerSource from '../worker-source-service.js'
@@ -302,6 +306,86 @@ const listShape = {
  * `getContext()` returns { auth, env } for the request currently being served. It is a function
  * rather than a value because one registration serves every request in a stateless transport.
  */
+/**
+ * The type registry a node-type tool writes to: graph_system_registry (no world — Superadmin
+ * only), or the World's own registry graph in its store (world — the World's founder, account
+ * holder, a system owner or a Superadmin; decided 2026-10-18, D3 A). Read fresh, never cached:
+ * the write merges into what is read here.
+ *   → { graphId, nodes, version, scope, world } | { error }
+ */
+async function typeRegistryFor(env, actor, world, what) {
+  const domain = normalizeWorld(world)
+  if (!domain) {
+    if (!actor.isSuperadmin) return { error: err(gs.ERR.FORBIDDEN_GRAPH, `${what} for a platform type is for the Superadmin only. A World founder passes world: "<your domain>".`) }
+    const reg = await gs.getGraph(env, REGISTRY_GRAPH_ID)
+    if (!reg.ok) return { error: fromService(reg) }
+    return { graphId: REGISTRY_GRAPH_ID, nodes: reg.graph.nodes || [], version: reg.version, scope: 'platform', world: null }
+  }
+  if (!(await mayUseWorld(env, actor, domain))) {
+    return { error: err(gs.ERR.FORBIDDEN_GRAPH, `${what} in ${domain} is for that World's founder (or a Superadmin).`) }
+  }
+  const reg = await worldRegistryGraph(env, domain)
+  if (!reg) return { error: err(gs.ERR.INVALID_INPUT, `${domain} has no graph store, so it cannot hold its own node types.`) }
+  return { graphId: reg.graphId, nodes: reg.graph?.nodes || [], version: reg.version, scope: `world:${domain}`, world: domain }
+}
+
+const typeEntryIn = (nodes, type) =>
+  nodes.find((n) => n.type === REGISTRY_NODE_TYPE && String(n.label || '').trim() === String(type).trim())
+
+/** A node type refused for the graph it is written to — a World's type outside that World. */
+async function nodeTypeRefusal(env, type, world) {
+  if (!type || (await nodeTypeAllowedIn(env, type, world))) return null
+  return err(gs.ERR.INVALID_INPUT, world
+    ? `"${type}" is not a node type of the platform or of ${world}, where this graph lives.`
+    : `"${type}" is a World's own node type; it can only be used in a graph stored in that World.`)
+}
+
+/**
+ * register_node_type with `world`: the type goes into the World's own registry graph (tag
+ * #WORLD-NODE-TYPES in its store), which the first registration creates. A name the platform has
+ * is refused — a World never shadows a platform type (D2 A).
+ */
+async function registerWorldNodeType(env, actor, { name, description, consumer, world }) {
+  const reg = await typeRegistryFor(env, actor, world, 'Registering a node type')
+  if (reg.error) return reg.error
+  const domain = reg.world
+  if (NODE_TYPES.includes(name) || (await registeredNodeTypes(env)).includes(name)) {
+    return err(gs.ERR.INVALID_INPUT, `"${name}" is already a platform node type; a World cannot redefine it. Use it as it is, or pick another name.`)
+  }
+  const registryNodeId = `nodetype-${name}`
+  const node = {
+    id: registryNodeId,
+    label: name,
+    type: REGISTRY_NODE_TYPE,
+    info: String(description).trim(),
+    metadata: { consumer: String(consumer).trim(), scope: `world:${domain}`, renders: false, registeredAt: new Date().toISOString() },
+  }
+  const shape = (registryGraphId, alreadyRegistered) => ({ success: true, type: name, registryNodeId, alreadyRegistered, registryGraphId, world: domain })
+  if (reg.graphId && typeEntryIn(reg.nodes, name)) {
+    return ok(shape(reg.graphId, true), `"${name}" was already registered in ${domain} (${registryNodeId} in ${reg.graphId}).`)
+  }
+  let registryGraphId = reg.graphId
+  if (!registryGraphId) {
+    const created = await gs.createGraph(env, {
+      title: `Node types — ${domain}`,
+      description: `The node types of ${domain}: system-nodetype nodes, each with its renderer in metadata.renderer. Written by register_node_type / set_node_type_renderer / approve_node_type_renderer with world "${domain}".`,
+      metaArea: WORLD_TYPES_TAG,
+      nodes: [node],
+      actor,
+      world: domain,
+    })
+    if (!created.ok) return fromService(created)
+    if (created.world !== domain) return err(gs.ERR.INTERNAL_ERROR, `The registry graph was stored in ${created.world || 'the platform'}, not ${domain}.`)
+    registryGraphId = created.graphId
+  } else {
+    const added = await gs.addNode(env, { graphId: registryGraphId, node, actor })
+    if (!added.ok) return fromService(added)
+  }
+  invalidateNodeTypeCache(domain)
+  return ok(shape(registryGraphId, false),
+    `Registered node type "${name}" for ${domain} as ${registryNodeId} in its own registry (${registryGraphId}). Graphs in ${domain} accept it from the next request; it is not valid anywhere else.`)
+}
+
 export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {}) {
   const NodeInput = makeNodeInput(nodeTypes)
   // ── create_graph ──────────────────────────────────────────────────────────
@@ -343,6 +427,16 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
 
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      // Where the graph will live decides which World types it may carry — the named World, or
+      // the one saveGraph defaults a single-World founder to.
+      if ((nodes || []).length) {
+        const placed = normalizeWorld(world) || (await defaultWorldFor(env, actor))
+        for (const n of nodes) {
+          const refused = await nodeTypeRefusal(env, n.type, placed)
+          if (refused) return refused
+        }
+      }
 
       const result = await gs.createGraph(env, {
         title,
@@ -426,33 +520,39 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         'that a program reads rather than the viewer displays, e.g. "work-context" (Agent-Builder ' +
         'work-context cards). It is recorded as a system-nodetype node in graph_system_registry, ' +
         'which is where the allowed types come from, and is usable within a minute with no deploy. ' +
-        'Renderable types cannot be added here: those follow the viewer\'s renderers. Superadmin ' +
-        'only. Requires the graph:write scope.',
+        'Renderable types cannot be added here: those follow the viewer\'s renderers. Without ' +
+        'world: a platform type, Superadmin only. With world (e.g. "sodesign.no"): a type of that ' +
+        'World only, stored in the World\'s own storage and usable only in its graphs — for its ' +
+        'founder (or a Superadmin); a name the platform already has is refused. Requires the graph:write scope.',
       inputSchema: {
         type: z.string().min(2).max(40).describe('The type name: lowercase letters, digits, - or _, starting with a letter, e.g. "work-context".'),
         description: z.string().min(10).describe('What a node of this type holds, in a sentence or two.'),
         consumer: z.string().min(3).describe('What reads these nodes, e.g. "agent-worker GET /work-contexts".'),
+        world: z.string().optional().describe("Register the type in this World's own registry, e.g. \"sodesign.no\". Omit for a platform type."),
       },
       outputSchema: {
         success: z.boolean(),
         type: z.string(),
         registryNodeId: z.string(),
         alreadyRegistered: z.boolean(),
+        registryGraphId: z.string().optional(),
+        world: z.string().nullable().optional(),
       },
       annotations: ADDITIVE_WRITE,
     },
-    async ({ type, description, consumer }) => {
+    async ({ type, description, consumer, world }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:write')
       if (scopeErr) return scopeErr
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
-      if (!actor.isSuperadmin) return err(gs.ERR.FORBIDDEN_GRAPH, 'Registering a node type is for the Superadmin only.')
 
       const name = String(type).trim()
       if (!TYPE_NAME.test(name)) {
         return err(gs.ERR.INVALID_INPUT, `"${name}" is not a valid type name: lowercase letters, digits, - or _, starting with a letter, 2–40 characters.`)
       }
+      if (normalizeWorld(world)) return registerWorldNodeType(env, actor, { name, description, consumer, world })
+      if (!actor.isSuperadmin) return err(gs.ERR.FORBIDDEN_GRAPH, 'Registering a platform node type is for the Superadmin only. A World founder passes world: "<your domain>".')
       if (NODE_TYPES.includes(name)) {
         return ok({ success: true, type: name, registryNodeId: '', alreadyRegistered: true },
           `"${name}" is already a renderable type; nothing to register.`)
@@ -500,9 +600,11 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         'and should draw the node into document.body; height is reported automatically. Pass impl, ' +
         'or component = the label of a Component Registry node whose metadata.impl to use. Saved as ' +
         'PENDING with a new version; it does not run anywhere until approve_node_type_renderer. ' +
-        'Superadmin only (platform types). Requires the graph:write scope.',
+        'Without world: a platform type, Superadmin only. With world: that World\'s own type, for ' +
+        'its founder (or a Superadmin). Requires the graph:write scope.',
       inputSchema: {
         type: z.string().min(2).max(40).describe('A registered data type, e.g. "work-context".'),
+        world: z.string().optional().describe('The World whose own type this is, e.g. "sodesign.no". Omit for a platform type.'),
         impl: z.string().min(20).optional().describe('The renderer: a full HTML document or fragment with inline <style> and <script>.'),
         component: z.string().min(2).optional().describe('Instead of impl: a Component Registry component label whose metadata.impl is the renderer.'),
       },
@@ -514,41 +616,41 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
-    async ({ type, impl, component }) => {
+    async ({ type, impl, component, world }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:write')
       if (scopeErr) return scopeErr
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
-      if (!actor.isSuperadmin) return err(gs.ERR.FORBIDDEN_GRAPH, 'Setting a platform type renderer is for the Superadmin only.')
       if (!impl === !component) return err(gs.ERR.INVALID_INPUT, 'Pass exactly one of impl or component.')
 
       if (NODE_TYPES.includes(type)) {
         return err(gs.ERR.INVALID_INPUT, `"${type}" is a built-in renderable type; its renderer is part of the viewers, not data.`)
       }
       // A fresh read, not the cache: the write below merges into this node's metadata.
-      const reg = await gs.getGraph(env, REGISTRY_GRAPH_ID)
-      if (!reg.ok) return fromService(reg)
-      const entry = reg.graph.nodes.find((n) => n.type === REGISTRY_NODE_TYPE && String(n.label || '').trim() === String(type).trim())
-      if (!entry) return err(gs.ERR.INVALID_INPUT, `"${type}" is not registered. Call register_node_type first.`)
+      const reg = await typeRegistryFor(env, actor, world, 'Setting a renderer')
+      if (reg.error) return reg.error
+      const entry = reg.graphId ? typeEntryIn(reg.nodes, type) : null
+      if (!entry) return err(gs.ERR.INVALID_INPUT, `"${type}" is not registered${reg.world ? ` in ${reg.world}` : ''}. Call register_node_type first.`)
       const prev = entry.metadata?.renderer || {}
       const renderer = {
         version: (Number(prev.version) || 0) + 1,
         ...(impl ? { impl } : { component: String(component).trim() }),
         status: 'pending',
-        scope: 'platform',
+        scope: reg.scope,
         updatedBy: actor.userEmail || actor.userId,
         updatedAt: new Date().toISOString(),
       }
       // gs.updateNode REPLACES metadata, so the node's other keys (consumer, renders…) are carried.
       const result = await gs.updateNode(env, {
-        graphId: REGISTRY_GRAPH_ID, nodeId: entry.id, fields: { metadata: { ...(entry.metadata || {}), renderer } },
+        graphId: reg.graphId, nodeId: entry.id, fields: { metadata: { ...(entry.metadata || {}), renderer } },
         expectedVersion: reg.version, actor,
       })
       if (!result.ok) return fromService(result)
       invalidateNodeTypeCache()
+      const w = reg.world ? `, world: "${reg.world}"` : ''
       return ok({ success: true, type, version: renderer.version, status: 'pending' },
-        `Renderer v${renderer.version} for "${type}" saved as PENDING on ${entry.id}. It runs nowhere until approve_node_type_renderer({ type: "${type}", version: ${renderer.version} }).`)
+        `Renderer v${renderer.version} for "${type}" saved as PENDING on ${entry.id}${reg.world ? ` in ${reg.world}'s registry` : ''}. It runs nowhere until approve_node_type_renderer({ type: "${type}", version: ${renderer.version}${w} }).`)
     },
   )
 
@@ -560,10 +662,12 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
       description:
         'Approve the PENDING renderer of a registered data type so <vegvisr-node> may run it in every ' +
         'viewer. Pass the version you reviewed: if the code changed since, the approval is refused. ' +
-        'Record how it was checked (e.g. "Playwright screenshot + isolation checks"). Superadmin ' +
-        'only (platform types). Requires the graph:write scope.',
+        'Record how it was checked (e.g. "Playwright screenshot + isolation checks"). Without world: ' +
+        'a platform type, Superadmin only. With world: that World\'s own type, approved by its ' +
+        'founder (or a Superadmin). Requires the graph:write scope.',
       inputSchema: {
         type: z.string().min(2).max(40).describe('The type, e.g. "work-context".'),
+        world: z.string().optional().describe('The World whose own type this is, e.g. "sodesign.no". Omit for a platform type.'),
         version: z.number().int().min(1).describe('The renderer version you reviewed.'),
         verifyMethod: z.string().min(5).describe('How it was checked before approval.'),
         observed: z.string().optional().describe('What the check showed.'),
@@ -576,17 +680,16 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    async ({ type, version, verifyMethod, observed }) => {
+    async ({ type, version, verifyMethod, observed, world }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:write')
       if (scopeErr) return scopeErr
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
-      if (!actor.isSuperadmin) return err(gs.ERR.FORBIDDEN_GRAPH, 'Approving a platform type renderer is for the Superadmin only.')
 
-      const reg = await gs.getGraph(env, REGISTRY_GRAPH_ID)
-      if (!reg.ok) return fromService(reg)
-      const entry = reg.graph.nodes.find((n) => n.type === REGISTRY_NODE_TYPE && String(n.label || '').trim() === String(type).trim())
+      const reg = await typeRegistryFor(env, actor, world, 'Approving a renderer')
+      if (reg.error) return reg.error
+      const entry = reg.graphId ? typeEntryIn(reg.nodes, type) : null
       const prev = entry?.metadata?.renderer
       if (!entry || !prev) return err(gs.ERR.INVALID_INPUT, `"${type}" has no renderer to approve. Call set_node_type_renderer first.`)
       if (Number(prev.version) !== version) {
@@ -600,13 +703,14 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         verify: { method: verifyMethod, ...(observed ? { observed } : {}) },
       }
       const result = await gs.updateNode(env, {
-        graphId: REGISTRY_GRAPH_ID, nodeId: entry.id, fields: { metadata: { ...(entry.metadata || {}), renderer } },
+        graphId: reg.graphId, nodeId: entry.id, fields: { metadata: { ...(entry.metadata || {}), renderer } },
         expectedVersion: reg.version, actor,
       })
       if (!result.ok) return fromService(result)
       invalidateNodeTypeCache()
+      const q = reg.world ? `?world=${reg.world}` : ''
       return ok({ success: true, type, version, status: 'approved' },
-        `Renderer v${version} for "${type}" approved. <vegvisr-node> serves it from GET /node-types/${type}/renderer within a minute.`)
+        `Renderer v${version} for "${type}" approved${reg.world ? ` in ${reg.world}` : ''}. <vegvisr-node> serves it from GET /node-types/${type}/renderer${q} within a minute.`)
     },
   )
 
@@ -779,6 +883,8 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
 
       const access = await gs.checkAccess(env, actor, graphId, 'write')
       if (!access.ok) return fromService(access)
+      const refused = await nodeTypeRefusal(env, node.type, access.world || null)
+      if (refused) return refused
 
       const result = await gs.addNode(env, {
         graphId,
@@ -898,6 +1004,8 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
       if (!fields || Object.keys(fields).length === 0) {
         return err(gs.ERR.INVALID_INPUT, 'fields must name at least one field to change.')
       }
+      const refusedType = await nodeTypeRefusal(env, fields.type, access.world || null)
+      if (refusedType) return refusedType
 
       // metadata MERGES while every other field replaces, and the asymmetry is deliberate: a
       // model changing `kind` must not silently delete the `review` block a human wrote. The read

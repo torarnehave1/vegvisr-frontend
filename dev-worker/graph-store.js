@@ -527,6 +527,20 @@ export async function mayUseWorld(env, actor, domain) {
   return Boolean(row)
 }
 
+/**
+ * A World's store for the PLATFORM's own reads of a World's system graphs — its node-type
+ * registry (node-type-registry.js), read for anonymous viewers of a published World page.
+ * No actor check: a caller must expose only what is public by contract (approved renderers),
+ * and must never write through it. null when the World has no live store.
+ */
+export async function systemWorldStore(env, domain) {
+  const row = await worldStoreRow(env, domain).catch((e) => {
+    if (e instanceof GraphStoreError) return null
+    throw e
+  })
+  return row ? new WorldStore(env, row) : null
+}
+
 async function authorizedWorldStore(env, row, actor, graphId) {
   if (!(await mayUseWorld(env, actor, row.domain))) {
     throw new GraphStoreError(
