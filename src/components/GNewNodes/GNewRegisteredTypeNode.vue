@@ -9,7 +9,7 @@
 // a Component Registry component served from api.vegvisr.org. The element is created here in
 // code, so Vue never has to resolve it as a component.
 import { onMounted, ref, toRaw, watch } from 'vue'
-import { loadApprovedNodeTypes } from '@/utils/vegvisrNode'
+import { loadApprovedNodeTypes, graphWorld } from '@/utils/vegvisrNode'
 
 const props = defineProps({
   node: { type: Object, required: true },
@@ -36,9 +36,11 @@ onMounted(async () => {
   el = document.createElement('vegvisr-node')
   el.style.display = 'block'
   el.theme = 'light'
+  el.world = graphWorld.value // the graph's World: its own types' renderers (phase 2)
   el.node = payload()
   host.value.replaceChildren(el)
 })
 
 watch(() => props.node, () => { if (el) el.node = payload() }, { deep: true })
+watch(graphWorld, (w) => { if (el) el.world = w })
 </script>

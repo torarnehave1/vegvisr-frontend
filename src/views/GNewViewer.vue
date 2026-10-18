@@ -2700,6 +2700,7 @@ import GNewImageEditHandler from '@/components/GNewImageEditHandler.vue'
 import CopyNodeModal from '@/components/CopyNodeModal.vue'
 import ShareModal from '@/components/ShareModal.vue'
 import GNewNodeRenderer from '@/components/GNewNodeRenderer.vue'
+import { setGraphWorld } from '@/utils/vegvisrNode'
 import GNewAdvertisementDisplay from '@/components/GNewAdvertisementDisplay.vue'
 import GraphStatusBar from '@/components/GraphStatusBar.vue'
 import GraphPasswordGateModal from '@/components/GraphPasswordGateModal.vue'
@@ -4696,7 +4697,14 @@ const loadGraph = async () => {
   try {
     // Use same API endpoint as current GraphViewer with proper endpoint handling
     const apiUrl = getApiEndpoint(`https://knowledge.vegvisr.org/getknowgraph?id=${graphId}`)
-    const response = await fetch(apiUrl)
+    // Signed in, the request names the user: a graph stored in a World is served only to that
+    // World's founder or a Superadmin. A token the worker refuses (401) must not hide a graph the
+    // anonymous read would show, so that case is retried without it.
+    const token = userStore.emailVerificationToken
+    let response = await fetch(apiUrl, token ? { headers: { 'X-API-Token': token } } : undefined)
+    if (token && response.status === 401) response = await fetch(apiUrl)
+    // The World the graph lives in, so its own node types render (rendering engine phase 2).
+    setGraphWorld(response.headers.get('X-Graph-World'))
 
     if (!response.ok) {
       throw new Error(`Failed to fetch graph: ${response.statusText}`)
