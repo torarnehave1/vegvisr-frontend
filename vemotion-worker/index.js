@@ -660,6 +660,10 @@ async function handleRefitComposition(request, env, auth) {
 }
 async function handleQueueRender(request, env, auth) {
   const input = await request.json();
+  // kind "pixel-grid" (2026-10-19, MCP pixelate_image_for_vemotion): no composition — the app turns
+  // one image into a knitting-chart grid (its own pixelation code needs a browser canvas) and
+  // reports the grid back as `result`.
+  if (input.kind === "pixel-grid") return await queuePixelGridJob(input, env, auth);
   let composition = input.composition || null;
   let compName = input.name || "Render";
   if (!composition && input.compositionId) {
@@ -729,6 +733,27 @@ async function handleQueueRender(request, env, auth) {
     message: "Render job queued. Open renderUrl in the VEmotion app to render it; poll GET /vemotion/render?id=<jobId> for status."
   }, 202);
 }
+async function queuePixelGridJob(input, env, auth) {
+  const imageUrl = String(input.imageUrl || "");
+  if (!/^https:\/\//.test(imageUrl)) return error("imageUrl must be an https image URL", 400);
+  const cols = Math.round(Number(input.cols) || 40);
+  const colors = Math.round(Number(input.colors) || 8);
+  if (cols < 4 || cols > 200) return error("cols must be 4-200", 400);
+  if (colors < 2 || colors > 32) return error("colors must be 2-32", 400);
+  const jobId = `render_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const job = {
+    jobId, userId: auth.userId, userEmail: auth.email, status: "queued", kind: "pixel-grid",
+    pixelGrid: { imageUrl, cols, colors }, result: null, name: String(input.name || "pixel grid").slice(0, 80),
+    compositionId: null, target: null, composition: null, times: null, outputUrls: null,
+    createdAt: now, updatedAt: now, outputUrl: null, error: null, progress: 0
+  };
+  await env.VEMOTION_PROJECTS.put(getRenderKey(jobId), JSON.stringify(job), {
+    expirationTtl: 86400,
+    metadata: { userId: job.userId, status: job.status, createdAt: job.createdAt }
+  });
+  return json({ ok: true, jobId, status: "queued", renderUrl: `https://vemotion.vegvisr.org/?renderJob=${jobId}`, message: "Pixel-grid job queued. Open renderUrl in the VEmotion app; poll GET /vemotion/render?id=<jobId> for the grid." }, 202);
+}
 async function handleGetRender(url, env, auth) {
   const jobId = url.searchParams.get("id") || "";
   if (!jobId) return error("id is required", 400);
@@ -754,6 +779,8 @@ async function handleGetRender(url, env, auth) {
     kind: job.kind || "video",
     times: job.times || null,
     outputUrls: job.outputUrls || null,
+    pixelGrid: job.pixelGrid || null,
+    result: job.result || null,
     // The app needs the snapshot to render exactly what was queued; ?brief=1 leaves it out.
     ...(url.searchParams.get("brief") === "1" ? {} : { composition: job.composition }),
     createdAt: job.createdAt,
@@ -781,7 +808,15 @@ async function handleUpdateRender(request, env, auth) {
   if (job.status === "done" || job.status === "failed") return error(`Job is already ${job.status}`, 409);
   const status = String(input.status || "");
   if (!["rendering", "uploading", "done", "failed"].includes(status)) return error("status must be rendering, uploading, done or failed", 400);
-  if (status === "done" && job.kind === "frames") {
+  if (status === "done" && job.kind === "pixel-grid") {
+    const r = input.result;
+    const ok = r && Number.isInteger(r.cols) && Number.isInteger(r.rows) && Array.isArray(r.palette) && Array.isArray(r.cells) && r.cells.length === r.rows;
+    if (!ok) return error("A done pixel-grid job needs result: { cols, rows, palette[], cells[rows] }", 400);
+    if (JSON.stringify(r).length > 500000) return error("The grid is too large (over 500 KB)", 413);
+    job.result = { cols: r.cols, rows: r.rows, palette: r.palette.map(String), cells: r.cells.map(String) };
+    job.outputUrl = job.pixelGrid?.imageUrl || null;
+    job.progress = 100;
+  } else if (status === "done" && job.kind === "frames") {
     const urls = Array.isArray(input.outputUrls) ? input.outputUrls.map(String) : [];
     if (urls.length !== (job.times || []).length || !urls.every((u) => /^https:\/\//.test(u))) {
       return error(`A done frames job needs outputUrls: ${(job.times || []).length} https URLs, one per time`, 400);
@@ -1487,7 +1522,10 @@ function buildOpenApiSpec(baseUrl) {
                     compositionId: { type: "string", description: "ID of a saved composition to render" },
                     name: { type: "string", description: "Human-readable job name" },
                     composition: { "$ref": "#/components/schemas/Composition", description: "Inline composition (alternative to compositionId)" },
-                    kind: { type: "string", enum: ["video", "frames"], default: "video", description: "video = an MP4; frames = still PNGs at `times` (a preview to look at)" },
+                    kind: { type: "string", enum: ["video", "frames", "pixel-grid"], default: "video", description: "video = an MP4; frames = still PNGs at `times` (a preview to look at); pixel-grid = turn `imageUrl` into a knitting-chart grid (`cols`, `colors`), no composition" },
+                    imageUrl: { type: "string", description: "kind pixel-grid: the image to pixelate" },
+                    cols: { type: "integer", description: "kind pixel-grid: columns, 4-200 (default 40)" },
+                    colors: { type: "integer", description: "kind pixel-grid: palette size, 2-32 (default 8)" },
                     times: { type: "array", items: { type: "number" }, description: "kind frames: 1-12 times in seconds on the composition clock" },
                     target: { type: "object", description: "Where the finished MP4 goes. For Instagram: { platform: 'instagram', accountId, username, album } — album is the photos album the app uploads to (ig-reels-<username>).", properties: { platform: { type: "string" }, accountId: { type: "string" }, username: { type: "string" }, album: { type: "string" } } }
                   }
@@ -1521,13 +1559,28 @@ function buildOpenApiSpec(baseUrl) {
           }
         }
       },
+      "/vemotion/videos": {
+        get: {
+          operationId: "listVideos",
+          summary: "List the caller's uploaded video clips (url, name, size, uploaded, and duration/width/height when known)",
+          responses: { 200: { description: "Videos", content: { "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" }, count: { type: "integer" }, videos: { type: "array", items: { type: "object", properties: { key: { type: "string" }, url: { type: "string" }, name: { type: "string" }, size: { type: "integer" }, uploaded: { type: "string" }, duration: { type: "number", nullable: true }, width: { type: "number", nullable: true }, height: { type: "number", nullable: true } } } } } } } } } }
+        }
+      },
+      "/vemotion/video/import": {
+        post: {
+          operationId: "importVideo",
+          summary: "Copy a video from a public https URL into the caller's clips (100 MB limit); returns the clip's url for a video layer",
+          requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["url"], properties: { url: { type: "string" }, name: { type: "string" }, duration: { type: "number" }, width: { type: "number" }, height: { type: "number" } } } } } },
+          responses: { 201: { description: "Imported" }, 400: { description: "Not an https video URL" }, 413: { description: "Over 100 MB" }, 502: { description: "Could not fetch it" } }
+        }
+      },
       "/vemotion/render/update": {
         post: {
           operationId: "updateRender",
           summary: "Report progress or the result of a render job (the VEmotion app calls this after rendering ?renderJob=<id>). Owner only; a done/failed job cannot be changed.",
           requestBody: {
             required: true,
-            content: { "application/json": { schema: { type: "object", required: ["id", "status"], properties: { id: { type: "string" }, status: { type: "string", enum: ["rendering", "uploading", "done", "failed"] }, progress: { type: "number" }, outputUrl: { type: "string", description: "Required for done (video): the public https URL of the MP4" }, outputUrls: { type: "array", items: { type: "string" }, description: "Required for done (frames): one public https PNG URL per time, in order" }, error: { type: "string" } } } } }
+            content: { "application/json": { schema: { type: "object", required: ["id", "status"], properties: { id: { type: "string" }, status: { type: "string", enum: ["rendering", "uploading", "done", "failed"] }, progress: { type: "number" }, outputUrl: { type: "string", description: "Required for done (video): the public https URL of the MP4" }, outputUrls: { type: "array", items: { type: "string" }, description: "Required for done (frames): one public https PNG URL per time, in order" }, result: { type: "object", description: "Required for done (pixel-grid): { cols, rows, palette[], cells[rows] }" }, error: { type: "string" } } } } }
           },
           responses: { 200: { description: "Updated" }, 409: { description: "Job already finished" } }
         }
@@ -1608,10 +1661,93 @@ async function handleVideoUpload(request, env, auth) {
   if (!request.body) return error("Empty request body", 400);
   const ts = Date.now();
   const key = `users/${auth.userId}/videos/${ts}-${safeName}`;
-  await env.VEMOTION_VIDEO.put(key, request.body, { httpMetadata: { contentType } });
+  // The app probes the clip before uploading and sends what it measured, so an agent listing the
+  // videos later knows the length and aspect without a browser (2026-10-19).
+  const customMetadata = videoMetaFromHeaders(request.headers, rawName);
+  await env.VEMOTION_VIDEO.put(key, request.body, { httpMetadata: { contentType }, customMetadata });
   const origin = `https://${new URL(request.url).hostname}`;
   const url = `${origin}/vemotion/video?key=${encodeURIComponent(key)}`;
   return json({ url, key, contentType });
+}
+function videoMetaFromHeaders(headers, name) {
+  const meta = { name: String(name || "video").slice(0, 200) };
+  for (const [h, k] of [["X-Video-Duration", "duration"], ["X-Video-Width", "width"], ["X-Video-Height", "height"]]) {
+    const v = Number(headers.get(h));
+    if (Number.isFinite(v) && v > 0) meta[k] = String(Math.round(v * 1e3) / 1e3);
+  }
+  return meta;
+}
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+/**
+ * GET /vemotion/videos — the caller's uploaded clips (2026-10-19, for agents choosing a video layer).
+ * Lists R2 prefix users/<userId>/videos/; duration/width/height are present for clips uploaded
+ * by the app since 2026-10-19 or imported with them.
+ */
+async function handleListVideos(request, env, auth) {
+  if (!env.VEMOTION_VIDEO) return error("Video storage not configured", 500);
+  const origin = `https://${new URL(request.url).hostname}`;
+  const prefix = `users/${auth.userId}/videos/`;
+  const videos = [];
+  let cursor;
+  for (let page = 0; page < 20; page++) {
+    const list = await env.VEMOTION_VIDEO.list({ prefix, cursor, limit: 1000, include: ["customMetadata", "httpMetadata"] });
+    for (const o of list.objects) {
+      const m = o.customMetadata || {};
+      const num = (v) => v !== void 0 && Number.isFinite(Number(v)) ? Number(v) : null;
+      videos.push({
+        key: o.key,
+        url: `${origin}/vemotion/video?key=${encodeURIComponent(o.key)}`,
+        name: m.name || o.key.slice(prefix.length).replace(/^\d+-/, ""),
+        size: o.size,
+        contentType: o.httpMetadata?.contentType || null,
+        uploaded: o.uploaded ? new Date(o.uploaded).toISOString() : null,
+        duration: num(m.duration),
+        width: num(m.width),
+        height: num(m.height)
+      });
+    }
+    if (!list.truncated) break;
+    cursor = list.cursor;
+  }
+  videos.sort((a, b) => String(b.uploaded).localeCompare(String(a.uploaded)));
+  return json({ ok: true, videos, count: videos.length });
+}
+/**
+ * POST /vemotion/video/import { url, name?, duration?, width?, height? } — copy a video from a public
+ * URL into the caller's clips, so a video layer gets a stable, Range-capable URL the app can draw.
+ */
+async function handleVideoImport(request, env, auth) {
+  if (!env.VEMOTION_VIDEO) return error("Video storage not configured", 500);
+  const input = await request.json().catch(() => ({}));
+  const src = String(input.url || "");
+  if (!/^https:\/\//.test(src)) return error("url must be an https URL", 400);
+  let res;
+  try {
+    res = await fetch(src);
+  } catch (e) {
+    return error(`Could not fetch the video: ${e.message}`, 502);
+  }
+  if (!res.ok || !res.body) return error(`Could not fetch the video (HTTP ${res.status})`, 502);
+  const contentType = (res.headers.get("content-type") || "").split(";")[0] || "video/mp4";
+  if (!/^video\//.test(contentType) && !/\.(mp4|mov|webm|m4v)(\?|$)/i.test(src)) return error(`Not a video (${contentType})`, 400);
+  const length = Number(res.headers.get("content-length") || 0);
+  if (length > MAX_VIDEO_BYTES) return error(`The video is ${Math.round(length / 1048576)} MB; the limit is 100 MB`, 413);
+  const body = length > 0 ? res.body : await res.arrayBuffer();
+  if (!(length > 0) && body.byteLength > MAX_VIDEO_BYTES) return error("The video is larger than 100 MB", 413);
+  let name = String(input.name || "");
+  if (!name) {
+    try { name = decodeURIComponent(new URL(src).pathname.split("/").pop() || "video"); } catch { name = "video"; }
+  }
+  const safeName = name.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/^_+/, "").slice(-100) || "video";
+  const key = `users/${auth.userId}/videos/${Date.now()}-${safeName}`;
+  const meta = { name: name.slice(0, 200), source: src.slice(0, 500) };
+  for (const k of ["duration", "width", "height"]) {
+    const v = Number(input[k]);
+    if (Number.isFinite(v) && v > 0) meta[k] = String(v);
+  }
+  await env.VEMOTION_VIDEO.put(key, body, { httpMetadata: { contentType: /^video\//.test(contentType) ? contentType : "video/mp4" }, customMetadata: meta });
+  const origin = `https://${new URL(request.url).hostname}`;
+  return json({ ok: true, url: `${origin}/vemotion/video?key=${encodeURIComponent(key)}`, key, name: meta.name }, 201);
 }
 async function handleVideoServe(request, env) {
   if (!env.VEMOTION_VIDEO) return error("Video storage not configured", 500);
@@ -2410,6 +2546,10 @@ var index_default = {
         return await handleQueueRender(request, env, auth);
       if (pathname === "/vemotion/render/update" && method === "POST")
         return await handleUpdateRender(request, env, auth);
+      if (pathname === "/vemotion/videos" && method === "GET")
+        return await handleListVideos(request, env, auth);
+      if (pathname === "/vemotion/video/import" && method === "POST")
+        return await handleVideoImport(request, env, auth);
       if (pathname === "/vemotion/video/upload" && method === "POST")
         return await handleVideoUpload(request, env, auth);
       if (pathname === "/vemotion/image-prompt" && method === "POST")
