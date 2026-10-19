@@ -101,6 +101,11 @@ service = "sms-gateway"
 binding = "BLOTATO_WORKER"
 service = "blotato-worker"
 
+# VEmotion render jobs from the MCP tools (vemotion-service.js), called as the caller.
+[[services]]
+binding = "VEMOTION_WORKER"
+service = "vemotion-worker"
+
 # The public origin this worker is reached on. It becomes the OAuth issuer and the RFC 9728
 # resource identifier (`<origin>/mcp`), which is the audience of every access token. Override it
 # in .dev.vars for local testing; the protected-resource document is only served for a request

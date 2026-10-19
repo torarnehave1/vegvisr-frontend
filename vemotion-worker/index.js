@@ -670,6 +670,20 @@ async function handleQueueRender(request, env, auth) {
     compName = saved.name;
   }
   if (!composition) return error("Provide composition or compositionId", 400);
+  // Who renders: the VEmotion app, opened at ?renderJob=<jobId> (2026-10-19). `target` says where
+  // the finished MP4 goes — for Instagram, the photos album of that account (ig-reels-<username>).
+  // The caller (dev-worker's MCP tool) has already checked the account is one it may post to;
+  // photos-worker enforces album ownership on the upload itself.
+  let target = null;
+  if (input.target && typeof input.target === "object") {
+    const t = input.target;
+    target = {
+      platform: String(t.platform || "instagram").slice(0, 20),
+      accountId: t.accountId ? String(t.accountId).slice(0, 40) : null,
+      username: t.username ? String(t.username).slice(0, 60) : null,
+      album: t.album ? String(t.album).slice(0, 80) : null
+    };
+  }
   const jobId = `render_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const job = {
@@ -678,6 +692,8 @@ async function handleQueueRender(request, env, auth) {
     userEmail: auth.email,
     status: "queued",
     name: compName,
+    compositionId: input.compositionId || null,
+    target,
     composition,
     createdAt: now,
     updatedAt: now,
@@ -694,7 +710,8 @@ async function handleQueueRender(request, env, auth) {
     ok: true,
     jobId,
     status: "queued",
-    message: "Render job queued. Poll GET /vemotion/render?id=<jobId> for status."
+    renderUrl: `https://vemotion.vegvisr.org/?renderJob=${jobId}`,
+    message: "Render job queued. Open renderUrl in the VEmotion app to render it; poll GET /vemotion/render?id=<jobId> for status."
   }, 202);
 }
 async function handleGetRender(url, env, auth) {
@@ -717,9 +734,50 @@ async function handleGetRender(url, env, auth) {
     progress: job.progress,
     outputUrl: job.outputUrl,
     error: job.error,
+    compositionId: job.compositionId || null,
+    target: job.target || null,
+    // The app needs the snapshot to render exactly what was queued; ?brief=1 leaves it out.
+    ...(url.searchParams.get("brief") === "1" ? {} : { composition: job.composition }),
     createdAt: job.createdAt,
     updatedAt: job.updatedAt
   });
+}
+/**
+ * POST /vemotion/render/update — the app reports progress and the result of a job it rendered.
+ * Owner only. A finished job (done/failed) cannot be reopened, so a stale tab cannot overwrite it.
+ */
+async function handleUpdateRender(request, env, auth) {
+  const input = await request.json().catch(() => ({}));
+  const jobId = String(input.id || "");
+  if (!jobId) return error("id is required", 400);
+  const key = getRenderKey(jobId);
+  const raw = await env.VEMOTION_PROJECTS.get(key);
+  if (!raw) return error("Render job not found", 404);
+  let job;
+  try {
+    job = JSON.parse(raw);
+  } catch {
+    return error("Corrupt job record", 500);
+  }
+  assertOwner(job, auth);
+  if (job.status === "done" || job.status === "failed") return error(`Job is already ${job.status}`, 409);
+  const status = String(input.status || "");
+  if (!["rendering", "uploading", "done", "failed"].includes(status)) return error("status must be rendering, uploading, done or failed", 400);
+  if (status === "done") {
+    const out = String(input.outputUrl || "");
+    if (!/^https:\/\//.test(out)) return error("A done job needs an https outputUrl", 400);
+    job.outputUrl = out;
+    job.progress = 100;
+  }
+  if (status === "failed") job.error = String(input.error || "Render failed").slice(0, 500);
+  if (typeof input.progress === "number" && status !== "done") job.progress = Math.max(0, Math.min(100, Math.round(input.progress)));
+  job.status = status;
+  job.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+  await env.VEMOTION_PROJECTS.put(key, JSON.stringify(job), {
+    expirationTtl: 86400,
+    metadata: { userId: job.userId, status: job.status, createdAt: job.createdAt }
+  });
+  return json({ ok: true, jobId, status: job.status, progress: job.progress, outputUrl: job.outputUrl, error: job.error });
 }
 async function handleListRenders(url, env, auth) {
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 20), 1), 100);
@@ -1396,7 +1454,8 @@ function buildOpenApiSpec(baseUrl) {
                   properties: {
                     compositionId: { type: "string", description: "ID of a saved composition to render" },
                     name: { type: "string", description: "Human-readable job name" },
-                    composition: { "$ref": "#/components/schemas/Composition", description: "Inline composition (alternative to compositionId)" }
+                    composition: { "$ref": "#/components/schemas/Composition", description: "Inline composition (alternative to compositionId)" },
+                    target: { type: "object", description: "Where the finished MP4 goes. For Instagram: { platform: 'instagram', accountId, username, album } — album is the photos album the app uploads to (ig-reels-<username>).", properties: { platform: { type: "string" }, accountId: { type: "string" }, username: { type: "string" }, album: { type: "string" } } }
                   }
                 }
               }
@@ -1405,6 +1464,17 @@ function buildOpenApiSpec(baseUrl) {
           responses: {
             202: { description: "Queued", content: { "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" }, jobId: { type: "string" }, status: { type: "string" }, message: { type: "string" } } } } } }
           }
+        }
+      },
+      "/vemotion/render/update": {
+        post: {
+          operationId: "updateRender",
+          summary: "Report progress or the result of a render job (the VEmotion app calls this after rendering ?renderJob=<id>). Owner only; a done/failed job cannot be changed.",
+          requestBody: {
+            required: true,
+            content: { "application/json": { schema: { type: "object", required: ["id", "status"], properties: { id: { type: "string" }, status: { type: "string", enum: ["rendering", "uploading", "done", "failed"] }, progress: { type: "number" }, outputUrl: { type: "string", description: "Required for done: the public https URL of the MP4" }, error: { type: "string" } } } } }
+          },
+          responses: { 200: { description: "Updated" }, 409: { description: "Job already finished" } }
         }
       },
       "/vemotion/assist": {
@@ -2283,6 +2353,8 @@ var index_default = {
         return await handleGetRender(url, env, auth);
       if (pathname === "/vemotion/render" && method === "POST")
         return await handleQueueRender(request, env, auth);
+      if (pathname === "/vemotion/render/update" && method === "POST")
+        return await handleUpdateRender(request, env, auth);
       if (pathname === "/vemotion/video/upload" && method === "POST")
         return await handleVideoUpload(request, env, auth);
       if (pathname === "/vemotion/image-prompt" && method === "POST")

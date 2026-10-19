@@ -40,6 +40,7 @@ import * as users from '../users-service.js'
 import * as sms from '../sms-service.js'
 import * as social from '../social-service.js'
 import * as mediaUpload from '../media-upload-service.js'
+import * as vemotion from '../vemotion-service.js'
 import * as workerSource from '../worker-source-service.js'
 import * as workerTools from '../worker-tools.js'
 
@@ -2055,6 +2056,164 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── VEmotion: compositions (forwarded to agent-worker) + render jobs ─────────
+  //
+  // The four composition tools run Agent-Builder's own executors through agent-worker's
+  // /vemotion/tool (vemotion-service.js), so the composition gate is one implementation. Rendering
+  // happens in the VEmotion app: render_vemotion_for_instagram queues a job and returns the URL
+  // that renders it. Scopes: compositions are the user's own content like graphs (graph:read /
+  // graph:write); the render job targets an Instagram account (chat:write, like the IG tools).
+  const AnyObject = z.record(z.string(), z.any())
+  const compositionTool = (name, scope, def) =>
+    server.registerTool(name, def, async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, scope)
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await vemotion.runCompositionTool(env, { actor, tool: name, input: args || {} })
+      if (!r.ok) return fromService(r)
+      const result = r.result && typeof r.result === 'object' ? r.result : { value: r.result }
+      return ok({ success: true, result }, typeof result.reference === 'string' ? result.reference : JSON.stringify(result))
+    })
+
+  compositionTool('get_vemotion_reference', 'graph:read', {
+    title: 'Get the VEmotion composition cookbook',
+    description:
+      'The full VEmotion composition reference: every layer type and its properties (in the ' +
+      "renderer's own names), animation kinds, position semantics (position = top-left of the " +
+      'box), math-shape formulas and the formula vocabulary, and worked layouts. Call this BEFORE ' +
+      'building a composition for vemotion_save_composition. Reading it changes nothing. Requires ' +
+      'the graph:read scope.',
+    inputSchema: {},
+    outputSchema: { success: z.boolean(), result: AnyObject },
+    annotations: READ_ONLY,
+  })
+
+  compositionTool('vemotion_list_compositions', 'graph:read', {
+    title: "List the user's VEmotion compositions",
+    description:
+      "List the signed-in user's saved VEmotion compositions (their own library — not graphs): " +
+      'compositionId, name, duration, width, height, layerCount and editorUrl. Pass `query` to ' +
+      'filter by name. Load one with vemotion_get_composition. Requires the graph:read scope.',
+    inputSchema: { query: z.string().optional().describe('Case-insensitive substring of the name.') },
+    outputSchema: { success: z.boolean(), result: AnyObject },
+    annotations: READ_ONLY,
+  })
+
+  compositionTool('vemotion_get_composition', 'graph:read', {
+    title: 'Load a VEmotion composition',
+    description:
+      'Load a saved composition by id and return its full CompositionData exactly as stored. ' +
+      'ALWAYS call this before editing one: modify the returned layers, then save back with ' +
+      'vemotion_save_composition and the SAME compositionId. Requires the graph:read scope.',
+    inputSchema: { compositionId: z.string().min(1).describe('e.g. "comp_abc123", from vemotion_list_compositions.') },
+    outputSchema: { success: z.boolean(), result: AnyObject },
+    annotations: READ_ONLY,
+  })
+
+  compositionTool('vemotion_save_composition', 'graph:write', {
+    title: 'Save a VEmotion composition',
+    description:
+      "Save a composition to the user's VEmotion library. Pass `composition` (full " +
+      'CompositionData — call get_vemotion_reference first) or `albumName` (builds a cross-fade ' +
+      'slideshow of that album). Omit compositionId to create; pass it to update in place — load ' +
+      'with vemotion_get_composition first, never rebuild from memory. A composition in the wrong ' +
+      'property names, keyframes on the video clock, or text off the canvas is REFUSED with a ' +
+      'numbered list of what to fix. For an Instagram reel use width 1080, height 1920. Saving ' +
+      'does not render: use render_vemotion_for_instagram. Requires the graph:write scope.',
+    inputSchema: {
+      name: z.string().optional().describe('Title in the VEmotion library.'),
+      compositionId: z.string().optional().describe('Update this composition in place. Omit to create a new one.'),
+      composition: AnyObject.optional().describe('Full CompositionData: { duration, fps, width, height, layers: [...], meta?, groups? }.'),
+      albumName: z.string().optional().describe('Shortcut: build a slideshow of this photos album instead of passing composition.'),
+      secondsPerImage: z.number().optional().describe('Slideshow shortcut only (default 3).'),
+      transitionSeconds: z.number().optional().describe('Slideshow shortcut only (default 0.5).'),
+    },
+    outputSchema: { success: z.boolean(), result: AnyObject },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  })
+
+  server.registerTool(
+    'render_vemotion_for_instagram',
+    {
+      title: 'Render a VEmotion composition to a reel',
+      description:
+        'Queue a render of a saved composition to MP4, bound for the photos album of an Instagram ' +
+        'account you may post to (ig-reels-<username>). Rendering happens in the VEmotion app in a ' +
+        'browser, not on the server: give the user the returned renderUrl to open while signed in. ' +
+        'The app renders, uploads the MP4 and marks the job done. Then get_vemotion_render returns ' +
+        'the public outputUrl for preview_instagram_post (mediaType "reel"). Nothing is posted by ' +
+        'this tool. Requires the chat:write scope.',
+      inputSchema: {
+        compositionId: z.string().min(1).describe('The composition to render, from vemotion_list_compositions or vemotion_save_composition.'),
+        accountId: z.string().min(1).describe('The Instagram account it is for, from list_instagram_accounts.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        jobId: z.string(),
+        status: z.string(),
+        renderUrl: z.string(),
+        album: z.string(),
+        username: z.string().nullable(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await vemotion.queueInstagramRender(env, { ...args, actor })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, ...payload } = r
+      return ok(
+        { success: true, ...payload },
+        `Render job ${r.jobId} queued for album ${r.album}.\nOpen this in a browser signed in to VEmotion to render it:\n${r.renderUrl}\n` +
+          'Then call get_vemotion_render with the jobId to get the MP4 URL.',
+      )
+    },
+  )
+
+  server.registerTool(
+    'get_vemotion_render',
+    {
+      title: 'Check a VEmotion render job',
+      description:
+        'Where a render job stands: queued (nobody has opened renderUrl yet), rendering, uploading, ' +
+        'done (with outputUrl — the public MP4 to give preview_instagram_post) or failed (with ' +
+        'error). Reading this changes nothing. Requires the chat:write scope.',
+      inputSchema: { jobId: z.string().min(1).describe('The jobId render_vemotion_for_instagram returned.') },
+      outputSchema: {
+        success: z.boolean(),
+        jobId: z.string(),
+        status: z.string(),
+        progress: z.number(),
+        outputUrl: z.string().nullable(),
+        error: z.string().nullable(),
+        compositionId: z.string().nullable(),
+        album: z.string().nullable(),
+        accountId: z.string().nullable(),
+      },
+      annotations: { ...READ_ONLY, idempotentHint: false },
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await vemotion.getRenderJob(env, { ...args, actor })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, ...payload } = r
+      return ok(
+        { success: true, ...payload },
+        `${r.status} (${r.progress}%)` + (r.outputUrl ? ` — ${r.outputUrl}` : '') + (r.error ? ` — ${r.error}` : ''),
+      )
+    },
+  )
+
   // ── preview_sms_to_user / send_sms_to_user ────────────────────────────────
   //
   // `recipientEmail`, NOT `userEmail`. The e-mail tools forbid `userEmail` because there it would
@@ -4058,6 +4217,12 @@ export const TOOL_NAMES = [
   'post_to_instagram',
   'get_instagram_post_status',
   'create_media_upload',
+  'get_vemotion_reference',
+  'vemotion_list_compositions',
+  'vemotion_get_composition',
+  'vemotion_save_composition',
+  'render_vemotion_for_instagram',
+  'get_vemotion_render',
   'set_email_template',
   'get_fulltext_elements',
   'get_image_guide',
