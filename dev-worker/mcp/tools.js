@@ -884,6 +884,63 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
     },
   )
 
+  // ── add_edge ──────────────────────────────────────────────────────────────
+  server.registerTool(
+    'add_edge',
+    {
+      title: 'Connect two nodes in a graph',
+      description:
+        'Append one directed edge between two nodes that already exist in the graph, without ' +
+        'sending the whole graph. Existing edges are never rewritten; a duplicate edge id is refused. ' +
+        'Pass expectedVersion (from get_graph) to have a concurrent change refused with ' +
+        'VERSION_CONFLICT. Requires the graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph containing both nodes.'),
+        edge: EdgeInput,
+        expectedVersion: z
+          .number()
+          .int()
+          .optional()
+          .describe('The version you last read. If the graph has moved on, the write is refused with VERSION_CONFLICT.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        edgeId: z.string(),
+        currentVersion: z.number(),
+        newVersion: z.number(),
+        title: z.string().nullable(),
+        metaArea: z.string().nullable(),
+        publicationState: z.string(),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      // Same shape as add_node: appends, refuses duplicates, rewrites nothing.
+      annotations: ADDITIVE_WRITE,
+    },
+    async ({ graphId, edge, expectedVersion }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const access = await gs.checkAccess(env, actor, graphId, 'write')
+      if (!access.ok) return fromService(access)
+
+      const result = await gs.addEdge(env, { graphId, edge, expectedVersion: expectedVersion ?? null, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `Added edge ${result.edgeId} (${edge.source} → ${edge.target}) to graph ${graphId}. ` +
+          `Version ${result.currentVersion} → ${result.newVersion}.\nViewer: ${result.viewerUrl}`,
+      )
+    },
+  )
+
   // ── get_graph_links ───────────────────────────────────────────────────────
   server.registerTool(
     'get_graph_links',
@@ -4218,6 +4275,7 @@ export const TOOL_NAMES = [
   'create_graph',
   'get_graph',
   'add_node',
+  'add_edge',
   'get_graph_links',
   'update_node',
   'post_chat_message',

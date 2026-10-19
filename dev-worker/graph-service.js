@@ -634,6 +634,82 @@ export async function addNode(env, { graphId, node, expectedVersion = null, acto
 }
 
 /**
+ * Append one edge between two nodes that already exist in the graph. Mirrors addNode: nothing
+ * existing is rewritten, a duplicate id is refused, expectedVersion (optional) guards against a
+ * concurrent change. Added 2026-10-19 — before it, an edge could only be written by sending a
+ * whole graph (create_graph), so a node added later could never be connected over the MCP.
+ */
+export async function addEdge(env, { graphId, edge, expectedVersion = null, actor = null, caller = undefined }) {
+  if (!graphId || !edge || typeof edge !== 'object' || !edge.source || !edge.target) {
+    return fail(ERR.INVALID_INPUT, 'graphId and an edge with source and target are required.')
+  }
+
+  const located = await storeFor(env, { graphId, actor: caller === undefined ? actor : caller })
+  if (located.error) return located.error
+  const { store } = located
+  return guarded(async () => {
+  const result = await store.getRow(graphId)
+  if (!result) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
+
+  const graphData = JSON.parse(result.data)
+  if (!Array.isArray(graphData.nodes)) graphData.nodes = []
+  if (!Array.isArray(graphData.edges)) graphData.edges = []
+
+  const current = await store.currentVersion(graphId)
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    if (!Number.isInteger(expectedVersion)) {
+      return fail(ERR.INVALID_INPUT, 'expectedVersion must be an integer when provided.')
+    }
+    if (current !== expectedVersion) {
+      return fail(ERR.VERSION_CONFLICT, 'Grafen er endret siden den ble lest.', { currentVersion: current })
+    }
+  }
+
+  const ids = new Set(graphData.nodes.map((n) => n.id))
+  const missing = [edge.source, edge.target].filter((id) => !ids.has(id))
+  if (missing.length) {
+    return fail(ERR.INVALID_INPUT, `No node with id ${missing.join(' or ')} in graph ${graphId}.`)
+  }
+
+  const edgeToInsert = {
+    id: edge.id || `${edge.source}_${edge.target}`,
+    source: edge.source,
+    target: edge.target,
+    ...(edge.label ? { label: String(edge.label) } : {}),
+    ...(edge.type ? { type: String(edge.type) } : {}),
+  }
+  if (graphData.edges.some((e) => e.id === edgeToInsert.id)) {
+    return fail(ERR.INVALID_INPUT, `Edge ${edgeToInsert.id} already exists in graph ${graphId}.`)
+  }
+
+  graphData.edges.push(edgeToInsert)
+
+  const newVersion = current + 1
+  if (!graphData.metadata) graphData.metadata = {}
+  graphData.metadata.version = newVersion
+
+  await store.commit({
+    id: graphId,
+    data: JSON.stringify(graphData),
+    version: newVersion,
+    now: new Date().toISOString(),
+  })
+
+  return {
+    ok: true,
+    graphId,
+    edgeId: edgeToInsert.id,
+    currentVersion: current,
+    newVersion,
+    title: graphData.metadata?.title || null,
+    metaArea: graphData.metadata?.metaArea || null,
+    publicationState: graphData.metadata?.publicationState || 'private',
+    ...graphLinks(graphId, store.world),
+  }
+  })
+}
+
+/**
  * Update graph-level metadata under optimistic concurrency. Mirrors POST /patchGraphMetadata.
  * `allowPublicationState` gates the one field that must go through publishGraph() instead,
  * so publishing cannot happen as a side effect of an ordinary metadata edit (rule 2).

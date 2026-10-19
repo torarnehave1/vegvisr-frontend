@@ -454,6 +454,48 @@ describe('14. reading another user\'s private graph', () => {
   })
 })
 
+describe('add_edge connects two existing nodes', () => {
+  test('appends one edge, default id <source>_<target>, and bumps the version', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X', nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] })
+    const r = await callOk(client, 'add_edge', { graphId: g.graphId, edge: { source: 'a', target: 'b', label: 'guarantee', type: 'contract-decision' }, expectedVersion: 1 })
+    assert.equal(r.edgeId, 'a_b')
+    assert.equal(r.newVersion, 2)
+    const read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(read.edgeCount, 1)
+    assert.equal(read.nodeCount, 2, 'no node touched')
+  })
+
+  test('an edge to a node that does not exist is refused, and nothing is written', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X', nodes: [{ id: 'a', label: 'A' }] })
+    const e = await callErr(client, 'add_edge', { graphId: g.graphId, edge: { source: 'a', target: 'ghost' } })
+    assert.equal(e.code, gs.ERR.INVALID_INPUT)
+    assert.equal((await callOk(client, 'get_graph', { graphId: g.graphId })).version, 1)
+  })
+
+  test('a duplicate edge id is refused; a stale version is a VERSION_CONFLICT', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X', nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }], edges: [{ source: 'a', target: 'b' }] })
+    assert.equal((await callErr(client, 'add_edge', { graphId: g.graphId, edge: { source: 'a', target: 'b' } })).code, gs.ERR.INVALID_INPUT)
+    const c = await callErr(client, 'add_edge', { graphId: g.graphId, edge: { id: 'x', source: 'b', target: 'a' }, expectedVersion: 0 })
+    assert.equal(c.code, gs.ERR.VERSION_CONFLICT)
+  })
+
+  test('needs graph:write, and someone else\'s graph is refused', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X', nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }] })
+    const { client: ro } = await connect(env, ALICE_RO)
+    assert.equal((await callErr(ro, 'add_edge', { graphId: g.graphId, edge: { source: 'a', target: 'b' } })).code, gs.ERR.INSUFFICIENT_SCOPE)
+    const { client: bob } = await connect(env, BOB_RW)
+    assert.equal((await callErr(bob, 'add_edge', { graphId: g.graphId, edge: { source: 'a', target: 'b' } })).code, gs.ERR.FORBIDDEN_GRAPH)
+  })
+})
+
 describe('15 & 16. add_node and version conflict', () => {
   test('add_node appends and reports both versions', async () => {
     const { env } = freshDb()
