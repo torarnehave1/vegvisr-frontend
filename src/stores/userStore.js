@@ -330,7 +330,9 @@ export const useUserStore = defineStore('user', {
             role: 'Superadmin',
             user_id: 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b',
             oauth_id: 'ca3d9d93-3b02-4e49-a4ee-43552ec4ca2b',
-            emailVerificationToken: 'b1ca2967e8165ec02fdf039d9e916af4005f7388',
+            // No token here: this file ships in the public bundle. Log in once on localhost and
+            // the token from localStorage (branch above) is used. Removed 2026-10-19 after a leak.
+            emailVerificationToken: null,
             phone: '+4790914095',
             phoneVerifiedAt: 1768170059,
             profileimage: 'https://profile.vegvisr.org/torarnehave@gmail.com-1743500107976.png',
