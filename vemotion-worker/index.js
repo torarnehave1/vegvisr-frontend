@@ -1678,6 +1678,7 @@ function videoMetaFromHeaders(headers, name) {
   return meta;
 }
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+const VIDEO_PUBLIC_ORIGIN = "https://api.vegvisr.org";
 /**
  * GET /vemotion/videos — the caller's uploaded clips (2026-10-19, for agents choosing a video layer).
  * Lists R2 prefix users/<userId>/videos/; duration/width/height are present for clips uploaded
@@ -1685,7 +1686,9 @@ const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
  */
 async function handleListVideos(request, env, auth) {
   if (!env.VEMOTION_VIDEO) return error("Video storage not configured", 500);
-  const origin = `https://${new URL(request.url).hostname}`;
+  // Always the public host: called through a service binding the request host is "vemotion-worker",
+  // which no browser can open.
+  const origin = VIDEO_PUBLIC_ORIGIN;
   const prefix = `users/${auth.userId}/videos/`;
   const videos = [];
   let cursor;
@@ -1746,8 +1749,7 @@ async function handleVideoImport(request, env, auth) {
     if (Number.isFinite(v) && v > 0) meta[k] = String(v);
   }
   await env.VEMOTION_VIDEO.put(key, body, { httpMetadata: { contentType: /^video\//.test(contentType) ? contentType : "video/mp4" }, customMetadata: meta });
-  const origin = `https://${new URL(request.url).hostname}`;
-  return json({ ok: true, url: `${origin}/vemotion/video?key=${encodeURIComponent(key)}`, key, name: meta.name }, 201);
+  return json({ ok: true, url: `${VIDEO_PUBLIC_ORIGIN}/vemotion/video?key=${encodeURIComponent(key)}`, key, name: meta.name }, 201);
 }
 async function handleVideoServe(request, env) {
   if (!env.VEMOTION_VIDEO) return error("Video storage not configured", 500);
