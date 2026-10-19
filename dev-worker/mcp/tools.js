@@ -2236,11 +2236,12 @@ ${result.warnings.join('\n')}` : ''),
     description:
       'List ready-made parts by kind: curves (math-shape presets — roses, stars, spirals, hearts, ' +
       'Lissajous…), shapes (SVG icons for kg-shape layers), cards (card styles), animations (the ' +
-      "editor's animation previews) or recipes (worked examples with a full composition). Returns " +
+      "editor's animation previews), elements (animated element groups from the Animations tab: " +
+      'water drop, pulse, orbit, word scramble) or recipes (worked examples with a full composition). Returns ' +
       'id, name and a one-line summary per item. These are the same graphs the VEmotion app\'s ' +
       'pickers read. Omit kind to list the kinds. Get one with get_vemotion_library_item. Reading ' +
       'it changes nothing. Requires the graph:read scope.',
-    inputSchema: { kind: z.enum(['curves', 'shapes', 'cards', 'animations', 'recipes']).optional().describe('Which library. Omit to list the kinds.') },
+    inputSchema: { kind: z.enum(['curves', 'shapes', 'cards', 'animations', 'elements', 'recipes']).optional().describe('Which library. Omit to list the kinds.') },
     outputSchema: { success: z.boolean(), result: AnyObject },
     annotations: READ_ONLY,
   })
@@ -2254,7 +2255,7 @@ ${result.warnings.join('\n')}` : ''),
       'composition. Set position/size, then save. Reading it changes nothing. Requires the ' +
       'graph:read scope.',
     inputSchema: {
-      kind: z.enum(['curves', 'shapes', 'cards', 'animations', 'recipes']).describe('The library, as in list_vemotion_library.'),
+      kind: z.enum(['curves', 'shapes', 'cards', 'animations', 'elements', 'recipes']).describe('The library, as in list_vemotion_library.'),
       id: z.string().min(1).describe('The item id from list_vemotion_library, e.g. "curve-rose-8".'),
     },
     outputSchema: { success: z.boolean(), result: AnyObject },
@@ -2275,6 +2276,163 @@ ${result.warnings.join('\n')}` : ''),
     outputSchema: { success: z.boolean(), result: AnyObject },
     annotations: READ_ONLY,
   })
+
+  // The Add Layer tabs' media (2026-10-19): what a person picks from in the Images, Video and Audio
+  // tabs, and the file facts a layer needs. Agent-Builder's own executors, forwarded like the rest.
+  const MEDIA_READ = READ_ONLY
+  const MEDIA_WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  const anyResult = { success: z.boolean(), result: AnyObject }
+
+  compositionTool('album_list', 'graph:read', {
+    title: "List the user's photo albums",
+    description:
+      "The user's photo albums (the Images tab's album list). Read one with get_album_images. " +
+      'Requires the graph:read scope.',
+    inputSchema: {},
+    outputSchema: anyResult,
+    annotations: MEDIA_READ,
+  })
+  compositionTool('get_album_images', 'graph:read', {
+    title: 'List the images in a photo album',
+    description:
+      'Every image in one of the user\'s albums with its public url — use the url as an image ' +
+      "layer's src (or a text layer's fillSource). Sizes are not included: get_vemotion_media_info " +
+      'reads one. Requires the graph:read scope.',
+    inputSchema: { albumName: z.string().min(1).describe('Album name from album_list, e.g. "VEmotion".') },
+    outputSchema: anyResult,
+    annotations: MEDIA_READ,
+  })
+  compositionTool('search_unsplash', 'graph:read', {
+    title: 'Search Unsplash photos',
+    description:
+      'Search free stock photos on Unsplash (the Images tab\'s stock search): url, width, height, ' +
+      'alt, photographer. The url works directly as an image layer src; credit the photographer in ' +
+      'the caption when posting. Requires the graph:read scope.',
+    inputSchema: { query: z.string().min(1), count: z.number().int().min(1).max(30).optional() },
+    outputSchema: anyResult,
+    annotations: MEDIA_READ,
+  })
+  compositionTool('search_pexels', 'graph:read', {
+    title: 'Search Pexels photos',
+    description:
+      'Search free stock photos on Pexels: url, width, height, alt, photographer. The url works ' +
+      'directly as an image layer src. Requires the graph:read scope.',
+    inputSchema: { query: z.string().min(1), count: z.number().int().min(1).max(30).optional() },
+    outputSchema: anyResult,
+    annotations: MEDIA_READ,
+  })
+  compositionTool('photos_upload_from_url', 'graph:write', {
+    title: 'Copy an image into a photo album',
+    description:
+      "Copy an image from a public URL into one of the user's albums (default album when omitted) " +
+      'and return its permanent vegvisr URL — use it so a composition does not depend on someone ' +
+      "else's link. Requires the graph:write scope.",
+    inputSchema: {
+      url: z.string().min(1).describe('https URL of the image.'),
+      album: z.string().optional().describe('Album to add it to, e.g. "VEmotion".'),
+      displayName: z.string().optional(),
+    },
+    outputSchema: anyResult,
+    annotations: MEDIA_WRITE,
+  })
+  compositionTool('generate_image', 'graph:write', {
+    title: 'Generate an image for a composition',
+    description:
+      'Generate an image from a text prompt (Workers AI) and store it in the user\'s album ' +
+      '"agent-generated"; returns its public url for an image layer. Describe the subject, style ' +
+      'and composition. Requires the graph:write scope.',
+    inputSchema: {
+      prompt: z.string().min(1),
+      width: z.number().int().optional().describe('Pixels, e.g. 768 (multiples of 8).'),
+      height: z.number().int().optional().describe('Pixels, e.g. 1344 for a tall reel image.'),
+      negative_prompt: z.string().optional(),
+    },
+    outputSchema: anyResult,
+    annotations: MEDIA_WRITE,
+  })
+  compositionTool('vemotion_list_videos', 'graph:read', {
+    title: "List the user's VEmotion video clips",
+    description:
+      "The user's own clips (uploaded in the Video tab or imported): url — a video layer's src — " +
+      'name, size, uploaded, and duration/width/height when known. For a clip without a duration, ' +
+      'get_vemotion_media_info reads it. Requires the graph:read scope.',
+    inputSchema: { query: z.string().optional().describe('Part of the clip name.') },
+    outputSchema: anyResult,
+    annotations: MEDIA_READ,
+  })
+  compositionTool('vemotion_import_video', 'graph:write', {
+    title: 'Import a video clip from a URL',
+    description:
+      'Copy a video from a direct https file URL (MP4/MOV/WebM, up to 100 MB) into the user\'s ' +
+      'VEmotion clips, measuring its length and size first; returns the clip url for a video layer. ' +
+      'Requires the graph:write scope.',
+    inputSchema: { url: z.string().min(1).describe('Direct https URL of the video file.'), name: z.string().optional() },
+    outputSchema: anyResult,
+    annotations: MEDIA_WRITE,
+  })
+  compositionTool('vemotion_list_audio', 'graph:read', {
+    title: "List the user's audio recordings",
+    description:
+      "The user's own recordings from their audio portfolio, for an audio layer: name, r2Url (the " +
+      'layer\'s r2Url), duration (use as layerDuration), format, tags. vemotionOnly keeps those ' +
+      'tagged "vemotion" (the Audio tab\'s pick list). The app fills the loudness track (amp in ' +
+      'formulas) itself when the composition is opened or rendered. Requires the graph:read scope.',
+    inputSchema: {
+      query: z.string().optional(),
+      vemotionOnly: z.boolean().optional(),
+      limit: z.number().int().min(1).max(200).optional(),
+    },
+    outputSchema: anyResult,
+    annotations: MEDIA_READ,
+  })
+  compositionTool('get_vemotion_media_info', 'graph:read', {
+    title: 'Read an image or video file\'s size and length',
+    description:
+      'Read from the file header, without downloading it: width × height of a PNG/JPEG/GIF/WebP ' +
+      'image; duration (s) and frame size of an MP4/MOV video (phone rotation applied). Use it to ' +
+      'size an image layer to its picture or set a video layer\'s layerDuration. Requires the ' +
+      'graph:read scope.',
+    inputSchema: { url: z.string().min(1).describe('https URL of the image or video.') },
+    outputSchema: anyResult,
+    annotations: MEDIA_READ,
+  })
+
+  server.registerTool(
+    'pixelate_image_for_vemotion',
+    {
+      title: 'Turn an image into a pixel grid (knitting chart)',
+      description:
+        'The Pixel Grid tab for an image: queue a job in which the VEmotion app pixelates the image ' +
+        'into `cols` columns and a palette of `colors` yarn colours (its own code needs a browser ' +
+        'canvas). Give the user the renderUrl to open while signed in to VEmotion; then ' +
+        'get_vemotion_render returns result { cols, rows, palette, cells } — put those in a ' +
+        'knitting-chart layer\'s properties. For pixel art you design yourself, write the cells ' +
+        'directly instead (see get_vemotion_catalog). Requires the graph:write scope.',
+      inputSchema: {
+        imageUrl: z.string().min(1).describe('https URL of an image that allows cross-origin use (vegvisr, Unsplash, Pexels do).'),
+        cols: z.number().int().min(4).max(200).optional().describe('Stitches across (default 40).'),
+        colors: z.number().int().min(2).max(32).optional().describe('Palette size (default 8).'),
+      },
+      outputSchema: { success: z.boolean(), jobId: z.string(), status: z.string(), renderUrl: z.string(), cols: z.number(), colors: z.number() },
+      annotations: MEDIA_WRITE,
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await vemotion.queuePixelGrid(env, { ...args, actor })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, ...payload } = r
+      return ok(
+        { success: true, ...payload },
+        `Pixel-grid job ${r.jobId} queued (${r.cols} columns, ${r.colors} colours).\n` +
+          `Open this in a browser signed in to VEmotion to make it:\n${r.renderUrl}\n` +
+          'Then call get_vemotion_render with the jobId for the grid.',
+      )
+    },
+  )
 
   server.registerTool(
     'preview_vemotion_frames',
@@ -2369,7 +2527,8 @@ ${result.warnings.join('\n')}` : ''),
       description:
         'Where a render job stands: queued (nobody has opened renderUrl yet), rendering, uploading, ' +
         'done (with outputUrl — the public MP4 to give preview_instagram_post) or failed (with ' +
-        'error). For a preview_vemotion_frames job that is done, the frames come back as images you ' +
+        'error). For a pixelate_image_for_vemotion job that is done, `result` holds the grid. ' +
+        'For a preview_vemotion_frames job that is done, the frames come back as images you ' +
         'can look at, plus their URLs in outputUrls. Reading this changes nothing. Requires the ' +
         'graph:read scope.',
       inputSchema: { jobId: z.string().min(1).describe('The jobId render_vemotion_for_instagram returned.') },
@@ -2386,6 +2545,7 @@ ${result.warnings.join('\n')}` : ''),
         kind: z.string(),
         times: z.array(z.number()).nullable(),
         outputUrls: z.array(z.string()).nullable(),
+        result: AnyObject.nullable(),
       },
       annotations: { ...READ_ONLY, idempotentHint: false },
     },
@@ -4429,6 +4589,17 @@ export const TOOL_NAMES = [
   'get_vemotion_library_item',
   'check_vemotion_composition',
   'preview_vemotion_frames',
+  'album_list',
+  'get_album_images',
+  'search_unsplash',
+  'search_pexels',
+  'photos_upload_from_url',
+  'generate_image',
+  'vemotion_list_videos',
+  'vemotion_import_video',
+  'vemotion_list_audio',
+  'get_vemotion_media_info',
+  'pixelate_image_for_vemotion',
   'set_email_template',
   'get_fulltext_elements',
   'get_image_guide',

@@ -138,3 +138,23 @@ test('frameImages inlines PNGs as MCP image content and skips what it cannot fet
   assert.deepEqual(images[0], { type: 'image', data: btoa(String.fromCharCode(...png)), mimeType: 'image/png' })
   assert.equal(skipped.length, 1)
 })
+
+test('the Add Layer media tools are forwarded as the caller (2026-10-19)', async () => {
+  for (const tool of ['album_list', 'get_album_images', 'search_unsplash', 'search_pexels', 'photos_upload_from_url', 'generate_image', 'vemotion_list_videos', 'vemotion_import_video', 'vemotion_list_audio', 'get_vemotion_media_info']) {
+    const env = world()
+    const r = await vm.runCompositionTool(env, { actor: ALICE, tool, input: { url: 'https://x/y.png' } })
+    assert.equal(r.ok, true, `${tool}: ${r.message}`)
+    assert.equal(env.AGENT_WORKER.calls[0].body.tool, tool)
+    assert.equal(env.AGENT_WORKER.calls[0].token, 'sess-alice')
+  }
+})
+
+test('pixel grid queues a no-composition job with validated cols/colors', async () => {
+  const env = world()
+  const r = await vm.queuePixelGrid(env, { actor: ALICE, imageUrl: 'https://vegvisr.imgix.net/a.png', cols: 30, colors: 6 })
+  assert.equal(r.ok, true, r.message)
+  assert.deepEqual(env.VEMOTION_WORKER.calls[0].body, { kind: 'pixel-grid', imageUrl: 'https://vegvisr.imgix.net/a.png', cols: 30, colors: 6 })
+  assert.equal((await vm.queuePixelGrid(env, { actor: ALICE, imageUrl: 'http://x/a.png' })).code, gs.ERR.INVALID_INPUT)
+  assert.equal((await vm.queuePixelGrid(env, { actor: ALICE, imageUrl: 'https://x/a.png', cols: 500 })).code, gs.ERR.INVALID_INPUT)
+  assert.equal(env.VEMOTION_WORKER.calls.length, 1)
+})

@@ -40,6 +40,17 @@ export const COMPOSITION_TOOLS = [
   'list_vemotion_library',
   'get_vemotion_library_item',
   'check_vemotion_composition',
+  // 2026-10-19: the Add Layer tabs' media, run by Agent-Builder's executors like the tools above
+  'album_list',
+  'get_album_images',
+  'search_unsplash',
+  'search_pexels',
+  'photos_upload_from_url',
+  'generate_image',
+  'vemotion_list_videos',
+  'vemotion_import_video',
+  'vemotion_list_audio',
+  'get_vemotion_media_info',
 ]
 
 async function callerToken(env, actor) {
@@ -193,10 +204,35 @@ export async function frameImages(urls, fetchImpl = fetch) {
   return { images, skipped }
 }
 
+/** Queue a pixel-grid job: the app turns one image into a knitting-chart grid (Pixel Grid tab). */
+export async function queuePixelGrid(env, { actor, imageUrl, cols, colors }) {
+  const url = String(imageUrl || '').trim()
+  if (!/^https:\/\//.test(url)) return fail(ERR.INVALID_INPUT, 'imageUrl must be an https image URL.')
+  const c = Math.round(Number(cols) || 40)
+  const k = Math.round(Number(colors) || 8)
+  if (c < 4 || c > 200) return fail(ERR.INVALID_INPUT, 'cols must be 4–200.')
+  if (k < 2 || k > 32) return fail(ERR.INVALID_INPUT, 'colors must be 2–32.')
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const r = await callVemotion(env, t.token, '/vemotion/render', {
+    method: 'POST',
+    body: JSON.stringify({ kind: 'pixel-grid', imageUrl: url, cols: c, colors: k }),
+  })
+  if (!r.ok) return r
+  return {
+    ok: true,
+    jobId: r.data.jobId,
+    status: r.data.status || 'queued',
+    renderUrl: r.data.renderUrl || `https://vemotion.vegvisr.org/?renderJob=${r.data.jobId}`,
+    cols: c,
+    colors: k,
+  }
+}
+
 /** Where a render job stands; outputUrl is set once the app has uploaded the MP4. */
 export async function getRenderJob(env, { actor, jobId }) {
   const id = String(jobId || '').trim()
-  if (!/^render_[a-z0-9_]+$/i.test(id)) return fail(ERR.INVALID_INPUT, 'jobId is the id render_vemotion_for_instagram or preview_vemotion_frames returned.')
+  if (!/^render_[a-z0-9_]+$/i.test(id)) return fail(ERR.INVALID_INPUT, 'jobId is the id render_vemotion_for_instagram, preview_vemotion_frames or pixelate_image_for_vemotion returned.')
   const t = await tokenOrFail(env, actor)
   if (t.error) return t.error
   const r = await callVemotion(env, t.token, `/vemotion/render?id=${encodeURIComponent(id)}&brief=1`)
@@ -215,5 +251,6 @@ export async function getRenderJob(env, { actor, jobId }) {
     kind: d.kind || 'video',
     times: Array.isArray(d.times) ? d.times : null,
     outputUrls: Array.isArray(d.outputUrls) ? d.outputUrls : null,
+    result: d.result && typeof d.result === 'object' ? d.result : null,
   }
 }
