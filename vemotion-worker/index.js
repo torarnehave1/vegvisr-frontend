@@ -684,6 +684,18 @@ async function handleQueueRender(request, env, auth) {
       album: t.album ? String(t.album).slice(0, 80) : null
     };
   }
+  // kind "frames" (2026-10-19, MCP preview_vemotion_frames): the app renders still PNGs at `times`
+  // (seconds on the composition clock) instead of an MP4, so Claude can look at what it composed.
+  // They go to the photos album "vemotion-previews" unless the caller names one.
+  const kind = input.kind === "frames" ? "frames" : "video";
+  let times = null;
+  if (kind === "frames") {
+    const duration = Number(composition.duration) || 0;
+    const raw = Array.isArray(input.times) ? input.times : [];
+    times = [...new Set(raw.map(Number).filter((t) => Number.isFinite(t)).map((t) => Math.round(Math.max(0, duration > 0 ? Math.min(t, duration) : t) * 1e3) / 1e3))].slice(0, 12);
+    if (times.length === 0) return error("kind \"frames\" needs times: 1-12 numbers in seconds", 400);
+    target = { platform: "preview", accountId: null, username: null, album: target?.album || "vemotion-previews" };
+  }
   const jobId = `render_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const job = {
@@ -691,6 +703,9 @@ async function handleQueueRender(request, env, auth) {
     userId: auth.userId,
     userEmail: auth.email,
     status: "queued",
+    kind,
+    times,
+    outputUrls: null,
     name: compName,
     compositionId: input.compositionId || null,
     target,
@@ -736,6 +751,9 @@ async function handleGetRender(url, env, auth) {
     error: job.error,
     compositionId: job.compositionId || null,
     target: job.target || null,
+    kind: job.kind || "video",
+    times: job.times || null,
+    outputUrls: job.outputUrls || null,
     // The app needs the snapshot to render exactly what was queued; ?brief=1 leaves it out.
     ...(url.searchParams.get("brief") === "1" ? {} : { composition: job.composition }),
     createdAt: job.createdAt,
@@ -763,7 +781,15 @@ async function handleUpdateRender(request, env, auth) {
   if (job.status === "done" || job.status === "failed") return error(`Job is already ${job.status}`, 409);
   const status = String(input.status || "");
   if (!["rendering", "uploading", "done", "failed"].includes(status)) return error("status must be rendering, uploading, done or failed", 400);
-  if (status === "done") {
+  if (status === "done" && job.kind === "frames") {
+    const urls = Array.isArray(input.outputUrls) ? input.outputUrls.map(String) : [];
+    if (urls.length !== (job.times || []).length || !urls.every((u) => /^https:\/\//.test(u))) {
+      return error(`A done frames job needs outputUrls: ${(job.times || []).length} https URLs, one per time`, 400);
+    }
+    job.outputUrls = urls;
+    job.outputUrl = urls[0];
+    job.progress = 100;
+  } else if (status === "done") {
     const out = String(input.outputUrl || "");
     if (!/^https:\/\//.test(out)) return error("A done job needs an https outputUrl", 400);
     job.outputUrl = out;
@@ -777,7 +803,7 @@ async function handleUpdateRender(request, env, auth) {
     expirationTtl: 86400,
     metadata: { userId: job.userId, status: job.status, createdAt: job.createdAt }
   });
-  return json({ ok: true, jobId, status: job.status, progress: job.progress, outputUrl: job.outputUrl, error: job.error });
+  return json({ ok: true, jobId, status: job.status, progress: job.progress, outputUrl: job.outputUrl, outputUrls: job.outputUrls || null, error: job.error });
 }
 async function handleListRenders(url, env, auth) {
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 20), 1), 100);
@@ -790,7 +816,7 @@ async function handleListRenders(url, env, auth) {
     try {
       const job = JSON.parse(raw);
       if (job.userId !== auth.userId) continue;
-      jobs.push({ jobId: job.jobId, status: job.status, name: job.name, progress: job.progress, outputUrl: job.outputUrl, createdAt: job.createdAt, updatedAt: job.updatedAt });
+      jobs.push({ jobId: job.jobId, status: job.status, kind: job.kind || "video", name: job.name, progress: job.progress, outputUrl: job.outputUrl, createdAt: job.createdAt, updatedAt: job.updatedAt });
     } catch {
       continue;
     }
@@ -1088,10 +1114,13 @@ function buildOpenApiSpec(baseUrl) {
           type: "object",
           properties: {
             jobId: { type: "string" },
-            status: { type: "string", enum: ["queued", "processing", "done", "failed"] },
+            status: { type: "string", enum: ["queued", "rendering", "uploading", "done", "failed"] },
+            kind: { type: "string", enum: ["video", "frames"] },
+            times: { type: "array", items: { type: "number" }, nullable: true },
             name: { type: "string" },
             progress: { type: "number", minimum: 0, maximum: 100 },
             outputUrl: { type: "string", nullable: true },
+            outputUrls: { type: "array", items: { type: "string" }, nullable: true },
             error: { type: "string", nullable: true },
             createdAt: { type: "string", format: "date-time" },
             updatedAt: { type: "string", format: "date-time" }
@@ -1458,6 +1487,8 @@ function buildOpenApiSpec(baseUrl) {
                     compositionId: { type: "string", description: "ID of a saved composition to render" },
                     name: { type: "string", description: "Human-readable job name" },
                     composition: { "$ref": "#/components/schemas/Composition", description: "Inline composition (alternative to compositionId)" },
+                    kind: { type: "string", enum: ["video", "frames"], default: "video", description: "video = an MP4; frames = still PNGs at `times` (a preview to look at)" },
+                    times: { type: "array", items: { type: "number" }, description: "kind frames: 1-12 times in seconds on the composition clock" },
                     target: { type: "object", description: "Where the finished MP4 goes. For Instagram: { platform: 'instagram', accountId, username, album } — album is the photos album the app uploads to (ig-reels-<username>).", properties: { platform: { type: "string" }, accountId: { type: "string" }, username: { type: "string" }, album: { type: "string" } } }
                   }
                 }
@@ -1496,7 +1527,7 @@ function buildOpenApiSpec(baseUrl) {
           summary: "Report progress or the result of a render job (the VEmotion app calls this after rendering ?renderJob=<id>). Owner only; a done/failed job cannot be changed.",
           requestBody: {
             required: true,
-            content: { "application/json": { schema: { type: "object", required: ["id", "status"], properties: { id: { type: "string" }, status: { type: "string", enum: ["rendering", "uploading", "done", "failed"] }, progress: { type: "number" }, outputUrl: { type: "string", description: "Required for done: the public https URL of the MP4" }, error: { type: "string" } } } } }
+            content: { "application/json": { schema: { type: "object", required: ["id", "status"], properties: { id: { type: "string" }, status: { type: "string", enum: ["rendering", "uploading", "done", "failed"] }, progress: { type: "number" }, outputUrl: { type: "string", description: "Required for done (video): the public https URL of the MP4" }, outputUrls: { type: "array", items: { type: "string" }, description: "Required for done (frames): one public https PNG URL per time, in order" }, error: { type: "string" } } } } }
           },
           responses: { 200: { description: "Updated" }, 409: { description: "Job already finished" } }
         }
