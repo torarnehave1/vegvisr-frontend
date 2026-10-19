@@ -2058,7 +2058,7 @@ ${result.warnings.join('\n')}` : ''),
 
   // ── VEmotion: compositions (forwarded to agent-worker) + render jobs ─────────
   //
-  // The four composition tools run Agent-Builder's own executors through agent-worker's
+  // The composition tools (list, get, save, reference, refit) run Agent-Builder's own executors through agent-worker's
   // /vemotion/tool (vemotion-service.js), so the composition gate is one implementation. Rendering
   // happens in the VEmotion app: render_vemotion_for_instagram queues a job and returns the URL
   // that renders it. Scopes: compositions are the user's own content like graphs (graph:read /
