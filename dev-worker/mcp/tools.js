@@ -2397,6 +2397,27 @@ ${result.warnings.join('\n')}` : ''),
     annotations: MEDIA_READ,
   })
 
+  compositionTool('vemotion_set_drawing_pace', 'graph:write', {
+    title: 'Change how fast a pixel grid draws itself',
+    description:
+      'Change the speed of a pixel grid (knitting-chart) that draws itself stitch by stitch, and keep ' +
+      'the composition in step — use this instead of editing keyframes yourself. The server counts ' +
+      'the stitches in drawOrder, sets the drawing time, keeps the grid on screen to the end, moves ' +
+      'the layers that followed the drawing (a title) to start at the last stitch, keeps the hold ' +
+      '(or sets holdSeconds), sets the video length and saves in place. Give ONE of speedFactor ' +
+      '(2 = twice as fast), secondsPerStitch or totalSeconds. Requires the graph:write scope.',
+    inputSchema: {
+      compositionId: z.string().min(1).describe('The composition, from vemotion_list_compositions.'),
+      layerId: z.string().optional().describe('The grid layer — only needed when several grids draw themselves.'),
+      speedFactor: z.number().positive().optional().describe('2 = twice as fast, 0.5 = half as fast.'),
+      secondsPerStitch: z.number().positive().optional().describe("e.g. 0.1 (the app's fastest) or 0.05."),
+      totalSeconds: z.number().positive().optional().describe('How long the whole drawing should take.'),
+      holdSeconds: z.number().min(0).optional().describe('Seconds after the last stitch before the video ends. Default: keep the current hold.'),
+    },
+    outputSchema: { success: z.boolean(), result: AnyObject },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  })
+
   server.registerTool(
     'pixelate_image_for_vemotion',
     {
@@ -4603,6 +4624,7 @@ export const TOOL_NAMES = [
   'vemotion_list_audio',
   'get_vemotion_media_info',
   'pixelate_image_for_vemotion',
+  'vemotion_set_drawing_pace',
   'set_email_template',
   'get_fulltext_elements',
   'get_image_guide',

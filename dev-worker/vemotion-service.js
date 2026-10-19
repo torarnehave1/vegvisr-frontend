@@ -51,6 +51,7 @@ export const COMPOSITION_TOOLS = [
   'vemotion_import_video',
   'vemotion_list_audio',
   'get_vemotion_media_info',
+  'vemotion_set_drawing_pace',
 ]
 
 async function callerToken(env, actor) {
