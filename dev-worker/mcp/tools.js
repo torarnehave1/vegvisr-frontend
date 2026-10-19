@@ -2115,7 +2115,7 @@ ${result.warnings.join('\n')}` : ''),
 
   // ── VEmotion: compositions (forwarded to agent-worker) + render jobs ─────────
   //
-  // The composition tools (list, get, save, reference, refit) run Agent-Builder's own executors through agent-worker's
+  // The composition tools (list, get, save, reference, refit, catalog, library, check) run Agent-Builder's own executors through agent-worker's
   // /vemotion/tool (vemotion-service.js), so the composition gate is one implementation. Rendering
   // happens in the VEmotion app: render_vemotion_for_instagram queues a job and returns the URL
   // that renders it. Scopes: compositions are the user's own content like graphs (graph:read /
@@ -2214,6 +2214,112 @@ ${result.warnings.join('\n')}` : ''),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   })
 
+  // Discover and check (2026-10-19): VEmotion's vocabulary and part libraries as data, and the save
+  // gate without the save. All four run in agent-worker like the tools above.
+  compositionTool('get_vemotion_catalog', 'graph:read', {
+    title: 'Get the VEmotion catalog (what it can draw)',
+    description:
+      'Structured, not prose: every layer type (text, shape, math-shape, image, video, audio, kg-shape, ' +
+      'card, path, knitting-chart, telemetry-track) with each property\'s type, unit, default, range ' +
+      'and whether it can be animated; the layer and composition fields; animation kinds and their ' +
+      'fields; easings; the formula vocabulary for math-shapes and motion scenes; canvas presets; ' +
+      'fonts; and which part libraries exist. Generated from the same rules vemotion_save_composition ' +
+      'enforces. Use it to know WHAT exists; get_vemotion_reference teaches technique. Reading it ' +
+      'changes nothing. Requires the graph:read scope.',
+    inputSchema: {},
+    outputSchema: { success: z.boolean(), result: AnyObject },
+    annotations: READ_ONLY,
+  })
+
+  compositionTool('list_vemotion_library', 'graph:read', {
+    title: 'List a VEmotion part library',
+    description:
+      'List ready-made parts by kind: curves (math-shape presets — roses, stars, spirals, hearts, ' +
+      'Lissajous…), shapes (SVG icons for kg-shape layers), cards (card styles), animations (the ' +
+      "editor's animation previews) or recipes (worked examples with a full composition). Returns " +
+      'id, name and a one-line summary per item. These are the same graphs the VEmotion app\'s ' +
+      'pickers read. Omit kind to list the kinds. Get one with get_vemotion_library_item. Reading ' +
+      'it changes nothing. Requires the graph:read scope.',
+    inputSchema: { kind: z.enum(['curves', 'shapes', 'cards', 'animations', 'recipes']).optional().describe('Which library. Omit to list the kinds.') },
+    outputSchema: { success: z.boolean(), result: AnyObject },
+    annotations: READ_ONLY,
+  })
+
+  compositionTool('get_vemotion_library_item', 'graph:read', {
+    title: 'Get one VEmotion library part',
+    description:
+      'Return one part as a ready layer you can put in a composition as is — the same layer the ' +
+      "app's picker builds (a curve as a math-shape with its formulas, a shape as a kg-shape with " +
+      'its svgPath, a card with its style) — or, for a recipe, its steps and full example ' +
+      'composition. Set position/size, then save. Reading it changes nothing. Requires the ' +
+      'graph:read scope.',
+    inputSchema: {
+      kind: z.enum(['curves', 'shapes', 'cards', 'animations', 'recipes']).describe('The library, as in list_vemotion_library.'),
+      id: z.string().min(1).describe('The item id from list_vemotion_library, e.g. "curve-rose-8".'),
+    },
+    outputSchema: { success: z.boolean(), result: AnyObject },
+    annotations: READ_ONLY,
+  })
+
+  compositionTool('check_vemotion_composition', 'graph:read', {
+    title: 'Check a VEmotion composition without saving',
+    description:
+      'Run the exact gate vemotion_save_composition runs — wrong property names, keyframes on the ' +
+      'video clock, text off the canvas, letterSpacing in pixels — and return { ok, problems } ' +
+      'without saving anything. Pass `composition`, or `compositionId` to check a stored one. Use ' +
+      'it to iterate on a draft cheaply. Requires the graph:read scope.',
+    inputSchema: {
+      composition: AnyObject.optional().describe('The CompositionData to check: { duration, fps, width, height, layers: [...] }.'),
+      compositionId: z.string().optional().describe('Check this saved composition instead.'),
+    },
+    outputSchema: { success: z.boolean(), result: AnyObject },
+    annotations: READ_ONLY,
+  })
+
+  server.registerTool(
+    'preview_vemotion_frames',
+    {
+      title: 'Preview still frames of a VEmotion composition',
+      description:
+        'See what a composition looks like: queue still frames of a SAVED composition at the given ' +
+        'times (seconds on the composition clock, 1–12 of them). VEmotion draws only in the app, so ' +
+        'give the user the returned renderUrl to open in a browser signed in to VEmotion; the app ' +
+        'renders the frames as PNGs (long side up to 960 px) into their photos album ' +
+        '"vemotion-previews". Then get_vemotion_render with the jobId returns the frames AS IMAGES you ' +
+        'can look at. Check layout, contrast and timing before rendering a reel. Requires the ' +
+        'graph:write scope (it stores the frames in the user\'s album).',
+      inputSchema: {
+        compositionId: z.string().min(1).describe('A saved composition, from vemotion_save_composition or vemotion_list_compositions.'),
+        times: z.array(z.number().min(0)).min(1).max(12).describe('Moments to draw, in seconds, e.g. [0.5, 2, 4.5]. A time past the end draws the last frame.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        jobId: z.string(),
+        status: z.string(),
+        renderUrl: z.string(),
+        times: z.array(z.number()),
+        album: z.string(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await vemotion.queuePreviewFrames(env, { ...args, actor })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, ...payload } = r
+      return ok(
+        { success: true, ...payload },
+        `Preview job ${r.jobId} queued for ${r.times.length} frame(s) at ${r.times.join(', ')} s.\n` +
+          `Open this in a browser signed in to VEmotion to render them:\n${r.renderUrl}\n` +
+          'Then call get_vemotion_render with the jobId to see the frames.',
+      )
+    },
+  )
+
   server.registerTool(
     'render_vemotion_for_instagram',
     {
@@ -2263,7 +2369,9 @@ ${result.warnings.join('\n')}` : ''),
       description:
         'Where a render job stands: queued (nobody has opened renderUrl yet), rendering, uploading, ' +
         'done (with outputUrl — the public MP4 to give preview_instagram_post) or failed (with ' +
-        'error). Reading this changes nothing. Requires the chat:write scope.',
+        'error). For a preview_vemotion_frames job that is done, the frames come back as images you ' +
+        'can look at, plus their URLs in outputUrls. Reading this changes nothing. Requires the ' +
+        'graph:read scope.',
       inputSchema: { jobId: z.string().min(1).describe('The jobId render_vemotion_for_instagram returned.') },
       outputSchema: {
         success: z.boolean(),
@@ -2275,22 +2383,33 @@ ${result.warnings.join('\n')}` : ''),
         compositionId: z.string().nullable(),
         album: z.string().nullable(),
         accountId: z.string().nullable(),
+        kind: z.string(),
+        times: z.array(z.number()).nullable(),
+        outputUrls: z.array(z.string()).nullable(),
       },
       annotations: { ...READ_ONLY, idempotentHint: false },
     },
     async (args) => {
       const { auth, env, props } = getContext()
-      const scopeErr = requireScope(auth, 'chat:write')
+      const scopeErr = requireScope(auth, 'graph:read')
       if (scopeErr) return scopeErr
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
       const r = await vemotion.getRenderJob(env, { ...args, actor })
       if (!r.ok) return fromService(r)
       const { ok: _o, ...payload } = r
-      return ok(
+      const result = ok(
         { success: true, ...payload },
         `${r.status} (${r.progress}%)` + (r.outputUrl ? ` — ${r.outputUrl}` : '') + (r.error ? ` — ${r.error}` : ''),
       )
+      if (r.kind === 'frames' && r.status === 'done' && r.outputUrls?.length) {
+        const { images, skipped } = await vemotion.frameImages(r.outputUrls)
+        result.content = [
+          { type: 'text', text: `${images.length} frame(s) at ${(r.times || []).join(', ')} s, in that order:` + (skipped.length ? `\nNot inlined: ${skipped.join('; ')}` : '') },
+          ...images,
+        ]
+      }
+      return result
     },
   )
 
@@ -4305,6 +4424,11 @@ export const TOOL_NAMES = [
   'vemotion_refit_composition',
   'render_vemotion_for_instagram',
   'get_vemotion_render',
+  'get_vemotion_catalog',
+  'list_vemotion_library',
+  'get_vemotion_library_item',
+  'check_vemotion_composition',
+  'preview_vemotion_frames',
   'set_email_template',
   'get_fulltext_elements',
   'get_image_guide',

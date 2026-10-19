@@ -15,6 +15,10 @@
  * the photos album of the Instagram account (ig-reels-<username>, same as create_media_upload).
  * Someone opens the job's renderUrl in a browser where they are signed in; the app renders,
  * uploads to that album and marks the job done with the public URL. getRenderJob reads it back.
+ *
+ * PREVIEW FRAMES (2026-10-19): queuePreviewFrames queues the same kind of job with kind "frames" and
+ * `times`; the app renders still PNGs (long side ≤ 960 px) into the album "vemotion-previews". When
+ * it is done, frameImages fetches them so the MCP tool can hand Claude the pictures themselves.
  */
 
 import { ERR, statusForCode } from './graph-service.js'
@@ -31,6 +35,11 @@ export const COMPOSITION_TOOLS = [
   'vemotion_save_composition',
   'get_vemotion_reference',
   'vemotion_refit_composition',
+  // 2026-10-19: discover and check — the vocabulary, the libraries and the gate, as read-only tools
+  'get_vemotion_catalog',
+  'list_vemotion_library',
+  'get_vemotion_library_item',
+  'check_vemotion_composition',
 ]
 
 async function callerToken(env, actor) {
@@ -130,10 +139,64 @@ export async function queueInstagramRender(env, { actor, compositionId, accountI
   }
 }
 
+/** Queue still frames of a saved composition at `times` (seconds) — a preview Claude can look at. */
+export async function queuePreviewFrames(env, { actor, compositionId, times }) {
+  const id = String(compositionId || '').trim()
+  if (!id) return fail(ERR.INVALID_INPUT, 'compositionId is required — vemotion_save_composition or vemotion_list_compositions gives it.')
+  const list = (Array.isArray(times) ? times : []).map(Number).filter((t) => Number.isFinite(t) && t >= 0)
+  if (list.length === 0 || list.length > 12) return fail(ERR.INVALID_INPUT, 'times: 1–12 moments in seconds, e.g. [0.5, 2, 4].')
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const r = await callVemotion(env, t.token, '/vemotion/render', {
+    method: 'POST',
+    body: JSON.stringify({ compositionId: id, kind: 'frames', times: list, target: { platform: 'preview', album: 'vemotion-previews' } }),
+  })
+  if (!r.ok) return r
+  return {
+    ok: true,
+    jobId: r.data.jobId,
+    status: r.data.status || 'queued',
+    renderUrl: r.data.renderUrl || `https://vemotion.vegvisr.org/?renderJob=${r.data.jobId}`,
+    times: list,
+    album: 'vemotion-previews',
+  }
+}
+
+// What one tool result may carry as pictures. A preview frame is ≤ 960 px on its long side, usually
+// well under 1 MB; the caps keep a busy photo composition from producing an oversized response.
+const FRAME_MAX_BYTES = 2_000_000
+const FRAMES_MAX_TOTAL = 8_000_000
+
+function toBase64(bytes) {
+  let bin = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(bin)
+}
+
+/** Fetch finished preview frames as MCP image content: [{ type:'image', data, mimeType }] (+ skipped). */
+export async function frameImages(urls, fetchImpl = fetch) {
+  const images = []
+  const skipped = []
+  let total = 0
+  for (const url of urls || []) {
+    try {
+      const res = await fetchImpl(url)
+      if (!res.ok) { skipped.push(`${url} (HTTP ${res.status})`); continue }
+      const bytes = new Uint8Array(await res.arrayBuffer())
+      if (bytes.length > FRAME_MAX_BYTES || total + bytes.length > FRAMES_MAX_TOTAL) { skipped.push(`${url} (too large to inline — open the URL)`); continue }
+      total += bytes.length
+      images.push({ type: 'image', data: toBase64(bytes), mimeType: (res.headers.get('content-type') || 'image/png').split(';')[0] })
+    } catch (e) {
+      skipped.push(`${url} (${e.message})`)
+    }
+  }
+  return { images, skipped }
+}
+
 /** Where a render job stands; outputUrl is set once the app has uploaded the MP4. */
 export async function getRenderJob(env, { actor, jobId }) {
   const id = String(jobId || '').trim()
-  if (!/^render_[a-z0-9_]+$/i.test(id)) return fail(ERR.INVALID_INPUT, 'jobId is the id render_vemotion_for_instagram returned.')
+  if (!/^render_[a-z0-9_]+$/i.test(id)) return fail(ERR.INVALID_INPUT, 'jobId is the id render_vemotion_for_instagram or preview_vemotion_frames returned.')
   const t = await tokenOrFail(env, actor)
   if (t.error) return t.error
   const r = await callVemotion(env, t.token, `/vemotion/render?id=${encodeURIComponent(id)}&brief=1`)
@@ -149,5 +212,8 @@ export async function getRenderJob(env, { actor, jobId }) {
     compositionId: d.compositionId || null,
     album: d.target?.album || null,
     accountId: d.target?.accountId || null,
+    kind: d.kind || 'video',
+    times: Array.isArray(d.times) ? d.times : null,
+    outputUrls: Array.isArray(d.outputUrls) ? d.outputUrls : null,
   }
 }

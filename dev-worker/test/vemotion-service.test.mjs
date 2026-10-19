@@ -106,3 +106,35 @@ test('no credential, no call', async () => {
   assert.equal(r.code, gs.ERR.FORBIDDEN_GRAPH)
   assert.equal(env.AGENT_WORKER.calls.length, 0)
 })
+
+test('the discover and check tools are forwarded like the others (2026-10-19)', async () => {
+  for (const tool of ['get_vemotion_catalog', 'list_vemotion_library', 'get_vemotion_library_item', 'check_vemotion_composition']) {
+    const env = world()
+    const r = await vm.runCompositionTool(env, { actor: ALICE, tool, input: { kind: 'curves' } })
+    assert.equal(r.ok, true, `${tool}: ${r.message}`)
+    assert.equal(env.AGENT_WORKER.calls[0].body.tool, tool)
+    assert.equal(env.AGENT_WORKER.calls[0].token, 'sess-alice')
+  }
+})
+
+test('preview frames queue a frames job into vemotion-previews, times validated', async () => {
+  const env = world()
+  const r = await vm.queuePreviewFrames(env, { actor: ALICE, compositionId: 'comp_x', times: [0.5, 2, 4] })
+  assert.equal(r.ok, true, r.message)
+  assert.equal(r.album, 'vemotion-previews')
+  assert.deepEqual(env.VEMOTION_WORKER.calls[0].body, { compositionId: 'comp_x', kind: 'frames', times: [0.5, 2, 4], target: { platform: 'preview', album: 'vemotion-previews' } })
+  assert.equal((await vm.queuePreviewFrames(env, { actor: ALICE, compositionId: 'comp_x', times: [] })).code, gs.ERR.INVALID_INPUT)
+  assert.equal((await vm.queuePreviewFrames(env, { actor: ALICE, compositionId: 'comp_x', times: Array(13).fill(1) })).code, gs.ERR.INVALID_INPUT)
+  assert.equal(env.VEMOTION_WORKER.calls.length, 1)
+})
+
+test('frameImages inlines PNGs as MCP image content and skips what it cannot fetch', async () => {
+  const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])
+  const fake = async (u) => u.endsWith('a.png')
+    ? new Response(png, { headers: { 'content-type': 'image/png' } })
+    : new Response('no', { status: 404 })
+  const { images, skipped } = await vm.frameImages(['https://x/a.png', 'https://x/b.png'], fake)
+  assert.equal(images.length, 1)
+  assert.deepEqual(images[0], { type: 'image', data: btoa(String.fromCharCode(...png)), mimeType: 'image/png' })
+  assert.equal(skipped.length, 1)
+})
