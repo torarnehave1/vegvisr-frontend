@@ -814,7 +814,10 @@ async function handleUpdateRender(request, env, auth) {
     if (!ok) return error("A done pixel-grid job needs result: { cols, rows, palette[], cells[rows] }", 400);
     if (JSON.stringify(r).length > 500000) return error("The grid is too large (over 500 KB)", 413);
     job.result = { cols: r.cols, rows: r.rows, palette: r.palette.map(String), cells: r.cells.map(String) };
-    job.outputUrl = job.pixelGrid?.imageUrl || null;
+    // The app also uploads a picture of the grid, so the person and Claude can see it.
+    const pics = Array.isArray(input.outputUrls) ? input.outputUrls.map(String).filter((u) => /^https:\/\//.test(u)).slice(0, 1) : [];
+    job.outputUrls = pics.length ? pics : null;
+    job.outputUrl = pics[0] || job.pixelGrid?.imageUrl || null;
     job.progress = 100;
   } else if (status === "done" && job.kind === "frames") {
     const urls = Array.isArray(input.outputUrls) ? input.outputUrls.map(String) : [];

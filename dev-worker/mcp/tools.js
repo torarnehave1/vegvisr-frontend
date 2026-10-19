@@ -2562,10 +2562,13 @@ ${result.warnings.join('\n')}` : ''),
         { success: true, ...payload },
         `${r.status} (${r.progress}%)` + (r.outputUrl ? ` — ${r.outputUrl}` : '') + (r.error ? ` — ${r.error}` : ''),
       )
-      if (r.kind === 'frames' && r.status === 'done' && r.outputUrls?.length) {
+      if ((r.kind === 'frames' || r.kind === 'pixel-grid') && r.status === 'done' && r.outputUrls?.length) {
         const { images, skipped } = await vemotion.frameImages(r.outputUrls)
+        const head = r.kind === 'frames'
+          ? `${images.length} frame(s) at ${(r.times || []).join(', ')} s, in that order:`
+          : `The pixel grid (${r.result?.cols}×${r.result?.rows} stitches, ${r.result?.palette?.length} colours) as it draws; the grid data is in result:`
         result.content = [
-          { type: 'text', text: `${images.length} frame(s) at ${(r.times || []).join(', ')} s, in that order:` + (skipped.length ? `\nNot inlined: ${skipped.join('; ')}` : '') },
+          { type: 'text', text: head + (skipped.length ? `\nNot inlined: ${skipped.join('; ')}` : '') },
           ...images,
         ]
       }
