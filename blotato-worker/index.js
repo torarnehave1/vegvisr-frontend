@@ -131,7 +131,10 @@ export default {
 
     const isAccounts = pathname === '/blotato/accounts' && request.method === 'GET'
     const isPost = pathname === '/blotato/post' && request.method === 'POST'
-    if (!isAccounts && !isPost) return json({ success: false, error: 'Not found' }, 404)
+    // GET /blotato/post/<postSubmissionId> — Blotato publishes asynchronously; this is how a
+    // caller learns whether a post it made is in-progress, scheduled, published or failed.
+    const statusMatch = request.method === 'GET' && /^\/blotato\/post\/([A-Za-z0-9-]{8,80})$/.exec(pathname)
+    if (!isAccounts && !isPost && !statusMatch) return json({ success: false, error: 'Not found' }, 404)
 
     // Everything below reads or writes the caller's social accounts — authed.
     const auth = await authenticate(request, env)
@@ -161,6 +164,15 @@ export default {
         } else if (reserved.length > 0 && r.ok && r.data && Array.isArray(r.data.items)) {
           r.data.items = r.data.items.filter((a) => !reserved.includes(String(a.id)))
         }
+        return json({ success: r.ok, status: r.status, keySource, data: r.data }, r.ok ? 200 : r.status)
+      } catch (e) {
+        return json({ success: false, error: e.message }, 502)
+      }
+    }
+
+    if (statusMatch) {
+      try {
+        const r = await blotato(`https://backend.blotato.com/v2/posts/${statusMatch[1]}`, key)
         return json({ success: r.ok, status: r.status, keySource, data: r.data }, r.ok ? 200 : r.status)
       } catch (e) {
         return json({ success: false, error: e.message }, 502)

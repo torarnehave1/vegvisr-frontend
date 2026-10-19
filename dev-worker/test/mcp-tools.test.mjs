@@ -766,6 +766,9 @@ describe('annotations tell the client the truth about each tool', () => {
       'send_sms',
       // Added 2026-10-06. Same effect, addressed by person rather than by number.
       'send_sms_to_user',
+      // Added 2026-10-19. Publishes on Instagram through blotato-worker — public, not recallable.
+      // preview_instagram_post and the list/status tools are deliberately NOT here.
+      'post_to_instagram',
       // Added 2026-09-30. Each one's effect lands on ANOTHER PERSON: someone gains access to a
       // group and can read what is said there, loses that access, or gets a link that lets
       // anyone holding it walk in. list_group_members is deliberately not here — it reads this
@@ -1183,6 +1186,7 @@ describe('publish_html_node is the one tool that reaches the public internet', (
       'create_group_invite',
       'create_worker',
       'post_chat_message',
+      'post_to_instagram',
       'publish_html_node',
       'register_user',
       'remove_group_member',
@@ -2592,6 +2596,7 @@ describe('post_chat_message is gated harder than everything else', () => {
       'create_group_invite',
       'create_worker',
       'post_chat_message',
+      'post_to_instagram',
       'publish_html_node',
       'register_user',
       'remove_group_member',
@@ -2681,6 +2686,7 @@ describe('read_chat_messages is gated apart from posting', () => {
       'create_group_invite',
       'create_worker',
       'post_chat_message',
+      'post_to_instagram',
       'publish_html_node',
       'register_user',
       'remove_group_member',

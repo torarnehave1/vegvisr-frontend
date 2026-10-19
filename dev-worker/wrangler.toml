@@ -95,6 +95,12 @@ service = "email-worker"
 binding = "SMS_GATEWAY"
 service = "sms-gateway"
 
+# Instagram posting from the MCP tools (social-service.js). Called AS the caller with their own
+# X-API-Token; blotato-worker decides which accounts they may post to.
+[[services]]
+binding = "BLOTATO_WORKER"
+service = "blotato-worker"
+
 # The public origin this worker is reached on. It becomes the OAuth issuer and the RFC 9728
 # resource identifier (`<origin>/mcp`), which is the audience of every access token. Override it
 # in .dev.vars for local testing; the protected-resource document is only served for a request

@@ -38,6 +38,7 @@ import { mayUseWorld, defaultWorldFor } from '../graph-store.js'
 import * as nts from '../node-type-service.js'
 import * as users from '../users-service.js'
 import * as sms from '../sms-service.js'
+import * as social from '../social-service.js'
 import * as workerSource from '../worker-source-service.js'
 import * as workerTools from '../worker-tools.js'
 
@@ -1820,6 +1821,186 @@ ${result.warnings.join('\n')}` : ''),
           `${result.segmentsUsedToday}/${result.dailyCap} segments used in the last 24 hours.
 ` +
           'This cannot be recalled.',
+      )
+    },
+  )
+
+  // ── Instagram: list / preview / post / status ─────────────────────────────
+  //
+  // Through blotato-worker, called AS the caller (social-service.js). Who may post to which
+  // account is blotato-worker's decision — own Blotato key, Superadmin, or a row in
+  // blotato_account_grants — so these tools add no allow-list of their own. Behind chat:write
+  // (decided 2026-10-19), the scope that already gates every other outbound message.
+  const IgPostInput = {
+    accountId: z.string().min(1).describe('The Instagram account to post to, as list_instagram_accounts returns it.'),
+    text: z.string().describe('The caption, exactly as it should appear. Max 2200 characters and 30 hashtags. Ignored for a story.'),
+    mediaUrls: z
+      .array(z.string())
+      .min(1)
+      .max(10)
+      .describe('Public https URLs of the images or videos. One = single post, 2–10 = carousel. Instagram fetches them itself.'),
+    mediaType: z
+      .enum(social.MEDIA_TYPES)
+      .optional()
+      .describe('"post" (default: feed image, video or carousel), "reel" (one video) or "story" (one image or video).'),
+    altText: z.string().optional().describe('Alt text for the media, max 1000 characters.'),
+    firstComment: z.string().optional().describe('A first comment posted under the post. Not for stories.'),
+    scheduledTime: z
+      .string()
+      .optional()
+      .describe('ISO 8601 with a timezone, e.g. 2026-10-20T09:00:00+02:00. Omit to publish immediately.'),
+  }
+  const IgPostSummary = {
+    accountId: z.string(),
+    username: z.string().nullable(),
+    shape: z.string(),
+    text: z.string(),
+    chars: z.number(),
+    hashtags: z.number(),
+    mediaUrls: z.array(z.string()),
+    altText: z.string().nullable(),
+    firstComment: z.string().nullable(),
+    scheduledTime: z.string().nullable(),
+    warnings: z.array(z.string()),
+  }
+  const igText = (r) =>
+    `@${r.username || r.accountId} · ${r.shape} · ${r.mediaUrls.length} media · ${r.chars} chars, ${r.hashtags} hashtag(s)` +
+    `${r.scheduledTime ? `\nScheduled for ${r.scheduledTime}` : '\nPublishes immediately'}\n\n${r.text}` +
+    `\n\n${r.mediaUrls.join('\n')}` +
+    (r.firstComment ? `\n\nFirst comment: ${r.firstComment}` : '') +
+    (r.warnings.length ? `\n\n${r.warnings.join('\n')}` : '')
+
+  server.registerTool(
+    'list_instagram_accounts',
+    {
+      title: 'List the Instagram accounts you can post to',
+      description:
+        'List the Instagram accounts the signed-in user may post to, with the accountId that ' +
+        'preview_instagram_post and post_to_instagram take. Which accounts appear is decided by ' +
+        'the platform (your own Blotato workspace, or accounts granted to you); an empty list ' +
+        'means you have none. Reading this changes nothing. Requires the chat:write scope.',
+      inputSchema: {},
+      outputSchema: {
+        success: z.boolean(),
+        accounts: z.array(z.object({ accountId: z.string(), username: z.string().nullable(), name: z.string().nullable() })),
+      },
+      annotations: READ_ONLY,
+    },
+    async () => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const result = await social.listInstagramAccounts(env, { actor })
+      if (!result.ok) return fromService(result)
+      return ok(
+        { success: true, accounts: result.accounts },
+        result.accounts.length
+          ? result.accounts.map((a) => `@${a.username || '?'} — accountId ${a.accountId}`).join('\n')
+          : 'You have no Instagram accounts to post to.',
+      )
+    },
+  )
+
+  server.registerTool(
+    'preview_instagram_post',
+    {
+      title: 'Preview an Instagram post without posting it',
+      description:
+        'Compose exactly what post_to_instagram would publish, and publish nothing. Checks that ' +
+        'the account is one you may post to, that every media URL is publicly reachable and is ' +
+        'an image or video, and Instagram\'s caption, hashtag and carousel limits. Show the user ' +
+        'this output and post only after they confirm it. `posted` is always false. Requires ' +
+        'the chat:write scope.',
+      inputSchema: IgPostInput,
+      outputSchema: { success: z.boolean(), posted: z.boolean(), ...IgPostSummary },
+      annotations: READ_ONLY,
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const result = await social.previewInstagramPost(env, { ...args, actor })
+      if (!result.ok) return fromService(result)
+      const { ok: _o, media: _m, ...payload } = result
+      return ok({ success: true, ...payload }, `NOT POSTED — preview only.\n${igText(result)}`)
+    },
+  )
+
+  // openWorldHint: the effect is public on Instagram. Not idempotent — twice is two posts.
+  server.registerTool(
+    'post_to_instagram',
+    {
+      title: 'Post to Instagram',
+      description:
+        'Publish (or schedule) a post on Instagram. THIS IS PUBLIC AND CANNOT BE UNDONE FROM ' +
+        'HERE. Call preview_instagram_post first, show the user what it returns, and post only ' +
+        'after they have confirmed it — this server cannot ask them anything itself. Takes the ' +
+        'same arguments as preview_instagram_post and composes identically. Publishing is ' +
+        'asynchronous: the reply carries a postSubmissionId, and only get_instagram_post_status ' +
+        'returning "published" proves the post is live. Requires the chat:write scope.',
+      inputSchema: IgPostInput,
+      outputSchema: { success: z.boolean(), posted: z.boolean(), postSubmissionId: z.string().nullable(), ...IgPostSummary },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const result = await social.postToInstagram(env, { ...args, actor })
+      if (!result.ok) return fromService(result)
+      const { ok: _o, media: _m, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `SUBMITTED to Instagram — postSubmissionId ${result.postSubmissionId}.\n` +
+          'Not live until get_instagram_post_status says "published".\n' +
+          igText(result),
+      )
+    },
+  )
+
+  server.registerTool(
+    'get_instagram_post_status',
+    {
+      title: 'Check whether an Instagram post went live',
+      description:
+        'Where a post submitted with post_to_instagram stands: "in-progress" (keep checking), ' +
+        '"scheduled" (queued for scheduledTime), "published" (live, with its publicUrl) or ' +
+        '"failed" (with errorMessage — do not simply resend). Reading this changes nothing. ' +
+        'Requires the chat:write scope.',
+      inputSchema: {
+        postSubmissionId: z.string().min(8).describe('The postSubmissionId post_to_instagram returned.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        postSubmissionId: z.string(),
+        status: z.string(),
+        publicUrl: z.string().nullable(),
+        scheduledTime: z.string().nullable(),
+        errorMessage: z.string().nullable(),
+      },
+      annotations: { ...READ_ONLY, idempotentHint: false },
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const result = await social.getInstagramPostStatus(env, { ...args, actor })
+      if (!result.ok) return fromService(result)
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `${result.status}` +
+          (result.publicUrl ? ` — ${result.publicUrl}` : '') +
+          (result.scheduledTime ? ` — scheduled ${result.scheduledTime}` : '') +
+          (result.errorMessage ? ` — ${result.errorMessage}` : ''),
       )
     },
   )
@@ -3822,6 +4003,10 @@ export const TOOL_NAMES = [
   'send_sms',
   'preview_sms_to_user',
   'send_sms_to_user',
+  'list_instagram_accounts',
+  'preview_instagram_post',
+  'post_to_instagram',
+  'get_instagram_post_status',
   'set_email_template',
   'get_fulltext_elements',
   'get_image_guide',
