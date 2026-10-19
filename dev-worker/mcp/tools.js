@@ -39,6 +39,7 @@ import * as nts from '../node-type-service.js'
 import * as users from '../users-service.js'
 import * as sms from '../sms-service.js'
 import * as social from '../social-service.js'
+import * as mediaUpload from '../media-upload-service.js'
 import * as workerSource from '../worker-source-service.js'
 import * as workerTools from '../worker-tools.js'
 
@@ -2001,6 +2002,55 @@ ${result.warnings.join('\n')}` : ''),
           (result.publicUrl ? ` — ${result.publicUrl}` : '') +
           (result.scheduledTime ? ` — scheduled ${result.scheduledTime}` : '') +
           (result.errorMessage ? ` — ${result.errorMessage}` : ''),
+      )
+    },
+  )
+
+  // ── create_media_upload ───────────────────────────────────────────────────
+  //
+  // The bytes never travel through this call: it returns a one-time URL the client's own sandbox
+  // PUTs the file to (media-upload-service.js). Not openWorld — nothing leaves this system and
+  // nothing becomes public until the PUT, and the file is only posted by post_to_instagram.
+  server.registerTool(
+    'create_media_upload',
+    {
+      title: 'Get a one-time upload URL for a reel or image',
+      description:
+        'Get a URL to upload ONE video or image you have made, so it gets a public link that ' +
+        'post_to_instagram can use. The file goes into the photos album of the Instagram account ' +
+        'you name (ig-reels-<username>); the account must be one list_instagram_accounts returns. ' +
+        'Upload by running the returned `curl` command in your own sandbox: an HTTP PUT of the raw ' +
+        'file bytes. The response to that PUT carries the public `url`. The URL works once, for 10 ' +
+        'minutes, for MP4, MOV, JPEG or PNG up to 40 MB — the type is checked from the file itself. ' +
+        'Uploading does not post anything. Requires the chat:write scope.',
+      inputSchema: {
+        accountId: z.string().min(1).describe('The Instagram account the media is for, as list_instagram_accounts returns it.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        uploadUrl: z.string(),
+        album: z.string(),
+        username: z.string().nullable(),
+        expiresAt: z.string(),
+        maxBytes: z.number(),
+        curl: z.string(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const result = await mediaUpload.createMediaUpload(env, { ...args, actor })
+      if (!result.ok) return fromService(result)
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `One-time upload URL for album ${result.album}, valid until ${result.expiresAt}, max ${result.maxBytes} bytes.\n` +
+          `Run in your sandbox (replace reel.mp4 with your file):\n${result.curl}\n` +
+          'The JSON it prints has the public `url` to give post_to_instagram.',
       )
     },
   )
@@ -4007,6 +4057,7 @@ export const TOOL_NAMES = [
   'preview_instagram_post',
   'post_to_instagram',
   'get_instagram_post_status',
+  'create_media_upload',
   'set_email_template',
   'get_fulltext_elements',
   'get_image_guide',

@@ -564,7 +564,7 @@ export function albumForActor(actor) {
 /**
  * Store the bytes through photos-worker, as the authenticated user.
  */
-export async function uploadImage(env, { bytes, actor, type = { ext: 'jpg', mime: 'image/jpeg' } }) {
+export async function uploadImage(env, { bytes, actor, type = { ext: 'jpg', mime: 'image/jpeg' }, album = null }) {
   if (!env.PHOTOS_WORKER?.fetch) {
     return fail(ERR.INTERNAL_ERROR, 'The PHOTOS_WORKER service binding is not configured on this worker.')
   }
@@ -583,7 +583,9 @@ export async function uploadImage(env, { bytes, actor, type = { ext: 'jpg', mime
   const form = new FormData()
   form.append('file', new File([bytes], `${stem}.${type.ext}`, { type: type.mime }))
   form.append('filename', stem)
-  form.append('album', albumForActor(actor))
+  // `album` lets media-upload-service put a reel in its Instagram account's album; images keep
+  // the caller's own.
+  form.append('album', album || albumForActor(actor))
 
   const res = await env.PHOTOS_WORKER.fetch('https://vegvisr-photos-worker/upload', {
     method: 'POST',
