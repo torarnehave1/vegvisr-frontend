@@ -3,7 +3,7 @@
  *
  * COMPOSITIONS: ONE IMPLEMENTATION (decided 2026-10-19)
  * ----------------------------------------------------
- * list / get / save / reference are forwarded to agent-worker's POST /vemotion/tool, which runs
+ * list / get / save / reference / refit are forwarded to agent-worker's POST /vemotion/tool, which runs
  * Agent-Builder's own vemotion_* executors. That keeps checkVemotionComposition — the gate that
  * refuses compositions the renderer would draw as a blank canvas — and the meta merge on update in
  * one place. This module adds nothing to them; it only carries the caller's own credential.
@@ -25,7 +25,13 @@ function fail(code, message, extra = {}) {
   return { ok: false, code, status: statusForCode(code), message, ...extra }
 }
 
-export const COMPOSITION_TOOLS = ['vemotion_list_compositions', 'vemotion_get_composition', 'vemotion_save_composition', 'get_vemotion_reference']
+export const COMPOSITION_TOOLS = [
+  'vemotion_list_compositions',
+  'vemotion_get_composition',
+  'vemotion_save_composition',
+  'get_vemotion_reference',
+  'vemotion_refit_composition',
+]
 
 async function callerToken(env, actor) {
   const email = String(actor?.email || '').trim().toLowerCase()

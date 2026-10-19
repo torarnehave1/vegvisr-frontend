@@ -2134,6 +2134,29 @@ ${result.warnings.join('\n')}` : ''),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   })
 
+  compositionTool('vemotion_refit_composition', 'graph:write', {
+    title: 'Reformat a VEmotion composition to another aspect',
+    description:
+      'Reformat a composition for a new canvas — e.g. 1280x720 landscape to 1080x1920 Reels or ' +
+      '1080x1080 Square. The server runs the same refit algorithm as the editor; no layout is ' +
+      'invented. Give EXACTLY ONE of compositionId or composition. mode: fill (uniform scale, ' +
+      'centred, edges may be cropped — usual for reformats), fit (uniform scale, nothing cropped, ' +
+      'empty bands), stretch (distorts circles and text). Refit only scales: from 16:9 to 9:16, fill ' +
+      'keeps roughly the middle third of the width and fit leaves large empty bands, so check the ' +
+      'result in the editor. With `name` the result is saved as a NEW composition and its id is ' +
+      'returned; without it the reformatted body is returned unsaved. Requires the graph:write scope.',
+    inputSchema: {
+      compositionId: z.string().optional().describe('Reformat this saved composition. Give this OR composition.'),
+      composition: AnyObject.optional().describe('Reformat this inline CompositionData. Give this OR compositionId.'),
+      targetWidth: z.number().positive().describe('New width in pixels (1080 for Reels and Square).'),
+      targetHeight: z.number().positive().describe('New height in pixels (1920 for Reels, 1080 for Square).'),
+      mode: z.enum(['fit', 'fill', 'stretch']).describe('fill (usual), fit or stretch — see the description.'),
+      name: z.string().optional().describe('Save the result as a new composition with this name. Omit to get the body back unsaved.'),
+    },
+    outputSchema: { success: z.boolean(), result: AnyObject },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  })
+
   server.registerTool(
     'render_vemotion_for_instagram',
     {
@@ -4221,6 +4244,7 @@ export const TOOL_NAMES = [
   'vemotion_list_compositions',
   'vemotion_get_composition',
   'vemotion_save_composition',
+  'vemotion_refit_composition',
   'render_vemotion_for_instagram',
   'get_vemotion_render',
   'set_email_template',

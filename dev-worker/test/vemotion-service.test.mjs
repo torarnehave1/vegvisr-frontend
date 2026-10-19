@@ -61,7 +61,14 @@ test('agent-worker refusals (the composition gate) come back as the error', asyn
   assert.match(r.message, /non-empty layers/)
 })
 
-test('only the four composition tools are forwarded', async () => {
+test('refit is forwarded like the others, with its arguments unchanged', async () => {
+  const env = world()
+  const r = await vm.runCompositionTool(env, { actor: ALICE, tool: 'vemotion_refit_composition', input: { compositionId: 'comp_x', targetWidth: 1080, targetHeight: 1920, mode: 'fill', name: 'Reel' } })
+  assert.equal(r.ok, true, r.message)
+  assert.deepEqual(env.AGENT_WORKER.calls[0].body, { tool: 'vemotion_refit_composition', input: { compositionId: 'comp_x', targetWidth: 1080, targetHeight: 1920, mode: 'fill', name: 'Reel' } })
+})
+
+test('only the composition tools are forwarded', async () => {
   const env = world()
   const r = await vm.runCompositionTool(env, { actor: ALICE, tool: 'send_email', input: {} })
   assert.equal(r.code, gs.ERR.INVALID_INPUT)
