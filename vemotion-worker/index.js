@@ -1466,6 +1466,27 @@ function buildOpenApiSpec(baseUrl) {
           }
         }
       },
+      "/vemotion/generate/structure": {
+        post: {
+          operationId: "generateStructure",
+          summary: "Build a composition from a named generator (geodesic-dome, vastu-mandala, carousel) and save it. Server-side geometry; no LLM. Omit compositionId to create, pass it to overwrite that composition in place.",
+          requestBody: {
+            required: true,
+            content: { "application/json": { schema: { type: "object", properties: {
+              structureType: { type: "string", enum: ["geodesic-dome", "vastu-mandala", "carousel"], default: "geodesic-dome" },
+              params: { type: "object", description: "Generator-specific parameters; unknown keys are ignored." },
+              name: { type: "string", description: "Composition name; defaults to the generator's own name." },
+              compositionId: { type: "string", description: "Overwrite this composition in place instead of creating one." }
+            } } } }
+          },
+          responses: {
+            200: { description: "Saved (updated)", content: { "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" }, id: { type: "string" }, editorUrl: { type: "string" }, structureType: { type: "string" }, version: { type: "integer" }, summary: { type: "object" } } } } } },
+            201: { description: "Saved (created)" },
+            400: { description: "Unknown structureType or invalid JSON" },
+            502: { description: "Save failed" }
+          }
+        }
+      },
       "/vemotion/render/update": {
         post: {
           operationId: "updateRender",
