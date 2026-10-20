@@ -139,3 +139,81 @@ export async function setWorldEmailTemplate(env, { domain, purpose, language, su
     message: data.message || null,
   }
 }
+
+/**
+ * Read and preview a World's templates — the counterparts set_email_template lacked, so a
+ * Superadmin helping a new founder (sodesign.no, 2026-10-20) no longer changes a login e-mail
+ * blind. Same door pattern as above: the caller's own credential, agent-worker's own gate
+ * (Superadmin or that World's founder), and the executor is the one implementation.
+ */
+async function worldTemplateCall(env, actor, path, payload) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  const host = String(payload.domain || '').trim().toLowerCase()
+  if (!host || !DOMAIN_RE.test(host)) {
+    return fail(ERR.INVALID_INPUT, 'domain must be a World domain such as "nibi.no".')
+  }
+  if (!env.AGENT_WORKER?.fetch) {
+    return fail(ERR.INTERNAL_ERROR, 'The AGENT_WORKER service binding is not configured on this worker.')
+  }
+  const token = await callerToken(env, actor)
+  if (!token) {
+    return fail(ERR.FORBIDDEN_GRAPH, 'No credential on your account. Sign in at vegvisr.org once, then try again.')
+  }
+  let res
+  let data
+  try {
+    res = await env.AGENT_WORKER.fetch(`https://agent-worker${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Token': token },
+      body: JSON.stringify({ ...payload, domain: host }),
+    })
+    data = await res.json().catch(() => ({}))
+  } catch (e) {
+    console.error('[email-templates] agent-worker unreachable:', e.message)
+    return fail(ERR.INTERNAL_ERROR, `Could not reach the template service: ${e.message}`)
+  }
+  if (!res.ok || data?.success === false) {
+    const code = /Superadmin or the World Founder/i.test(data?.error || '') ? ERR.FORBIDDEN_GRAPH : ERR.INVALID_INPUT
+    return fail(code, data?.error || `The template service refused the request (status ${res.status}).`, { domain: host })
+  }
+  return { ok: true, data, domain: host }
+}
+
+export async function getWorldEmailTemplates(env, { domain, actor }) {
+  const r = await worldTemplateCall(env, actor, '/email/world-templates', { domain })
+  if (!r.ok) return r
+  const d = r.data
+  // Whitelisted: the brand may carry fromEmail, which is the World's public sender and fine;
+  // nothing credential-shaped is ever in this graph.
+  return {
+    ok: true,
+    domain: r.domain,
+    graphId: d.graphId || null,
+    owner: d.owner || null,
+    brand: d.brand || null,
+    templates: Array.isArray(d.templates) ? d.templates : [],
+    signatures: Array.isArray(d.signatures) ? d.signatures : [],
+    loginUsesWorldTemplate: !!d.loginUsesWorldTemplate,
+    message: d.message || null,
+  }
+}
+
+export async function previewWorldEmailTemplate(env, { domain, purpose, language, actor }) {
+  const r = await worldTemplateCall(env, actor, '/email/world-template/preview', {
+    domain, ...(purpose ? { purpose } : {}), ...(language ? { language } : {}),
+  })
+  if (!r.ok) return r
+  const d = r.data
+  return {
+    ok: true,
+    sent: false,
+    domain: r.domain,
+    purpose: d.purpose || null,
+    language: d.language || null,
+    subject: d.subject || '',
+    html: d.html || '',
+    unresolvedPlaceholders: Array.isArray(d.unresolvedPlaceholders) ? d.unresolvedPlaceholders : [],
+    loginSender: d.loginSender || null,
+    message: d.message || null,
+  }
+}

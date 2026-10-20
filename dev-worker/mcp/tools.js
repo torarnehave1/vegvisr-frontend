@@ -2870,6 +2870,104 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── get_email_templates / preview_email_template ──────────────────────────
+  //
+  // The read and preview that set_email_template never had (2026-10-20). Removal exists in the
+  // Agent-Builder (remove_world_email_template) but not here: this server's invariant is that no
+  // node can be destroyed through it (see the 'nothing deletes content' test). preview_email
+  // cannot stand in for the preview: it finds the World from the SENDER's domain, and a founder
+  // who sends from gmail.com (sodesign.no) has no World there — so neither she nor a Superadmin
+  // helping her could ever see her login e-mail. These take the World domain directly.
+  server.registerTool(
+    'get_email_templates',
+    {
+      title: "Show a World's e-mail templates",
+      description:
+        "Show a World's e-mail setup as it is now: every template (purpose, language, subject, " +
+        'HTML), the brand, the signatures, and whether the login e-mail actually uses the ' +
+        "World's template (it only does when the World Founder has a working sender). Read this " +
+        'before set_email_template. Only a platform Superadmin or that World\'s founder may read ' +
+        'it. Requires the graph:read scope.',
+      inputSchema: {
+        domain: z.string().min(3).describe('The World domain, e.g. "sodesign.no".'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        domain: z.string(),
+        graphId: z.string().nullable(),
+        owner: z.string().nullable(),
+        brand: z.record(z.any()).nullable(),
+        templates: z.array(z.object({
+          nodeId: z.string(), purpose: z.string(), language: z.string(), subject: z.string(), html: z.string(),
+        })),
+        signatures: z.array(z.object({
+          nodeId: z.string(), name: z.string(), language: z.string().nullable(), isDefault: z.boolean(),
+          senderEmail: z.string().nullable(), html: z.string(),
+        })),
+        loginUsesWorldTemplate: z.boolean(),
+        message: z.string().nullable(),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ domain }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await mailTemplates.getWorldEmailTemplates(env, { domain, actor })
+      if (!result.ok) return fromService(result)
+      const { ok: _o, ...payload } = result
+      return ok({ success: true, ...payload }, result.message || `${result.templates.length} template(s) for ${result.domain}.`)
+    },
+  )
+
+  server.registerTool(
+    'preview_email_template',
+    {
+      title: "Preview a World's e-mail template",
+      description:
+        "Render one of a World's templates exactly as a member receives it — brand filled in, an " +
+        'example link in place of {magicLink} — and send NOTHING. Defaults to the login e-mail. ' +
+        'Show the user the subject and html it returns. Reports placeholders a member would see ' +
+        'literally, and whether the login e-mail is in use. Only a platform Superadmin or that ' +
+        "World's founder may preview it. Requires the graph:read scope.",
+      inputSchema: {
+        domain: z.string().min(3).describe('The World domain, e.g. "sodesign.no".'),
+        purpose: z.string().optional().describe('Template purpose. Default "login".'),
+        language: z.enum(['no', 'en']).optional().describe('Default "no"; falls back the way the login e-mail does.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        sent: z.boolean(),
+        domain: z.string(),
+        purpose: z.string().nullable(),
+        language: z.string().nullable(),
+        subject: z.string(),
+        html: z.string(),
+        unresolvedPlaceholders: z.array(z.string()),
+        loginSender: z.object({
+          applies: z.boolean(), founder: z.string().optional(), sender: z.string().optional(), reason: z.string().optional(),
+        }).nullable(),
+        message: z.string().nullable(),
+      },
+      annotations: READ_ONLY,
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await mailTemplates.previewWorldEmailTemplate(env, { ...args, actor })
+      if (!result.ok) return fromService(result)
+      const { ok: _o, ...payload } = result
+      return ok({ success: true, ...payload }, `${result.message || ''}\nSubject: ${result.subject}`)
+    },
+  )
+
   // ── read_chat_messages ────────────────────────────────────────────────────
   //
   // The counterpart to post_chat_message, and the one that turns a conversation into something
@@ -4707,6 +4805,8 @@ export const TOOL_NAMES = [
   'search_album_images',
   'tag_album_images',
   'set_email_template',
+  'get_email_templates',
+  'preview_email_template',
   'get_fulltext_elements',
   'get_image_guide',
   'generate_node_image',

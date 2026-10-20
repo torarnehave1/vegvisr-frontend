@@ -1826,6 +1826,71 @@ describe('create_contact adds to the caller\'s own ContactHub book', () => {
 })
 
 
+describe('get_email_templates / preview_email_template read a World by its domain', () => {
+  // preview_email finds the World from the sender's domain, so a founder sending from gmail.com
+  // (sodesign.no, 2026-10-20) could never be previewed. These take the World domain directly.
+  function withAgent(reply) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    env.AGENT_WORKER = {
+      fetch: async (url, init) => {
+        calls.push({ path: new URL(url).pathname, token: init.headers['X-API-Token'], body: JSON.parse(init.body) })
+        return new Response(JSON.stringify(reply), { status: reply.success === false ? 403 : 200, headers: { 'Content-Type': 'application/json' } })
+      },
+    }
+    return { env, calls }
+  }
+  const READ = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read'] } }
+
+  test('get forwards the domain with the caller\'s own token and returns the templates', async () => {
+    const { env, calls } = withAgent({
+      success: true, graphId: 'g1', owner: 'stine@example.com', brand: { name: 'SO' },
+      templates: [{ nodeId: 'n1', purpose: 'login', language: 'no', subject: 'Logg inn hos {brandName}', html: '<p/>' }],
+      signatures: [], loginUsesWorldTemplate: true, message: 'sodesign.no: …',
+    })
+    const { client } = await connect(env, READ)
+    const r = await callOk(client, 'get_email_templates', { domain: 'SODESIGN.no' })
+    assert.equal(r.templates[0].purpose, 'login')
+    assert.equal(calls[0].path, '/email/world-templates')
+    assert.equal(calls[0].body.domain, 'sodesign.no')
+    assert.equal(calls[0].token, 'sess-alice', 'the gate runs on the caller\'s own identity')
+  })
+
+  test('preview forwards purpose and language and says nothing was sent', async () => {
+    const { env, calls } = withAgent({
+      success: true, sent: false, purpose: 'login', language: 'no', subject: 'Logg inn hos SO', html: '<p>x</p>',
+      unresolvedPlaceholders: [], loginSender: { applies: true, sender: 'stine@example.com' }, message: 'Preview …',
+    })
+    const { client } = await connect(env, READ)
+    const r = await callOk(client, 'preview_email_template', { domain: 'sodesign.no', purpose: 'login', language: 'no' })
+    assert.equal(r.sent, false)
+    assert.equal(r.subject, 'Logg inn hos SO')
+    assert.equal(calls[0].path, '/email/world-template/preview')
+    assert.deepEqual(calls[0].body, { domain: 'sodesign.no', purpose: 'login', language: 'no' })
+  })
+
+  test('a refusal from the gate comes back as FORBIDDEN', async () => {
+    const { env } = withAgent({ success: false, error: 'Only a Superadmin or the World Founder of sodesign.no can see or change its email templates.' })
+    const { client } = await connect(env, READ)
+    const e = await callErr(client, 'get_email_templates', { domain: 'sodesign.no' })
+    assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH)
+  })
+
+  test('both need graph:read and are read-only', async () => {
+    const { env, calls } = withAgent({ success: true })
+    const { client } = await connect(env, { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:write'] } })
+    const e = await callErr(client, 'get_email_templates', { domain: 'sodesign.no' })
+    assert.equal(e.requiredScope, 'graph:read')
+    assert.equal(calls.length, 0)
+    const { tools } = await client.listTools()
+    for (const n of ['get_email_templates', 'preview_email_template']) {
+      assert.equal(tools.find((t) => t.name === n).annotations.readOnlyHint, true, n)
+    }
+  })
+})
+
+
 describe('set_user_groups tags someone who is already registered', () => {
   const REG = {
     auth: { ...ALICE_RW.auth, scope: ['graph:read', 'user:register'], userId: 'root@example.com' },
