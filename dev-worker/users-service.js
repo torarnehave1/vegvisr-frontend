@@ -483,3 +483,65 @@ export function searchContacts(env, { actor, query, limit = 20 }) {
   const n = Math.min(Math.max(Number(limit) || 20, 1), 200)
   return contactsCall(env, actor, '/contacts/search', { query: String(query).trim(), limit: n })
 }
+
+/**
+ * Add one person to the caller's OWN ContactHub address book, through agent-worker's
+ * /contacts/create — the same executor the Agent-Builder chat uses, which also refuses a
+ * duplicate (same e-mail, or same phone by its last 8 digits) instead of writing a second row.
+ */
+export async function createContact(env, { actor, name, email, phone, labels, organization, notes }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  const clean = (v) => (v == null ? '' : String(v).trim())
+  if (!clean(name) || !clean(email) || !clean(phone)) {
+    return fail(ERR.INVALID_INPUT, 'name, email and phone are all required. Nothing was created.')
+  }
+  if (!env.AGENT_WORKER?.fetch) {
+    return fail(ERR.INTERNAL_ERROR, 'The AGENT_WORKER service binding is not configured on this worker.')
+  }
+  const token = await callerToken(env, actor)
+  if (!token) {
+    return fail(ERR.FORBIDDEN_GRAPH, 'No credential on your account. Sign in at vegvisr.org once, then try again.')
+  }
+  const labelList = Array.isArray(labels) ? labels : clean(labels) ? clean(labels).split(',') : []
+  const payload = {
+    name: clean(name),
+    email: clean(email),
+    phone: clean(phone),
+    // ContactHub labels are stored without '#', exactly as list_contacts filters on them.
+    labels: labelList.map((l) => clean(l).replace(/^#/, '')).filter(Boolean).join(',') || undefined,
+    company: clean(organization) || undefined,
+    notes: clean(notes) || undefined,
+  }
+  let res
+  let data
+  try {
+    res = await env.AGENT_WORKER.fetch('https://agent-worker/contacts/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Token': token },
+      body: JSON.stringify(payload),
+    })
+    data = await res.json().catch(() => ({}))
+  } catch (e) {
+    console.error('[contacts] agent-worker unreachable:', e.message)
+    return fail(ERR.INTERNAL_ERROR, `Could not reach the contacts service: ${e.message}`)
+  }
+  if (res.status === 409) {
+    return fail(ERR.INVALID_INPUT, data?.message || 'A contact with this e-mail or phone already exists.', {
+      duplicate: true, existingContactId: data?.contactId ? String(data.contactId) : null,
+    })
+  }
+  if (res.status === 404) {
+    return fail(ERR.INVALID_INPUT, `You have no ContactHub contacts table yet. ${data?.error || ''}`.trim())
+  }
+  if (!res.ok || data?.success === false) {
+    return fail(ERR.INVALID_INPUT, data?.error || data?.message || `Creating the contact failed (status ${res.status}).`)
+  }
+  return {
+    ok: true,
+    contactId: String(data.contactId || ''),
+    name: payload.name,
+    email: payload.email,
+    phone: payload.phone,
+    labels: payload.labels ? payload.labels.split(',') : [],
+  }
+}

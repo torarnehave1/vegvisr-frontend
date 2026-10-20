@@ -3959,6 +3959,54 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  server.registerTool(
+    'create_contact',
+    {
+      title: 'Add a person to my contacts (ContactHub)',
+      description:
+        'Add ONE person to YOUR OWN ContactHub address book. name, email and phone are all ' +
+        'required. labels are ContactHub labels without # (e.g. ["STILLEROM"]). Refused, with ' +
+        'nothing written, when a contact with the same e-mail or phone number already exists — ' +
+        'run search_contacts first if unsure. This is the address book, not the platform user ' +
+        'directory: it does not give anyone an account (that is register_user). Requires the ' +
+        'graph:write scope.',
+      inputSchema: {
+        name: z.string().min(1).describe('Full name.'),
+        email: z.string().min(3).describe('E-mail address.'),
+        phone: z.string().min(3).describe('Phone number, e.g. "+47 952 56 324".'),
+        labels: z.array(z.string()).optional().describe('ContactHub labels, without #.'),
+        organization: z.string().optional().describe('Company or organisation.'),
+        notes: z.string().optional().describe('A short note about the person.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        contactId: z.string(),
+        name: z.string(),
+        email: z.string(),
+        phone: z.string(),
+        labels: z.array(z.string()),
+      },
+      annotations: ADDITIVE_WRITE,
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await users.createContact(env, { actor, ...args })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, ...payload } = r
+      return ok(
+        { success: true, ...payload },
+        `Added to ContactHub: ${r.name} — ${r.email} · ${r.phone}` +
+          `${r.labels.length ? ` · ${r.labels.join(', ')}` : ''} (contactId ${r.contactId}).`,
+      )
+    },
+  )
+
   // ── set_user_groups ───────────────────────────────────────────────────────
   //
   // register_user refuses an email that already exists, which left no way to tag someone who is
@@ -4669,6 +4717,7 @@ export const TOOL_NAMES = [
   'list_users',
   'list_contacts',
   'search_contacts',
+  'create_contact',
   'set_user_groups',
   'update_user_profile',
   'set_user_role',

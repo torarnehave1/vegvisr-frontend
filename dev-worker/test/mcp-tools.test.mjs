@@ -105,6 +105,9 @@ describe('18. tools/list', () => {
   // exactly the way register_user names the person being registered.
   const SUBJECT_TOOLS = new Set([
     'register_user',
+    // create_contact (2026-10-20) names the person being added to the caller's address book —
+    // a subject exactly like register_user's, never the caller.
+    'create_contact',
     'set_user_groups',
     'update_user_profile',
     'set_user_role',
@@ -1762,6 +1765,63 @@ describe('list_contacts / search_contacts read the caller\'s own ContactHub book
     for (const name of ['list_contacts', 'search_contacts']) {
       assert.equal(tools.find((x) => x.name === name).annotations.readOnlyHint, true, name)
     }
+  })
+})
+
+
+describe('create_contact adds to the caller\'s own ContactHub book', () => {
+  // graph:write, not a new scope (architect's decision 2026-10-20): a row in your own book is
+  // your own content, and a new scope would force every connection to be re-added.
+  function withAgent(status = 200, reply = { success: true, contactId: 'c-new', name: 'Sissel Kjelstad' }) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    env.AGENT_WORKER = {
+      fetch: async (url, init) => {
+        calls.push({ path: new URL(url).pathname, token: init.headers['X-API-Token'], body: JSON.parse(init.body) })
+        return new Response(JSON.stringify(reply), { status, headers: { 'Content-Type': 'application/json' } })
+      },
+    }
+    return { env, calls }
+  }
+  const SISSEL = { name: 'Sissel Kjelstad', email: 'sissel@example.com', phone: '+47 952 56 324', labels: ['#STILLEROM'] }
+
+  test('creates with the caller\'s own token; labels lose their #', async () => {
+    const { env, calls } = withAgent()
+    const { client } = await connect(env, ALICE_RW)
+    const r = await callOk(client, 'create_contact', SISSEL)
+    assert.equal(r.contactId, 'c-new')
+    assert.deepEqual(r.labels, ['STILLEROM'])
+    assert.equal(calls[0].path, '/contacts/create')
+    assert.equal(calls[0].token, 'sess-alice', 'whose book is written comes from the caller, not an argument')
+    assert.equal(calls[0].body.labels, 'STILLEROM')
+    assert.equal(calls[0].body.userId, undefined, 'no identity is forwarded in the body')
+  })
+
+  test('a duplicate is refused and names the existing contact', async () => {
+    const { env } = withAgent(409, { success: false, duplicate: true, contactId: 'c-old', message: 'Not created: "Sissel K" already has this e-mail or phone number (contactId c-old).' })
+    const { client } = await connect(env, ALICE_RW)
+    const e = await callErr(client, 'create_contact', SISSEL)
+    assert.equal(e.code, gs.ERR.INVALID_INPUT)
+    assert.match(e.message, /already has this e-mail or phone/)
+  })
+
+  test('graph:write is required — contacts:read is not enough', async () => {
+    const { env, calls } = withAgent()
+    const { client } = await connect(env, { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'contacts:read'] } })
+    const e = await callErr(client, 'create_contact', SISSEL)
+    assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+    assert.equal(e.requiredScope, 'graph:write')
+    assert.equal(calls.length, 0, 'nothing reached the address book')
+  })
+
+  test('it is an additive write, not destructive', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'create_contact')
+    assert.equal(t.annotations.readOnlyHint, false)
+    assert.equal(t.annotations.destructiveHint, false)
   })
 })
 

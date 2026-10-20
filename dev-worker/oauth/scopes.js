@@ -24,6 +24,9 @@
  *   graph:read     reading content the user may already see
  *   graph:write    creating or changing the user's own content — including attaching files,
  *                  images and metadata to it
+ *                  — and adding a person to the user's OWN address book (create_contact,
+ *                  2026-10-20, architect's decision: a row in your own book is your own content;
+ *                  contacts:write was declined because it would force every user to reconnect)
  *   graph:publish  making something reachable by people who are not signed in
  *   graph:delete   destroying content (reserved; no tool uses it yet)
  *   chat:write     sending a message that reaches other people, in any channel
@@ -71,7 +74,7 @@ export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'grap
 /** Human text for the consent screen. Covers every known scope, advertised or not. */
 export const SCOPE_TEXT = {
   'graph:read': 'Lese kunnskapsgrafene dine',
-  'graph:write': 'Opprette og endre innholdet ditt — grafer, noder, bilder og metadata',
+  'graph:write': 'Opprette og endre innholdet ditt — grafer, noder, bilder og metadata, og legge til kontakter i din egen adressebok',
   'graph:publish': 'Gjøre innhold synlig for folk som ikke er innlogget',
   'graph:delete': 'Slette innhold permanent',
   'chat:write': 'Sende meldinger som når andre mennesker, og styre hvem som er med i gruppene dine',
