@@ -2397,6 +2397,37 @@ ${result.warnings.join('\n')}` : ''),
     annotations: MEDIA_READ,
   })
 
+  compositionTool('search_album_images', 'graph:read', {
+    title: "Search the user's photos by what they show",
+    description:
+      "Search the user's photos: words matched against each image's name and tags, across one " +
+      "album or all of the user's albums. Returns url (an image layer's src), album, name, tags, best " +
+      'matches first. Untagged images cannot match — the result says how many there are; ' +
+      'tag_album_images describes them. Requires the graph:read scope.',
+    inputSchema: {
+      query: z.string().min(1).describe('What the photo shows, e.g. "autumn forest".'),
+      album: z.string().optional().describe('Search only this album.'),
+      limit: z.number().int().min(1).max(100).optional(),
+    },
+    outputSchema: anyResult,
+    annotations: MEDIA_READ,
+  })
+  compositionTool('tag_album_images', 'graph:write', {
+    title: 'Describe photos so they can be searched',
+    description:
+      "For images without tags in one of the user's own albums, an AI vision model (GPT-4o) looks " +
+      'at each and saves a short label and up to 6 tags. One model call per image; `limit` images ' +
+      'per call (default 10, max 25) — call again until remaining is 0. Run it only when the user ' +
+      'asks to tag or describe an album. Requires the graph:write scope.',
+    inputSchema: {
+      album: z.string().min(1).describe('Album name from album_list.'),
+      limit: z.number().int().min(1).max(25).optional(),
+      retag: z.boolean().optional().describe('Also re-describe images that already have tags.'),
+    },
+    outputSchema: anyResult,
+    annotations: MEDIA_WRITE,
+  })
+
   compositionTool('vemotion_set_drawing_pace', 'graph:write', {
     title: 'Change how fast a pixel grid draws itself',
     description:
@@ -4625,6 +4656,8 @@ export const TOOL_NAMES = [
   'get_vemotion_media_info',
   'pixelate_image_for_vemotion',
   'vemotion_set_drawing_pace',
+  'search_album_images',
+  'tag_album_images',
   'set_email_template',
   'get_fulltext_elements',
   'get_image_guide',
