@@ -929,6 +929,9 @@ async function sendsToday(env, actorEmail) {
  */
 export async function sendEmail(env, args) {
   const { actor, clientId } = args
+  // Which door the request came through, for the audit row only. MCP is the default because it
+  // was the only caller until the REST routes (/email/send) were added for browser apps.
+  const surface = args.surface || 'mcp'
   const draft = await renderEmail(env, args)
 
   const logRefusal = (code, extra = {}) =>
@@ -937,7 +940,7 @@ export async function sendEmail(env, args) {
       senderEmail: String(args.fromEmail || '').toLowerCase(),
       toEmail: args.toEmail,
       outcome: code,
-      surface: 'mcp',
+      surface,
       clientId,
       ...extra,
     })
@@ -1024,7 +1027,7 @@ export async function sendEmail(env, args) {
       basis: draft.basis, grantId: draft.grantId, toEmail: draft.toEmail,
       subjectChars: draft.subject.length, bodyChars: draft.html.length,
       templateSource: draft.templateSource, signatureName: draft.signatureName,
-      outcome: code, surface: 'mcp', clientId,
+      outcome: code, surface, clientId,
     })
     return fail(code, data.error || `The mail service refused the send (status ${res.status}).`, {
       senderEmail: draft.senderEmail,
@@ -1063,7 +1066,7 @@ export async function sendEmail(env, args) {
     basis: draft.basis, grantId: draft.grantId, toEmail: draft.toEmail,
     subjectChars: draft.subject.length, bodyChars: draft.html.length,
     templateSource: draft.templateSource, signatureName: draft.signatureName,
-    outcome: 'SENT', messageId, surface: 'mcp', clientId,
+    outcome: 'SENT', messageId, surface, clientId,
   })
 
   return {

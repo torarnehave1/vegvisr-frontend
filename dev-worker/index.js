@@ -5833,6 +5833,108 @@ const restHandler = {
         })
       }
 
+      // E-mail for browser apps (first caller: contacts.vegvisr.org). The same three operations as
+      // the MCP tools list_email_senders / preview_email / send_email, calling the same functions in
+      // email-service.js — so the sender gate (resolveSenderAccess), the daily cap and the audit row
+      // apply unchanged. Nothing here decides who may send as whom; that stays in one place.
+      if (pathname === '/email/senders' || pathname === '/email/preview' || pathname === '/email/send') {
+        const tv = await validateAuth(request, env)
+        if (!tv.valid) {
+          return new Response(JSON.stringify({ success: false, error: tv.error || 'Authentication required' }), {
+            status: tv.status || 401, headers: corsHeaders,
+          })
+        }
+        // A full session only, same rule as sender grants: a token scoped for graph writes is not
+        // a licence to send mail as somebody.
+        if (!hasScope(tv.scopes, 'all')) {
+          return new Response(JSON.stringify({
+            success: false, error: 'Sending e-mail needs a signed-in session, not a scoped API token.',
+            code: 'INSUFFICIENT_SCOPE',
+          }), { status: 403, headers: corsHeaders })
+        }
+        const actor = normalizeActor(tv)
+        if (!actor?.email) {
+          return new Response(JSON.stringify({ success: false, error: 'No user on this session.', code: 'UNAUTHENTICATED' }), {
+            status: 401, headers: corsHeaders,
+          })
+        }
+        const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' }
+        const refuse = (r) => new Response(
+          JSON.stringify({ success: false, error: r.message, code: r.code }),
+          { status: r.status || 400, headers: jsonHeaders },
+        )
+        // The audit row names the calling site so a send from a browser app is distinguishable
+        // from one made by a model over MCP.
+        let clientId = null
+        try { clientId = request.headers.get('Origin') ? new URL(request.headers.get('Origin')).host : null } catch { /* no origin */ }
+
+        if (pathname === '/email/senders' && request.method === 'GET') {
+          const r = await emailService.listSendableSenders(env, { actor })
+          if (!r.ok) return refuse(r)
+          return new Response(JSON.stringify({ success: true, senders: r.senders, count: r.count }), { headers: jsonHeaders })
+        }
+
+        if (request.method !== 'POST') {
+          return new Response(JSON.stringify({ success: false, error: 'Method not allowed', code: 'INVALID_INPUT' }), {
+            status: 405, headers: corsHeaders,
+          })
+        }
+        const body = await request.json().catch(() => null)
+        if (!body || typeof body !== 'object') {
+          return new Response(JSON.stringify({ success: false, error: 'Invalid JSON body', code: 'INVALID_INPUT' }), {
+            status: 400, headers: corsHeaders,
+          })
+        }
+        // Whitelisted inputs: the caller cannot pass actor, accountId, surface or fileSentCopy.
+        const args = {
+          fromEmail: body.fromEmail,
+          toEmail: body.toEmail,
+          subject: body.subject,
+          bodyHtml: body.bodyHtml,
+          templatePurpose: body.templatePurpose,
+          language: body.language,
+          signature: body.signature,
+          variables: body.variables,
+        }
+
+        if (pathname === '/email/preview') {
+          const r = await emailService.renderEmail(env, { ...args, actor })
+          if (!r.ok) {
+            await emailService.logSend(env, {
+              actorEmail: actor.email,
+              senderEmail: String(args.fromEmail || '').toLowerCase(),
+              toEmail: args.toEmail,
+              outcome: r.code,
+              surface: 'rest-preview',
+              clientId,
+            })
+            return refuse(r)
+          }
+          // Whitelisted, not spread — renderEmail carries the holder and the sending account id,
+          // which the MCP tool also keeps out of its reply (mcp/tools.js preview_email).
+          return new Response(JSON.stringify({
+            success: true,
+            sent: false,
+            senderEmail: r.senderEmail,
+            fromName: r.fromName,
+            toEmail: r.toEmail,
+            subject: r.subject,
+            html: r.html,
+            textPreview: r.textPreview,
+            basis: r.basis,
+            signatureName: r.signatureName,
+            unresolvedPlaceholders: r.unresolvedPlaceholders,
+            warnings: r.warnings,
+          }), { headers: jsonHeaders })
+        }
+
+        // /email/send
+        const r = await emailService.sendEmail(env, { ...args, actor, clientId, surface: 'rest' })
+        if (!r.ok) return refuse(r)
+        const { ok: _ok, ...payload } = r
+        return new Response(JSON.stringify({ success: true, ...payload }), { headers: jsonHeaders })
+      }
+
       if (pathname === '/saveknowgraph' && request.method === 'POST') {
         // Validate API token for write operations
         const tokenValidation = await validateAuth(request, env)

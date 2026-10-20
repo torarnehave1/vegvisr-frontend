@@ -926,3 +926,15 @@ test('a refused send never attempts a copy — there is nothing to file', async 
   assert.equal(r.ok, false)
   assert.equal(attempted, false)
 })
+
+// The REST routes (/email/send, for browser apps) call the same sendEmail with surface 'rest'.
+// The audit row must say which door was used, and the default must stay 'mcp' for the MCP tool,
+// which does not pass one. Both sends count against the same per-caller daily cap.
+test('the audit row records the surface; it defaults to mcp', async () => {
+  const { env, raw } = sendWorld()
+  await email.sendEmail(env, { ...draft(), actor: asHolder() })
+  await email.sendEmail(env, { ...draft(), actor: asHolder(), surface: 'rest', clientId: 'contacts.vegvisr.org' })
+  const rows = raw.prepare("SELECT surface, client_id, outcome FROM email_send_log WHERE outcome = 'SENT' ORDER BY ts").all()
+  assert.deepEqual(rows.map((r) => r.surface).sort(), ['mcp', 'rest'])
+  assert.equal(rows.find((r) => r.surface === 'rest').client_id, 'contacts.vegvisr.org')
+})
