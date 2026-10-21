@@ -4128,8 +4128,10 @@ ${result.warnings.join('\n')}` : ''),
       ? 'No contacts matched.'
       : `${r.count}${r.total > r.count ? ` of ${r.total}` : ''} contact${r.count === 1 ? '' : 's'}:`
     const lines = r.contacts.map(
+      // contactId is in the TEXT as well as the structured result: clients (Claude.ai) show the
+      // model only the text, and set_meeting_report could not be called without it (2026-10-21).
       (c) => `• ${c.name || '(no name)'} — ${c.emails[0] || 'no e-mail'} · ${c.phones[0] || 'no phone'}` +
-        `${c.labels.length ? ` · ${c.labels.join(', ')}` : ''}`,
+        `${c.labels.length ? ` · ${c.labels.join(', ')}` : ''} · contactId ${c.id}`,
     )
     return [head, ...lines].join('\n')
   }

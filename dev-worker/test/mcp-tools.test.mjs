@@ -1819,6 +1819,14 @@ describe('list_contacts / search_contacts read the caller\'s own ContactHub book
     assert.ok(!blob.includes('PRIVATE NOTE') && !blob.includes('history'), 'notes and history must never reach the model')
   })
 
+  test('the TEXT the model reads carries the contactId, not only the structured result', async () => {
+    // Claude.ai showed the model only the text; it could not call set_meeting_report (2026-10-21).
+    const { env } = withAgent()
+    const { client } = await connect(env, READ)
+    const r = await client.callTool({ name: 'search_contacts', arguments: { query: 'Liv Bora' } })
+    assert.match(r.content[0].text, /contactId c1/)
+  })
+
   test('search passes the query through', async () => {
     const { env, calls } = withAgent()
     const { client } = await connect(env, READ)
