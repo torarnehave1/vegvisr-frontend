@@ -34,7 +34,7 @@ import {
   REGISTRY_GRAPH_ID, REGISTRY_NODE_TYPE, TYPE_NAME, WORLD_TYPES_TAG, invalidateNodeTypeCache,
   normalizeWorld, registeredNodeTypes, worldRegistryGraph, nodeTypeAllowedIn,
 } from '../node-type-registry.js'
-import { mayUseWorld, defaultWorldFor } from '../graph-store.js'
+import { mayUseWorld, defaultWorldFor, HISTORY_CAP } from '../graph-store.js'
 import * as nts from '../node-type-service.js'
 import * as users from '../users-service.js'
 import * as sms from '../sms-service.js'
@@ -817,6 +817,154 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
       }
 
       return ok(payload, `${summary}\nViewer: ${payload.viewerUrl}`)
+    },
+  )
+
+  // ── get_graph_history / get_graph_version ─────────────────────────────────
+  // Added 2026-10-21. The instructions promised version history and no tool could read it.
+  // Same access rule as get_graph: checkAccess first, then the store the graph lives in.
+  server.registerTool(
+    'get_graph_history',
+    {
+      title: 'List the saved versions of a graph',
+      description:
+        'List the saved versions of a graph the authenticated user has access to, newest first, ' +
+        `each with its version number and timestamp. The store keeps the ${HISTORY_CAP} most recent versions; ` +
+        'older ones are gone. Pass a version to get_graph_version to read the graph as it was. ' +
+        'Requires the graph:read scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph id.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        currentVersion: z.number().nullable(),
+        versions: z.array(z.object({ version: z.number(), timestamp: z.string().nullable() })),
+        world: z.string().nullable().optional().describe("The World whose own storage holds this graph. Null: the platform's shared storage."),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ graphId }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const access = await gs.checkAccess(env, actor, graphId, 'read')
+      if (!access.ok) return fromService(access)
+
+      const h = await gs.getGraphHistory(env, graphId, { caller: actor })
+      if (!h.ok) return fromService(h)
+
+      const payload = {
+        success: true,
+        graphId,
+        currentVersion: h.versions[0]?.version ?? null,
+        versions: h.versions,
+        world: h.world || null,
+      }
+      const lines = h.versions.map((v) => `• v${v.version} — ${v.timestamp ?? '(no timestamp)'}`)
+      const text = h.versions.length
+        ? `Graph ${graphId}: ${h.versions.length} saved version(s), newest first.\n${lines.join('\n')}\n` +
+          'Read one with get_graph_version({ graphId, version }).'
+        : `Graph ${graphId} has no saved versions.`
+      return ok(payload, text)
+    },
+  )
+
+  server.registerTool(
+    'get_graph_version',
+    {
+      title: 'Read a graph as it was at a saved version',
+      description:
+        'Read one saved version of a graph the authenticated user has access to: its metadata, ' +
+        'nodes and edges as they were then. Pick the version with get_graph_history. Pass nodeId ' +
+        'to read a single node of that version. Changes nothing. Requires the graph:read scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph id.'),
+        version: z.number().int().min(1).describe('The version number, from get_graph_history.'),
+        nodeId: z.string().optional().describe('Return only this node of that version.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        version: z.number(),
+        title: z.string().nullable(),
+        description: z.string().nullable(),
+        metaArea: z.string().nullable(),
+        nodeCount: z.number(),
+        edgeCount: z.number(),
+        nodes: z.array(z.record(z.any())),
+        edges: z.array(z.record(z.any())),
+        world: z.string().nullable().optional().describe("The World whose own storage holds this graph. Null: the platform's shared storage."),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ graphId, version, nodeId }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const access = await gs.checkAccess(env, actor, graphId, 'read')
+      if (!access.ok) return fromService(access)
+
+      const read = await gs.getGraphVersion(env, graphId, version, nodeId ? { nodeId, caller: actor } : { caller: actor })
+      if (!read.ok) return fromService(read)
+
+      const g = read.graph
+      const meta = g.metadata || {}
+      if (nodeId && g.nodes.length === 0) {
+        return err(gs.ERR.GRAPH_NOT_FOUND, `Version ${version} of graph ${graphId} has no node with id ${nodeId}.`, { graphId, version, nodeId })
+      }
+
+      const payload = {
+        success: true,
+        graphId,
+        version,
+        title: meta.title ?? null,
+        description: meta.description ?? null,
+        metaArea: meta.metaArea ?? null,
+        nodeCount: g.nodes.length,
+        edgeCount: g.edges.length,
+        nodes: g.nodes,
+        edges: g.edges,
+        world: read.world || null,
+      }
+
+      const PREVIEW = 160
+      const preview = (text) => {
+        const flat = String(text || '').replace(/\s+/g, ' ').trim()
+        return flat.length > PREVIEW ? `${flat.slice(0, PREVIEW)}…` : flat
+      }
+      let summary
+      if (nodeId) {
+        const node = g.nodes[0]
+        const info = String(node.info || '')
+        summary =
+          `Node ${nodeId} of graph "${payload.title}" at version ${version}.\n` +
+          `label: ${node.label ?? '(none)'}\ntype: ${node.type ?? '(none)'}\n` +
+          (info ? `info (${info.length} chars):\n${info}` : 'info: (empty)')
+      } else {
+        const lines = g.nodes.map((n) => {
+          const body = preview(n.info)
+          return `• ${n.id} — ${n.label || '(no label)'} [${n.type || 'unknown'}]${body ? `\n    ${body}` : ''}`
+        })
+        const edgeLines = g.edges.map((e) => `• ${e.source} → ${e.target}${e.label ? ` (${e.label})` : ''}`)
+        summary = [
+          `Graph "${payload.title}" (${graphId}) at version ${version} — ${payload.nodeCount} nodes, ${payload.edgeCount} edges.`,
+          ...(lines.length ? ['', 'Nodes:', ...lines] : []),
+          ...(edgeLines.length ? ['', 'Edges:', ...edgeLines] : []),
+          ...(g.nodes.some((n) => String(n.info || '').replace(/\s+/g, ' ').trim().length > PREVIEW)
+            ? ['', 'Node text is shortened above. Call get_graph_version with that nodeId for the whole thing.']
+            : []),
+        ].join('\n')
+      }
+      return ok(payload, summary)
     },
   )
 
@@ -4754,6 +4902,8 @@ export function registerWorkerTools(server, getContext, discovered) {
 export const TOOL_NAMES = [
   'create_graph',
   'get_graph',
+  'get_graph_history',
+  'get_graph_version',
   'add_node',
   'add_edge',
   'get_graph_links',

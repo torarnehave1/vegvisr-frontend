@@ -27,6 +27,7 @@ import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
 import { allowedNodeTypes, worldNodeTypes } from '../node-type-registry.js'
 import { worldStoresFor } from '../graph-store.js'
 import { registerTools, registerWorkerTools, actorFromAuth, TOOL_NAMES } from './tools.js'
+import { HISTORY_CAP } from '../graph-store.js'
 import { discoverWorkerTools } from '../worker-tools.js'
 
 // What the server reports in the MCP initialize handshake. A client shows this, and a bug
@@ -37,7 +38,7 @@ import { discoverWorkerTools } from '../worker-tools.js'
 // Bump it with the surface from here; MCP_OAUTH_DEPLOYMENT.md carries the changelog.
 const SERVER_INFO = {
   name: 'vegvisr-knowledge-graph',
-  version: '1.25.0',
+  version: '1.26.0',
 }
 
 const INSTRUCTIONS = `VEGR.AI Knowledge Graph.
@@ -55,7 +56,8 @@ Rules this server enforces, so you do not have to ask:
 - You can only read or change graphs you own. Someone else's private graph returns
   FORBIDDEN_GRAPH.
 - Graph and node ids are UUID v4, generated for you when you omit them.
-- Writes keep full version history. If a write returns VERSION_CONFLICT, the graph changed
+- Versioned writes keep the ${HISTORY_CAP} most recent versions of a graph. get_graph_history lists them
+  and get_graph_version reads one. If a write returns VERSION_CONFLICT, the graph changed
   since you read it: call get_graph again and retry against the version it reports.
 
 Two things on this system cannot be inferred from general knowledge, so ask rather than guess:

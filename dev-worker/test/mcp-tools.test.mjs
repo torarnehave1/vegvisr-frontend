@@ -499,6 +499,62 @@ describe('add_edge connects two existing nodes', () => {
   })
 })
 
+describe('get_graph_history and get_graph_version', () => {
+  test('the owner lists versions newest first and reads an earlier one as it was', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    await client.listTools() // so the SDK validates every result against its outputSchema
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X' })
+    await callOk(client, 'add_node', { graphId: g.graphId, node: { id: 'a', label: 'Første', type: 'fulltext', info: 'gammel' } })
+    await callOk(client, 'update_node', { graphId: g.graphId, nodeId: 'a', fields: { info: 'ny' }, expectedVersion: 2 })
+
+    const h = await callOk(client, 'get_graph_history', { graphId: g.graphId })
+    assert.deepEqual(h.versions.map((v) => v.version), [3, 2, 1])
+    assert.equal(h.currentVersion, 3)
+
+    const v2 = await callOk(client, 'get_graph_version', { graphId: g.graphId, version: 2 })
+    assert.equal(v2.version, 2)
+    assert.equal(v2.nodes.find((n) => n.id === 'a').info, 'gammel')
+    const v1 = await callOk(client, 'get_graph_version', { graphId: g.graphId, version: 1 })
+    assert.equal(v1.nodeCount, 0)
+    const one = await callOk(client, 'get_graph_version', { graphId: g.graphId, version: 2, nodeId: 'a' })
+    assert.equal(one.nodeCount, 1)
+
+    // Reading history changes nothing.
+    assert.equal((await callOk(client, 'get_graph', { graphId: g.graphId })).version, 3)
+  })
+
+  test('a version that is not stored is GRAPH_NOT_FOUND', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X' })
+    assert.equal((await callErr(client, 'get_graph_version', { graphId: g.graphId, version: 99 })).code, gs.ERR.GRAPH_NOT_FOUND)
+  })
+
+  test('Bob cannot read the history or an old version of Alice\'s private graph', async () => {
+    const { env } = freshDb()
+    const { client: alice } = await connect(env, ALICE_RW)
+    const g = await callOk(alice, 'create_graph', { title: 'Hemmelig', metaArea: '#X' })
+    const { client: bob } = await connect(env, BOB_RW)
+    assert.equal((await callErr(bob, 'get_graph_history', { graphId: g.graphId })).code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.equal((await callErr(bob, 'get_graph_version', { graphId: g.graphId, version: 1 })).code, gs.ERR.FORBIDDEN_GRAPH)
+  })
+
+  test('both need graph:read and are marked read-only', async () => {
+    const { env } = freshDb()
+    const { client: rw } = await connect(env, ALICE_RW)
+    const g = await callOk(rw, 'create_graph', { title: 'T', metaArea: '#X' })
+    const { client: none } = await connect(env, authFor('alice@example.com', ['graph:write']))
+    assert.equal((await callErr(none, 'get_graph_history', { graphId: g.graphId })).code, gs.ERR.INSUFFICIENT_SCOPE)
+    assert.equal((await callErr(none, 'get_graph_version', { graphId: g.graphId, version: 1 })).code, gs.ERR.INSUFFICIENT_SCOPE)
+    const { tools } = await rw.listTools()
+    for (const n of ['get_graph_history', 'get_graph_version']) {
+      const t = tools.find((x) => x.name === n)
+      assert.equal(t.annotations.readOnlyHint, true, `${n} should be read-only`)
+    }
+  })
+})
+
 describe('15 & 16. add_node and version conflict', () => {
   test('add_node appends and reports both versions', async () => {
     const { env } = freshDb()

@@ -347,9 +347,21 @@ export async function getGraph(env, id, opts = {}) {
   const result = await store.getRow(id)
   if (!result) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
 
-  const graphData = sanitizeGraphData(JSON.parse(result.data))
+  const graphData = await shapeGraphData(env, JSON.parse(result.data), opts)
   graphData.created_date = result.created_date
   graphData.updated_at = result.updated_at
+
+  return { ok: true, graph: graphData, version: graphData.metadata?.version ?? null, world: store.world }
+  })
+}
+
+/**
+ * The shaping GET /getknowgraph applies to stored graph JSON: sanitize, default the image
+ * fields, give edges ids, apply the nodeId/nodeTitle filter, decrypt data-nodes. Shared by the
+ * current row and by history versions, so an old version reads exactly like the live graph.
+ */
+async function shapeGraphData(env, raw, opts = {}) {
+  const graphData = sanitizeGraphData(raw)
 
   graphData.nodes = graphData.nodes.map((node) => ({
     ...node,
@@ -397,7 +409,42 @@ export async function getGraph(env, id, opts = {}) {
     }
   }
 
-  return { ok: true, graph: graphData, version: graphData.metadata?.version ?? null, world: store.world }
+  return graphData
+}
+
+/**
+ * The saved versions of a graph, newest first: [{ version, timestamp }]. Only versioned writes
+ * add a row, and the store keeps the newest HISTORY_CAP of them.
+ * Pure read — the caller decides whether to run checkAccess() first.
+ */
+export async function getGraphHistory(env, id, opts = {}) {
+  if (!id) return fail(ERR.INVALID_INPUT, 'Graph ID is required.')
+  const { store, error } = await storeFor(env, { graphId: id, actor: opts.caller ?? null })
+  if (error) return error
+  return guarded(async () => {
+    const rows = (await store.historyList(id))?.results || []
+    return {
+      ok: true,
+      versions: rows.map((r) => ({ version: Number(r.version), timestamp: r.timestamp ?? null })),
+      world: store.world,
+    }
+  })
+}
+
+/**
+ * One saved version of a graph, shaped like getGraph(). opts.nodeId narrows it to one node.
+ * Pure read — the caller decides whether to run checkAccess() first.
+ */
+export async function getGraphVersion(env, id, version, opts = {}) {
+  if (!id) return fail(ERR.INVALID_INPUT, 'Graph ID is required.')
+  if (!Number.isInteger(version) || version < 1) return fail(ERR.INVALID_INPUT, 'version must be a positive integer.')
+  const { store, error } = await storeFor(env, { graphId: id, actor: opts.caller ?? null })
+  if (error) return error
+  return guarded(async () => {
+    const row = await store.historyVersion(id, version)
+    if (!row) return fail(ERR.GRAPH_NOT_FOUND, `Graph ${id} has no saved version ${version}.`)
+    const graphData = await shapeGraphData(env, JSON.parse(row.data), opts)
+    return { ok: true, graph: graphData, version, world: store.world }
   })
 }
 

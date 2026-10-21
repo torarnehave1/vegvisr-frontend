@@ -27,7 +27,7 @@
 
 import { signWorldGraphToken } from './world-graph-token.js'
 
-const HISTORY_CAP = 20
+export const HISTORY_CAP = 20
 const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 const VERSION_SQL = `COALESCE(CAST(json_extract(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.metadata.version') AS INTEGER), 0)`
 
