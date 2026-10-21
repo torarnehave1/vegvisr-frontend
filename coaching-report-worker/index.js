@@ -10,6 +10,12 @@
  *   POST /coaching/rapport   (JSON or form body) -> vegvisr_send_rapport
  *
  * Separate worker — does NOT touch the user's sms-worker.
+ *
+ * AUTH (2026-10-21): every route requires X-API-Token (the caller's emailVerificationToken,
+ * looked up in config) AND the caller's e-mail on COACHING_REPORT_SENDERS. Before this the
+ * routes were open: anyone who knew the URL could write reports into the CMS with our secret.
+ * Callers: the Contacts app (browser) and agent-worker (service binding, forwards the MCP
+ * caller's token).
  */
 
 const CMS_BASE = 'https://sms.heinekolltveit.com/api.php';
@@ -23,7 +29,7 @@ const UPSTREAM_HEADERS = {
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, X-API-Token',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -41,6 +47,26 @@ function passthrough(text, status) {
   });
 }
 
+async function authorize(request, env) {
+  const token = (request.headers.get('X-API-Token') || '').trim()
+  if (!token) return { status: 401, feil: 'Mangler X-API-Token — logg inn på nytt.' }
+  let row
+  try {
+    row = await env.vegvisr_org
+      .prepare('SELECT email FROM config WHERE emailVerificationToken = ?')
+      .bind(token).first()
+  } catch (e) {
+    return { status: 500, feil: 'Token-sjekk feilet: ' + e.message }
+  }
+  if (!row) return { status: 401, feil: 'Ugyldig X-API-Token — logg inn på nytt.' }
+  const allowed = String(env.COACHING_REPORT_SENDERS || '')
+    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+  if (!allowed.includes(String(row.email || '').trim().toLowerCase())) {
+    return { status: 403, feil: 'Du står ikke på listen over dem som kan rapportere til CMS.' }
+  }
+  return null
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
@@ -50,6 +76,9 @@ export default {
     if (!env.VEGVISR_SECRET) {
       return json({ feil: 'VEGVISR_SECRET er ikke konfigurert på worker' }, 500);
     }
+
+    const denied = await authorize(request, env);
+    if (denied) return json({ feil: denied.feil }, denied.status);
 
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/coaching\/?/, '');
