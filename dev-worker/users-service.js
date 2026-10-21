@@ -545,3 +545,58 @@ export async function createContact(env, { actor, name, email, phone, labels, or
     labels: payload.labels ? payload.labels.split(',') : [],
   }
 }
+
+/**
+ * ContactHub meeting reports → Enkel endring CMS, through agent-worker's /contacts/report/* doors
+ * — the one implementation, which mirrors the Contacts app's "Save report fields" / "Send rapport".
+ * Whose book is used, and whether the caller is on the CMS allowlist, is decided there from the
+ * caller's own token. The reply is passed back as-is: it carries only the report fields, the
+ * matched samtale and the outcome, never other contact data.
+ */
+async function reportCall(env, actor, path, payload) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!env.AGENT_WORKER?.fetch) {
+    return fail(ERR.INTERNAL_ERROR, 'The AGENT_WORKER service binding is not configured on this worker.')
+  }
+  const token = await callerToken(env, actor)
+  if (!token) {
+    return fail(ERR.FORBIDDEN_GRAPH, 'No credential on your account. Sign in at vegvisr.org once, then try again.')
+  }
+  let res
+  let data
+  try {
+    res = await env.AGENT_WORKER.fetch(`https://agent-worker${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Token': token },
+      body: JSON.stringify(payload),
+    })
+    data = await res.json().catch(() => ({}))
+  } catch (e) {
+    console.error('[contacts/report] agent-worker unreachable:', e.message)
+    return fail(ERR.INTERNAL_ERROR, `Could not reach the contacts service: ${e.message}`)
+  }
+  if (res.status === 403) return fail(ERR.FORBIDDEN_GRAPH, data?.error || 'Not allowed.')
+  // preview answers success:false + ready:false when a field is missing — that is a result, not a failure.
+  if (!res.ok || (data?.success === false && data?.ready === undefined)) {
+    return fail(ERR.INVALID_INPUT, data?.error || `Report request failed (status ${res.status}).`)
+  }
+  const { success: _s, ...rest } = data || {}
+  return { ok: true, ...rest }
+}
+
+export function setMeetingReport(env, { actor, contactId, meetingQuality, meetingDate, criticalNote }) {
+  if (!String(contactId || '').trim()) return Promise.resolve(fail(ERR.INVALID_INPUT, 'contactId is required.'))
+  return reportCall(env, actor, '/contacts/report/set', { contactId: String(contactId).trim(), meetingQuality, meetingDate, criticalNote })
+}
+
+export function previewMeetingReport(env, { actor, contactId }) {
+  if (!String(contactId || '').trim()) return Promise.resolve(fail(ERR.INVALID_INPUT, 'contactId is required.'))
+  return reportCall(env, actor, '/contacts/report/preview', { contactId: String(contactId).trim() })
+}
+
+export function sendMeetingReport(env, { actor, contactId, coachingId }) {
+  if (!String(contactId || '').trim() || !coachingId) {
+    return Promise.resolve(fail(ERR.INVALID_INPUT, 'contactId and coachingId are both required. Nothing was sent.'))
+  }
+  return reportCall(env, actor, '/contacts/report/send', { contactId: String(contactId).trim(), coachingId: Number(coachingId) })
+}

@@ -187,7 +187,12 @@ export const OPT_IN_SCOPE_DETAIL = {
     'til norske mobilnummer, begrenset til en uttrykkelig liste over hvem som får sende, med en ' +
     'daglig grense. Superadmin alene gir ingenting her heller, avsendernavnet velges av serveren, ' +
     'og en sendt SMS kan ikke kalles tilbake. Forhåndsvisningen viser melding, antall segmenter og ' +
-    'pris før sending. Scopen dekker ' +
+    'pris før sending. ' +
+    // Widened 2026-10-21 for send_meeting_report — same class: it writes into a customer's
+    // kontaktlogg in an outside CMS and cannot be called back.
+    'COACHING-RAPPORT: den kan sende møterapporten fra ContactHub (status, utfall og notat) til ' +
+    'Enkel endring CMS, der den lagres på samtalen og i kundens kontaktlogg — bare for personer ' +
+    'på en uttrykkelig liste, etter en forhåndsvisning, og den kan ikke kalles tilbake. Scopen dekker ' +
     'meldingskanaler generelt, så et framtidig verktøy i samme klasse ' +
     'vil bruke den i stedet for å be deg autorisere på nytt. Meldingene postes av ' +
     'assistentens egen bot og merkes alltid med at en AI skrev dem på dine vegne. Den kan bare ' +

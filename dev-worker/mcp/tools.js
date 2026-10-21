@@ -4258,6 +4258,188 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── set_meeting_report / preview_meeting_report / send_meeting_report ────
+  //
+  // The Contacts app's client report, from a model (2026-10-21). Setting the three fields is the
+  // caller's own content (graph:write, like create_contact). Previewing and sending reach the
+  // Enkel endring CMS — a customer's kontaktlogg in an outside business system that cannot be
+  // called back — so they sit in the "reaches other people" class, chat:write (architect's
+  // decision 2026-10-21), and agent-worker additionally refuses anyone not on its explicit
+  // COACHING_REPORT_SENDERS allowlist. Preview first, send with the coachingId it returned: the
+  // send re-runs the match and refuses an id that is not the contact's one samtale.
+  const QUALITY_TEXT =
+    '0 = Ikke møtt, 1 = Rådføring, 2 = Håndterbart, 3 = OK, 4 = Feiring/Gjennombrudd ' +
+    '("Good flow and happy client"), 5 = Avlyst, 6 = Krise'
+
+  server.registerTool(
+    'set_meeting_report',
+    {
+      title: 'Set the meeting report on a contact (ContactHub)',
+      description:
+        'Save the CLIENT REPORT fields on one contact in YOUR OWN ContactHub — the same as ' +
+        '"Save report fields" in the app. meetingQuality: ' + QUALITY_TEXT + '. meetingDate is the ' +
+        'date of the meeting (YYYY-MM-DD; shown as "Reminder sent" in the app and used to find the ' +
+        'samtale in the CMS). criticalNote is the note the CMS receives. Pass only what changes. ' +
+        'Find the contactId with search_contacts. Nothing is sent anywhere — use ' +
+        'preview_meeting_report and send_meeting_report for that. Requires the graph:write scope.',
+      inputSchema: {
+        contactId: z.string().min(1).describe('The contact, from search_contacts.'),
+        meetingQuality: z.number().int().min(0).max(6).optional().describe(QUALITY_TEXT),
+        meetingDate: z.string().optional().describe('Meeting date, YYYY-MM-DD.'),
+        criticalNote: z.string().optional().describe('The note sent to the CMS with the report.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        contactId: z.string(),
+        name: z.string().nullable(),
+        meetingQuality: z.number().nullable(),
+        meetingQualityLabel: z.string().nullable(),
+        meetingDate: z.string().nullable(),
+        criticalNote: z.string(),
+        readyToSend: z.boolean(),
+        missing: z.string().nullable(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await users.setMeetingReport(env, { actor, ...args })
+      if (!r.ok) return fromService(r)
+      return ok({
+        success: true,
+        contactId: r.contactId,
+        name: r.name ?? null,
+        meetingQuality: r.meetingQuality ?? null,
+        meetingQualityLabel: r.meetingQualityLabel ?? null,
+        meetingDate: r.meetingDate ?? null,
+        criticalNote: r.criticalNote ?? '',
+        readyToSend: r.readyToSend === true,
+        missing: r.missing ?? null,
+      }, r.message || 'Report fields saved.')
+    },
+  )
+
+  const SAMTALE_SHAPE = z.object({
+    coachingId: z.number(),
+    dato: z.string(),
+    tidspunkt: z.string().nullable(),
+    type: z.string().nullable(),
+    status: z.string(),
+    utfall: z.string().nullable(),
+  })
+
+  server.registerTool(
+    'preview_meeting_report',
+    {
+      title: 'Preview a meeting report before sending it to the CMS',
+      description:
+        'Show exactly what send_meeting_report would send to the Enkel endring CMS for one contact: ' +
+        'status and utfall (from meeting quality), date, notes, and the ONE samtale in the CMS ' +
+        'matched on the contact\'s e-mail and the meeting date. Sends nothing. ready=false with a ' +
+        'reason when a field is missing or the match is zero or several samtaler. alreadyReported ' +
+        'warns that sending would overwrite an earlier report. Show the preview to the user and ' +
+        'send only after they confirm. Requires the chat:write scope and a place on the CMS ' +
+        'sender list.',
+      inputSchema: {
+        contactId: z.string().min(1).describe('The contact, from search_contacts.'),
+      },
+      outputSchema: {
+        ready: z.boolean(),
+        contactId: z.string(),
+        name: z.string().nullable(),
+        meetingQuality: z.number().nullable(),
+        meetingDate: z.string().nullable(),
+        criticalNote: z.string(),
+        report: z.object({ status: z.string(), utfall: z.string().nullable(), notater: z.string(), dato: z.string() }).nullable(),
+        coachingId: z.number().nullable(),
+        samtaler: z.array(SAMTALE_SHAPE),
+        alreadyReported: z.boolean(),
+        lastSent: z.object({ at: z.string().nullable(), coachingId: z.number().nullable() }).nullable(),
+        reason: z.string().nullable(),
+      },
+      // Not outward, like preview_sms: it reads the CMS samtale list and transmits nothing.
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ contactId }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await users.previewMeetingReport(env, { actor, contactId })
+      if (!r.ok) return fromService(r)
+      return ok({
+        ready: r.ready === true,
+        contactId: String(r.contactId || contactId),
+        name: r.name ?? null,
+        meetingQuality: r.meetingQuality ?? null,
+        meetingDate: r.meetingDate ?? null,
+        criticalNote: r.criticalNote ?? '',
+        report: r.report ?? null,
+        coachingId: r.coachingId ?? null,
+        samtaler: Array.isArray(r.samtaler) ? r.samtaler : [],
+        alreadyReported: r.alreadyReported === true,
+        lastSent: r.lastSent ?? null,
+        reason: r.reason ?? null,
+      }, r.message || (r.ready ? 'Ready to send.' : `Cannot send: ${r.reason}`))
+    },
+  )
+
+  server.registerTool(
+    'send_meeting_report',
+    {
+      title: 'Send a meeting report to the Enkel endring CMS',
+      description:
+        'LIVE WRITE to an outside system: sends the contact\'s report to the Enkel endring CMS, ' +
+        'which stores it on the samtale and in the customer\'s kontaktlogg, and logs a "Report" ' +
+        'entry in ContactHub — the same as "Send rapport" in the app. It cannot be called back. ' +
+        'Call preview_meeting_report first, show it to the user, and pass the coachingId it ' +
+        'returned only after they confirm; a coachingId that is not the contact\'s one matching ' +
+        'samtale is refused with nothing sent. Requires the chat:write scope and a place on the ' +
+        'CMS sender list.',
+      inputSchema: {
+        contactId: z.string().min(1).describe('The contact, from search_contacts.'),
+        coachingId: z.number().int().describe('The samtale id from preview_meeting_report.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        contactId: z.string(),
+        name: z.string().nullable(),
+        coachingId: z.number(),
+        status: z.string(),
+        utfall: z.string().nullable(),
+        dato: z.string(),
+        logged: z.boolean(),
+        logError: z.string().nullable(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ contactId, coachingId }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await users.sendMeetingReport(env, { actor, contactId, coachingId })
+      if (!r.ok) return fromService(r)
+      return ok({
+        success: true,
+        contactId: String(r.contactId || contactId),
+        name: r.name ?? null,
+        coachingId: Number(r.coachingId),
+        status: String(r.status || ''),
+        utfall: r.utfall ?? null,
+        dato: String(r.dato || ''),
+        logged: r.logged === true,
+        logError: r.logError ?? null,
+      }, r.message || 'Report sent.')
+    },
+  )
+
   // ── set_user_groups ───────────────────────────────────────────────────────
   //
   // register_user refuses an email that already exists, which left no way to tag someone who is
@@ -4973,6 +5155,9 @@ export const TOOL_NAMES = [
   'list_contacts',
   'search_contacts',
   'create_contact',
+  'set_meeting_report',
+  'preview_meeting_report',
+  'send_meeting_report',
   'set_user_groups',
   'update_user_profile',
   'set_user_role',

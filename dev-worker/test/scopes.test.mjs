@@ -158,7 +158,7 @@ describe('chat:read is consented to separately from chat:write', () => {
   // forbids. A per-channel assertion only catches the channel somebody remembered to add, so
   // this derives the requirement from the tool list instead.
   test('the consent copy names every channel chat:write actually reaches', () => {
-    const CHANNEL_WORD = { sms: 'SMS', email: 'E-POST', mail: 'E-POST', chat: 'CHATTEGRUPPER' }
+    const CHANNEL_WORD = { sms: 'SMS', email: 'E-POST', mail: 'E-POST', chat: 'CHATTEGRUPPER', meeting_report: 'COACHING-RAPPORT' }
     const detail = OPT_IN_SCOPE_DETAIL['chat:write'].toUpperCase()
     const missing = []
     for (const name of TOOL_NAMES) {

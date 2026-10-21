@@ -907,6 +907,10 @@ describe('annotations tell the client the truth about each tool', () => {
       // Added 2026-10-13. The source is committed to a PUBLIC repository the moment it returns,
       // before any approval — and after approval it is code answering on a public address.
       'create_worker',
+      // Added 2026-10-21. Writes a report into a customer's kontaktlogg in the outside Enkel
+      // endring CMS, not recallable. preview_meeting_report is deliberately NOT here — it
+      // transmits nothing, like preview_sms.
+      'send_meeting_report',
     ])
     for (const t of tools) {
       assert.equal(t.annotations?.openWorldHint, outward.has(t.name), `${t.name} openWorldHint`)
@@ -1311,6 +1315,7 @@ describe('publish_html_node is the one tool that reaches the public internet', (
       'register_user',
       'remove_group_member',
       'send_email',
+      'send_meeting_report',
       'send_sms',
       'send_sms_to_user',
       'set_group_member_role',
@@ -1843,6 +1848,68 @@ describe('list_contacts / search_contacts read the caller\'s own ContactHub book
   })
 })
 
+
+describe('meeting reports: set (graph:write), preview + send (chat:write) via agent-worker', () => {
+  function withAgent(reply = {}, status = 200) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    env.AGENT_WORKER = {
+      fetch: async (url, init) => {
+        calls.push({ path: new URL(url).pathname, token: init.headers['X-API-Token'], body: JSON.parse(init.body) })
+        return new Response(JSON.stringify(reply), { status, headers: { 'Content-Type': 'application/json' } })
+      },
+    }
+    return { env, calls }
+  }
+  const CHAT = (fx) => ({ ...fx, auth: { ...fx.auth, scope: [...fx.auth.scope, 'chat:write'] } })
+
+  test('set saves through /contacts/report/set with the caller\'s own token', async () => {
+    const { env, calls } = withAgent({ success: true, contactId: 'c1', name: 'Tommy Skog', meetingQuality: 4, meetingQualityLabel: 'Feiring/Gjennombrudd', meetingDate: '2026-10-21', criticalNote: 'Mer liv', readyToSend: true, missing: null, message: 'saved' })
+    const { client } = await connect(env, ALICE_RW)
+    const r = await callOk(client, 'set_meeting_report', { contactId: 'c1', meetingQuality: 4, meetingDate: '2026-10-21', criticalNote: 'Mer liv' })
+    assert.equal(r.readyToSend, true)
+    assert.equal(calls[0].path, '/contacts/report/set')
+    assert.equal(calls[0].token, 'sess-alice')
+    assert.equal(calls[0].body.email, undefined, 'no identity is forwarded in the body')
+  })
+
+  test('preview and send need chat:write — graph:write alone reaches nothing', async () => {
+    const { env, calls } = withAgent({ success: true })
+    const { client } = await connect(env, ALICE_RW)
+    for (const [name, args] of [['preview_meeting_report', { contactId: 'c1' }], ['send_meeting_report', { contactId: 'c1', coachingId: 2371 }]]) {
+      const e = await callErr(client, name, args)
+      assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+      assert.equal(e.requiredScope, 'chat:write')
+    }
+    assert.equal(calls.length, 0, 'nothing reached the CMS path')
+  })
+
+  test('a caller off the CMS sender list is refused', async () => {
+    const { env } = withAgent({ success: false, error: 'You are not on the list of people allowed to send coaching reports' }, 403)
+    const { client } = await connect(env, CHAT(ALICE_RW))
+    const e = await callErr(client, 'send_meeting_report', { contactId: 'c1', coachingId: 2371 })
+    assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH)
+  })
+
+  test('a preview that is not ready is a result, not an error', async () => {
+    const { env } = withAgent({ success: false, ready: false, contactId: 'c1', name: 'T', meetingQuality: null, meetingDate: null, criticalNote: '', reason: 'Meeting quality is not set.', message: 'Cannot send: Meeting quality is not set.' })
+    const { client } = await connect(env, CHAT(ALICE_RW))
+    const r = await callOk(client, 'preview_meeting_report', { contactId: 'c1' })
+    assert.equal(r.ready, false)
+    assert.match(r.reason, /Meeting quality/)
+  })
+
+  test('send forwards contactId + coachingId only, and is marked destructive', async () => {
+    const { env, calls } = withAgent({ success: true, contactId: 'c1', name: 'Tommy Skog', coachingId: 2371, status: 'Gjennomført', utfall: 'Feiring/Gjennombrudd', dato: '2026-10-21', logged: true, logError: null })
+    const { client } = await connect(env, CHAT(ALICE_RW))
+    const r = await callOk(client, 'send_meeting_report', { contactId: 'c1', coachingId: 2371 })
+    assert.equal(r.coachingId, 2371)
+    assert.deepEqual(calls[0].body, { contactId: 'c1', coachingId: 2371 })
+    const { tools } = await client.listTools()
+    assert.equal(tools.find((x) => x.name === 'send_meeting_report').annotations.destructiveHint, true)
+  })
+})
 
 describe('create_contact adds to the caller\'s own ContactHub book', () => {
   // graph:write, not a new scope (architect's decision 2026-10-20): a row in your own book is
@@ -2843,6 +2910,7 @@ describe('post_chat_message is gated harder than everything else', () => {
       'register_user',
       'remove_group_member',
       'send_email',
+      'send_meeting_report',
       'send_sms',
       'send_sms_to_user',
       'set_group_member_role',
@@ -2933,6 +3001,7 @@ describe('read_chat_messages is gated apart from posting', () => {
       'register_user',
       'remove_group_member',
       'send_email',
+      'send_meeting_report',
       'send_sms',
       'send_sms_to_user',
       'set_group_member_role',
