@@ -499,6 +499,25 @@ describe('add_edge connects two existing nodes', () => {
   })
 })
 
+describe('createdAt on graph reads', () => {
+  test('list_my_graphs, search_graphs and get_graph carry the row\'s created_date, and an edit keeps it', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    await client.listTools()
+    const g = await callOk(client, 'create_graph', { title: 'Vekst', metaArea: '#X' })
+    await env.vegvisr_org.prepare("UPDATE knowledge_graphs SET created_date = '2025-04-17 18:21:00' WHERE id = ?").bind(g.graphId).run()
+    await callOk(client, 'add_node', { graphId: g.graphId, node: { label: 'a' } })
+
+    const mine = (await callOk(client, 'list_my_graphs', {})).results.find((r) => r.graphId === g.graphId)
+    assert.equal(mine.createdAt, '2025-04-17 18:21:00')
+    const found = (await callOk(client, 'search_graphs', { query: 'Vekst' })).results.find((r) => r.graphId === g.graphId)
+    assert.equal(found.createdAt, '2025-04-17 18:21:00')
+    const read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(read.createdAt, '2025-04-17 18:21:00')
+    assert.ok(read.updatedAt)
+  })
+})
+
 describe('get_graph_history and get_graph_version', () => {
   test('the owner lists versions newest first and reads an earlier one as it was', async () => {
     const { env } = freshDb()

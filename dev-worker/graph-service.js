@@ -1048,6 +1048,7 @@ export async function searchGraphs(env, { query, metaArea = null, nodeType = nul
           FROM json_each(${nodesSql})
           WHERE json_extract(value, '$.publishedDomain') IS NOT NULL
         ), '') AS published_domains_csv,
+        created_date,
         updated_at
       FROM knowledge_graphs`,
   })
@@ -1062,6 +1063,7 @@ export async function searchGraphs(env, { query, metaArea = null, nodeType = nul
     publicationState: r.publication_state || 'private',
     version: r.version ?? null,
     nodeCount: r.node_count ?? 0,
+    createdAt: r.created_date || null,
     updatedAt: r.updated_at || null,
     isMine: Boolean(actor.email && String(r.created_by || '').toLowerCase() === actor.email),
     // The node's own stamp only. The caller merges it with the publish registry, which is the
@@ -1120,6 +1122,7 @@ export async function listMyGraphs(env, { limit = 20, offset = 0, metaArea = nul
           FROM json_each(${nodesSql})
           WHERE json_extract(value, '$.publishedDomain') IS NOT NULL
         ), '') AS published_domains_csv,
+        created_date,
         updated_at
       FROM knowledge_graphs`,
   })
@@ -1132,6 +1135,7 @@ export async function listMyGraphs(env, { limit = 20, offset = 0, metaArea = nul
     publicationState: r.publication_state || 'private',
     version: r.version ?? null,
     nodeCount: r.node_count ?? 0,
+    createdAt: r.created_date || null,
     updatedAt: r.updated_at || null,
     isMine: true,
     // The node's own stamp only. The caller merges it with the publish registry, which is the
