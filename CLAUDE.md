@@ -256,14 +256,17 @@ wrangler deploy
 # Workers are NOT auto-deployed from GitHub
 ```
 
-**Three exceptions, all deployed by GitHub Actions behind the owner's approval:**
+**Four exceptions, all deployed by GitHub Actions behind the owner's approval:**
 
 - `dev-worker/` (the MCP server, `knowledge-graph-worker`) —
   `.github/workflows/deploy-dev-worker.yml`: unit tests → approval → `wrangler deploy` → public
-  live smoke. Its `wrangler.toml` is the ONLY toml tracked in git (the repo is public): binding
+  live smoke. Its `wrangler.toml` is one of only two tomls tracked in git (with seo-worker's; the repo is public): binding
   names and ids only, never a token, password, e-mail address or phone number. `MCP_SMS_ALLOWED`
   is a Cloudflare secret for that reason and must not be added back as a var.
   `./ship.sh` from the laptop still works and runs the full smoke, including the checks CI skips.
+- `seo-worker/` (SEO pages: seo.vegvisr.org, www.vegvisr.org/graph/*, universi.no/graph/*) —
+  `.github/workflows/deploy-seo-worker.yml`: syntax check → approval → `wrangler deploy` → live check.
+  Its `wrangler.toml` is tracked too (routes + two KV ids, no secrets).
 - `hello-mcp-worker/` — `.github/workflows/deploy-hello-mcp.yml`. No bindings, no secrets.
   Endpoint: `https://hello-mcp.torarnehave.workers.dev/mcp`.
 
@@ -277,7 +280,7 @@ wrangler deploy
   Superadmin only — discovered from the RUNNING worker by `dev-worker/worker-tools.js`, so an
   unapproved worker has no tools. Calls forward the arguments and nothing else.
 
-All three deploy jobs run in the GitHub environment `mcp-production`, which has a required reviewer.
+All four deploy jobs run in the GitHub environment `mcp-production`, which has a required reviewer.
 `CLOUDFLARE_API_TOKEN` is a secret of THAT ENVIRONMENT and must never be added as a repository
 secret — any workflow file on `main` can read a repository secret, which would bypass the approval.
 
