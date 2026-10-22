@@ -33,6 +33,7 @@ import { NODE_TYPES, DEFAULT_NODE_TYPE, suggestNodeType } from '../node-types.js
 import {
   REGISTRY_GRAPH_ID, REGISTRY_NODE_TYPE, TYPE_NAME, WORLD_TYPES_TAG, invalidateNodeTypeCache,
   normalizeWorld, registeredNodeTypes, worldRegistryGraph, nodeTypeAllowedIn,
+  nodeTypeEntry, nodeTypeRenderers, worldTypeInfo,
 } from '../node-type-registry.js'
 import { mayUseWorld, defaultWorldFor, HISTORY_CAP } from '../graph-store.js'
 import * as nts from '../node-type-service.js'
@@ -693,6 +694,97 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
       const q = reg.world ? `?world=${reg.world}` : ''
       return ok({ success: true, type, version, status: 'approved' },
         `Renderer v${version} for "${type}" approved${reg.world ? ` in ${reg.world}` : ''}. <vegvisr-node> serves it from GET /node-types/${type}/renderer${q} within a minute.`)
+    },
+  )
+
+  // ── list_node_types ───────────────────────────────────────────────────────
+  //
+  // The add_node schema's enum says WHICH types exist; it cannot say what a registered one is for.
+  // On 2026-10-21 a model asked "which node types are there?" had to read that enum out of another
+  // tool's schema, and could not settle whether the work-note type was spelled worknote or
+  // work-note. This is the answer as data — the same sources GET /node-types reads, so the two
+  // surfaces cannot disagree. Read-only, and never renderer code: only its version and status.
+  server.registerTool(
+    'list_node_types',
+    {
+      title: 'List the node types and what each is for',
+      description:
+        'Return every node type a node may carry: first the renderable types the viewer displays ' +
+        '(fulltext, html-node, mermaid-diagram, …), then the registered DATA types ' +
+        '(register_node_type) with what a node of the type holds, what reads it, and whether it has ' +
+        'an approved renderer. With world (e.g. "sodesign.no"), that World\'s own types are added. ' +
+        'CALL THIS when unsure of a type name: a type outside this list is refused, and a near miss ' +
+        '("html" for "html-node", "work-note" for "worknote") does not exist. Requires the graph:read scope.',
+      inputSchema: {
+        world: z.string().optional().describe('Also list this World\'s own node types, e.g. "sodesign.no". Omit for the platform types only.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        count: z.number().describe('All types listed: renderable plus registered.'),
+        renderable: z.array(z.string()),
+        registered: z.array(z.object({
+          type: z.string(),
+          scope: z.enum(['platform', 'world']),
+          title: z.string().nullable(),
+          description: z.string().nullable().describe('What a node of this type holds. Null for a World\'s type.'),
+          consumer: z.string().nullable().describe('What reads nodes of this type. Null for a World\'s type.'),
+          renderer: z.object({ version: z.number(), status: z.string() }).nullable()
+            .describe('Null: no renderer, the node is read by a program. status "approved": displayed in every viewer.'),
+        })),
+        world: z.string().nullable(),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ world }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const domain = normalizeWorld(world)
+      const renderers = await nodeTypeRenderers(env, domain ? { world: domain } : {})
+      const rendererOf = (t) => (renderers[t] ? { version: Number(renderers[t].version) || 1, status: String(renderers[t].status) } : null)
+      const text = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+
+      const registered = []
+      for (const type of await registeredNodeTypes(env)) {
+        if (NODE_TYPES.includes(type)) continue
+        const entry = await nodeTypeEntry(env, type)
+        registered.push({
+          type,
+          scope: 'platform',
+          title: text(entry?.metadata?.title),
+          description: text(entry?.info),
+          consumer: text(entry?.metadata?.consumer),
+          renderer: rendererOf(type),
+        })
+      }
+      // A World's own types: names, titles and renderer status only — the same public contract as
+      // GET /node-types?world= (decided 2026-10-18, D4 A). Their descriptions stay in the World.
+      if (domain) {
+        for (const [type, info] of Object.entries(await worldTypeInfo(env, domain))) {
+          if (NODE_TYPES.includes(type) || registered.some((r) => r.type === type)) continue
+          registered.push({ type, scope: 'world', title: text(info?.title), description: null, consumer: null, renderer: rendererOf(type) })
+        }
+      }
+
+      const count = NODE_TYPES.length + registered.length
+      const lines = [
+        `${NODE_TYPES.length} renderable types: ${NODE_TYPES.join(', ')}.`,
+        registered.length
+          ? `${registered.length} registered type${registered.length === 1 ? '' : 's'}:`
+          : 'No registered data types.',
+        ...registered.map((r) => {
+          const shown = r.renderer
+            ? `renderer v${r.renderer.version} ${r.renderer.status}`
+            : 'no renderer — read by a program'
+          const what = r.description || r.title || ''
+          return `- ${r.type}${r.scope === 'world' ? ` (${domain})` : ''} — ${what ? `${what} ` : ''}[${shown}]` +
+            (r.consumer ? ` Read by: ${r.consumer}.` : '')
+        }),
+      ]
+      return ok({ success: true, count, renderable: [...NODE_TYPES], registered, world: domain }, lines.join('\n'))
     },
   )
 
@@ -5174,4 +5266,5 @@ export const TOOL_NAMES = [
   'register_node_type',
   'set_node_type_renderer',
   'approve_node_type_renderer',
+  'list_node_types',
 ]
