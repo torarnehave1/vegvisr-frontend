@@ -49,6 +49,8 @@ main-worker/wrangler.toml
 # The one tracked wrangler.toml: no secrets in it, and CI deploys dev-worker from it
 # (.github/workflows/deploy-dev-worker.yml). Must stay BELOW *.toml to win.
 !/dev-worker/wrangler.toml
+# seo-worker: same rule — names, ids and routes only (.github/workflows/deploy-seo-worker.yml).
+!/seo-worker/wrangler.toml
 nodetest.js
 
 # Documentation with potential secrets
