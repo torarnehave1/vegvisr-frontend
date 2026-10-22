@@ -858,6 +858,13 @@ function getSlideshowJS() {
 }
 
 // Helper function to generate knowledge graph HTML
+function sortNodesByOrder(nodes) {
+  return nodes
+    .map((n, i) => ({ n, key: Number(n && n.order) > 0 ? Number(n.order) : i + 1, i }))
+    .sort((a, b) => a.key - b.key || a.i - b.i)
+    .map((x) => x.n)
+}
+
 function generateGraphHtml(graphData, graphId) {
   const metadata = graphData.metadata || {}
   const title = metadata.title || 'Untitled Knowledge Graph'
@@ -866,7 +873,9 @@ function generateGraphHtml(graphData, graphId) {
   const createdAt = metadata.createdAt || ''
   const category = metadata.category || 'Uncategorized'
   const metaArea = metadata.metaArea || 'General'
-  const nodes = graphData.nodes || []
+  // Same reading order as the viewers (GNewViewer, graph-portfolio): by node.order, a node
+  // without one falling back to its array position. Stable on ties.
+  const nodes = sortNodesByOrder(graphData.nodes || [])
   const edges = graphData.edges || []
 
   // Generate nodes list
