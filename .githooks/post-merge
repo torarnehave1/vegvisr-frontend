@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# exFAT drives get macOS ._ files inside .git, which git misreads ("non-monotonic index").
+# Hands off to the shared cleanup hook in ~/.githooks-t7 when it is installed on this
+# machine; does nothing in other clones and CI.
+h="$HOME/.githooks-t7/$(basename "$0")"
+[ -x "$h" ] && exec "$h" "$@"
+[ "$(basename "$0")" = reference-transaction ] && cat >/dev/null
+exit 0
