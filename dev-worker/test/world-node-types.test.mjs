@@ -347,3 +347,21 @@ describe('node-type-service', () => {
     assert.equal(nts.normalizeFields(new Array(21).fill({ label: 'x' })).ok, false)
   })
 })
+
+describe('list_node_types with world', () => {
+  test("adds the World's own types after the platform's, by name and title only", async () => {
+    await registerTestCard(await connect(FOUNDER))
+    invalidateNodeTypeCache()
+    const stranger = await connect(STRANGER)
+
+    const withWorld = sc(await call(stranger, 'list_node_types', { world: WORLD }))
+    const card = withWorld.registered.find((x) => x.type === 'test-card')
+    assert.deepEqual(card, { type: 'test-card', scope: 'world', title: 'test-card', description: null, consumer: null, renderer: null },
+      "a World's description stays in the World — the same public contract as GET /node-types?world=")
+    assert.equal(withWorld.registered.findIndex((x) => x.type === 'work-context') < withWorld.registered.indexOf(card), true)
+
+    const plain = sc(await call(stranger, 'list_node_types', {}))
+    assert.equal(plain.registered.some((x) => x.type === 'test-card'), false)
+    assert.equal(sc(await call(stranger, 'list_node_types', { world: OTHER })).registered.some((x) => x.type === 'test-card'), false)
+  })
+})

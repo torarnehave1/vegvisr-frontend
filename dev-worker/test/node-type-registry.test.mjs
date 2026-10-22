@@ -225,3 +225,68 @@ describe('renderers: set → pending → approve → served', () => {
     assert.deepEqual([served.impl, served.component], [IMPL, 'render-work-context'])
   })
 })
+
+describe('list_node_types: every type, and what each registered one is for', () => {
+  beforeEach(() => invalidateNodeTypeCache())
+  const IMPL = '<div id="x"></div><script>addEventListener("message",e=>{x.textContent=e.data.node.label})</script>'
+
+  test('read-only, graph:read only — and it lists the renderable types under their real names', async () => {
+    const { env, raw } = freshDb()
+    seedRegistry(raw)
+    const reader = await connect(env, authFor('reader@example.com', ['graph:read']))
+    const { tools } = await reader.listTools()
+    const t = tools.find((x) => x.name === 'list_node_types')
+    assert.equal(t.annotations.readOnlyHint, true)
+    assert.equal(t.annotations.destructiveHint, false)
+
+    const r = sc(await call(reader, 'list_node_types', {}))
+    assert.deepEqual(r.renderable, NODE_TYPES)
+    assert.equal(r.count, NODE_TYPES.length + r.registered.length)
+    // The question this tool exists for (2026-10-21): the work-note type is spelled worknote.
+    assert.equal(r.renderable.includes('worknote'), true)
+    assert.equal(r.renderable.includes('work-note'), false)
+    // The seeded registry row duplicates a renderable name; it is not listed twice.
+    assert.equal(r.registered.some((x) => x.type === 'fulltext'), false)
+  })
+
+  test('a registered type carries its description, consumer and renderer status — never its code', async () => {
+    const { env, raw } = freshDb()
+    seedRegistry(raw)
+    const owner = await connect(env, SUPER)
+    await call(owner, 'register_node_type', { type: 'micro-story', description: 'One captured micro-narrative.', consumer: 'vegvisr-node' })
+    invalidateNodeTypeCache()
+    const alice = await connect(env, ALICE)
+
+    const before = sc(await call(alice, 'list_node_types', {}))
+    const ms = before.registered.find((x) => x.type === 'micro-story')
+    assert.deepEqual(ms, { type: 'micro-story', scope: 'platform', title: null, description: 'One captured micro-narrative.', consumer: 'vegvisr-node', renderer: null })
+
+    await call(owner, 'set_node_type_renderer', { type: 'micro-story', impl: IMPL })
+    invalidateNodeTypeCache()
+    assert.deepEqual(sc(await call(alice, 'list_node_types', {})).registered.find((x) => x.type === 'micro-story').renderer, { version: 1, status: 'pending' })
+
+    await call(owner, 'approve_node_type_renderer', { type: 'micro-story', version: 1, verifyMethod: 'unit test' })
+    invalidateNodeTypeCache()
+    const after = await call(alice, 'list_node_types', {})
+    assert.deepEqual(sc(after).registered.find((x) => x.type === 'micro-story').renderer, { version: 1, status: 'approved' })
+    const all = JSON.stringify(after)
+    assert.equal(all.includes('addEventListener'), false, 'renderer code must not leave through this tool')
+    assert.match(after.content[0].text, /micro-story — One captured micro-narrative\. \[renderer v1 approved\] Read by: vegvisr-node\./)
+  })
+
+  test('without graph:read it is refused', async () => {
+    const { env, raw } = freshDb()
+    seedRegistry(raw)
+    const none = await connect(env, authFor('nobody@example.com', []))
+    assert.equal((await call(none, 'list_node_types', {})).isError, true)
+  })
+
+  test('a world with no registry adds nothing and is echoed back normalised', async () => {
+    const { env, raw } = freshDb()
+    seedRegistry(raw)
+    const alice = await connect(env, ALICE)
+    const r = sc(await call(alice, 'list_node_types', { world: '  No-Such.Example ' }))
+    assert.equal(r.world, 'no-such.example')
+    assert.equal(r.registered.some((x) => x.scope === 'world'), false)
+  })
+})

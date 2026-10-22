@@ -38,7 +38,7 @@ import { discoverWorkerTools } from '../worker-tools.js'
 // Bump it with the surface from here; MCP_OAUTH_DEPLOYMENT.md carries the changelog.
 const SERVER_INFO = {
   name: 'vegvisr-knowledge-graph',
-  version: '1.27.0',
+  version: '1.28.0',
 }
 
 const INSTRUCTIONS = `VEGR.AI Knowledge Graph.
@@ -60,7 +60,9 @@ Rules this server enforces, so you do not have to ask:
   and get_graph_version reads one. If a write returns VERSION_CONFLICT, the graph changed
   since you read it: call get_graph again and retry against the version it reports.
 
-Two things on this system cannot be inferred from general knowledge, so ask rather than guess:
+Three things on this system cannot be inferred from general knowledge, so ask rather than guess:
+- Node types: call list_node_types when unsure of a type. It names every type and says what each
+  registered one is for; a near miss ("html" for "html-node") is refused rather than corrected.
 - Fulltext syntax: call get_fulltext_elements before writing a node's "info" and copy the format
   verbatim. A wrong parameter renders as literal text instead of failing, so mistakes are silent.
 - Images: call get_image_guide before generating one. Five image models are available and they
