@@ -95,6 +95,11 @@ service = "email-worker"
 binding = "SMS_GATEWAY"
 service = "sms-gateway"
 
+# get_my_day (2026-10-22): the caller's own calendar, same source as the ContactHub Day View.
+[[services]]
+binding = "CALENDAR_WORKER"
+service = "calendar-worker"
+
 # Instagram posting from the MCP tools (social-service.js). Called AS the caller with their own
 # X-API-Token; blotato-worker decides which accounts they may post to.
 [[services]]

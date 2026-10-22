@@ -81,7 +81,7 @@ export const SCOPE_TEXT = {
   'chat:read': 'Lese meldinger andre har skrevet',
   'user:register': 'Opprette brukerkontoer og endre dem — rolle og gruppe',
   'user:read': 'Se andre registrerte personer: navn, e-post, rolle og gruppe',
-  'contacts:read': 'Lese din egen kontaktliste (ContactHub): navn, e-post, telefon, adresse og etiketter',
+  'contacts:read': 'Lese din egen kontaktliste (ContactHub): navn, e-post, telefon, adresse og etiketter — og din egen KALENDER og SMS du har sendt',
 }
 
 /**
@@ -142,7 +142,12 @@ export const OPT_IN_SCOPE_DETAIL = {
     'telefonnumre, første adresse, organisasjon og etiketter. Dette er ANDRE personers ' +
     'kontaktopplysninger — folk som ikke selv har registrert seg her — og det som hentes blir en ' +
     'del av samtalen din hos AI-leverandøren. Notater og samtalehistorikk tas ikke med. Den kan ' +
-    'aldri lese andres kontaktlister, og den kan ikke endre eller slette kontakter. Egen ' +
+    'aldri lese andres kontaktlister, og den kan ikke endre eller slette kontakter. ' +
+    // Widened 2026-10-22 for get_my_day and list_sent_sms — same class: your own data that names
+    // other people. Both read only.
+    'KALENDER: den kan også lese DIN EGEN kalender (tid, tittel, sted, deltakere — ikke ' +
+    'beskrivelsen). SMS: den kan lese SMS sendt fra plattformens SMS-konto (mottakernummer, tekst, ' +
+    'status, pris) hvis du står på listen over SMS-avsendere; innloggingskoder vises aldri. Egen ' +
     'avkryssing fra å se registrerte brukere, fordi en adressebok er noe annet enn brukerkatalogen.',
   'user:register':
     'Lar assistenten skrive i brukerkatalogen på dine vegne: opprette en konto for en annen ' +

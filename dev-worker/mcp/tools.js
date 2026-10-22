@@ -39,6 +39,7 @@ import { mayUseWorld, defaultWorldFor, HISTORY_CAP } from '../graph-store.js'
 import * as nts from '../node-type-service.js'
 import * as users from '../users-service.js'
 import * as sms from '../sms-service.js'
+import * as myDay from '../my-day-service.js'
 import * as social from '../social-service.js'
 import * as mediaUpload from '../media-upload-service.js'
 import * as vemotion from '../vemotion-service.js'
@@ -4304,6 +4305,117 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── get_my_day / list_sent_sms (2026-10-22) ──────────────────────────────
+  //
+  // Both read the caller's OWN data that names other people — the calendar's attendees, the
+  // numbers and texts of sent SMS — so both sit behind contacts:read (architect's decision
+  // 2026-10-22), whose consent copy names them. Neither changes anything.
+  server.registerTool(
+    'get_my_day',
+    {
+      title: 'What does my day look like? (calendar)',
+      description:
+        'List YOUR OWN calendar appointments for a day (or up to 7 days from it) — the same ' +
+        'Google calendars and bookings the ContactHub Day View shows. Times are Oslo time. ' +
+        'Returns time, title, place, calendar and attendees; event descriptions are not included. ' +
+        'Use it for "how does my day look today", "what do I have tomorrow", "my week". Requires ' +
+        'the contacts:read scope.',
+      inputSchema: {
+        date: z.string().optional().describe('First day, YYYY-MM-DD. Default: today in Oslo.'),
+        days: z.number().int().optional().describe('How many days from date, 1–7. Default 1.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        from: z.string(),
+        to: z.string(),
+        timeZone: z.string(),
+        count: z.number(),
+        events: z.array(z.object({
+          date: z.string(),
+          start: z.string().nullable(),
+          end: z.string().nullable(),
+          allDay: z.boolean(),
+          title: z.string(),
+          location: z.string().nullable(),
+          calendar: z.string().nullable(),
+          attendees: z.array(z.string()),
+        })),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ date, days }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'contacts:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await myDay.getMyDay(env, { actor, date, days })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, ...payload } = r
+      const range = r.from === r.to ? r.from : `${r.from} – ${r.to}`
+      const lines = r.events.map((e) =>
+        `• ${r.from === r.to ? '' : `${e.date} `}${e.allDay ? 'hele dagen' : `${e.start}${e.end ? '–' + e.end : ''}`} ${e.title}` +
+        `${e.location ? ` · ${e.location}` : ''}${e.calendar ? ` (${e.calendar})` : ''}`)
+      const head = r.count === 0 ? `Ingen avtaler ${range}.` : `${r.count} avtale${r.count === 1 ? '' : 'r'} ${range} (Oslo-tid):`
+      return ok({ success: true, ...payload }, [head, ...lines].join('\n'))
+    },
+  )
+
+  server.registerTool(
+    'list_sent_sms',
+    {
+      title: 'What SMS have I sent?',
+      description:
+        'List the SMS sent from the platform\'s SMS account in a date range (Oslo days; default the ' +
+        'last 7 days): date, time, recipient number, sender name, text, delivery status and price. ' +
+        'It covers SMS sent from ContactHub, SMSShare and MCP. Login-code SMS are always shown as ' +
+        '"[innloggingskode skjult]". Newest first; use page for more. Only people on the SMS sender ' +
+        'list can read it. Requires the contacts:read scope.',
+      inputSchema: {
+        from: z.string().optional().describe('First day, YYYY-MM-DD. Default: 6 days before to.'),
+        to: z.string().optional().describe('Last day, YYYY-MM-DD. Default: today.'),
+        limit: z.number().int().optional().describe('Messages per page, 1–100. Default 50.'),
+        page: z.number().int().optional().describe('Page number, from 1.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        from: z.string(),
+        to: z.string(),
+        page: z.number(),
+        lastPage: z.number(),
+        total: z.number(),
+        count: z.number(),
+        messages: z.array(z.object({
+          sentAt: z.string().nullable(),
+          date: z.string().nullable(),
+          time: z.string().nullable(),
+          to: z.string().nullable(),
+          sender: z.string().nullable(),
+          body: z.string(),
+          status: z.string(),
+          price: z.number().nullable(),
+        })),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ from, to, limit, page }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'contacts:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await sms.listSentSms(env, { actor, from, to, limit, page })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, ...payload } = r
+      const head = r.count === 0
+        ? `Ingen SMS sendt ${r.from} – ${r.to}.`
+        : `${r.total} SMS sendt ${r.from} – ${r.to}${r.lastPage > 1 ? ` (side ${r.page} av ${r.lastPage})` : ''}, nyeste først:`
+      const lines = r.messages.map((m) =>
+        `• ${m.date} ${m.time} til ${m.to || '?'} fra ${m.sender || '?'} — ${m.status}${m.price != null ? ` · ${m.price}` : ''}\n  «${m.body}»`)
+      return ok({ success: true, ...payload }, [head, ...lines].join('\n'))
+    },
+  )
+
   server.registerTool(
     'create_contact',
     {
@@ -5249,6 +5361,8 @@ export const TOOL_NAMES = [
   'list_contacts',
   'search_contacts',
   'create_contact',
+  'get_my_day',
+  'list_sent_sms',
   'set_meeting_report',
   'preview_meeting_report',
   'send_meeting_report',

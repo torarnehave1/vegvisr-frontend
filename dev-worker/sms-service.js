@@ -34,6 +34,8 @@
  */
 
 import { ERR, statusForCode } from './graph-service.js'
+import { callerToken } from './users-service.js'
+import { osloDate } from './my-day-service.js'
 
 function fail(code, message, extra = {}) {
   return { ok: false, code, status: statusForCode(code), message, ...extra }
@@ -585,5 +587,89 @@ export async function sendSmsToUser(env, args) {
     currency: result.currency,
     segmentsUsedToday: result.segmentsUsedToday,
     dailyCap: result.dailyCap,
+  }
+}
+
+
+// ── list_sent_sms (2026-10-22) ────────────────────────────────────────────────────────────────
+//
+// What was actually sent — text, number, status, price — read from the ClickSend account history
+// through sms-gateway's /api/sms/history. sms_send_log above deliberately keeps neither text nor
+// number, so it cannot answer this. The gateway checks the caller's own token against its
+// SMS_SENDERS allowlist (the history is account-wide: Contacts app, SMSShare, MCP, login codes),
+// and replaces login-code bodies; the same filter runs here so a code can never reach a model even
+// if the gateway's changes.
+const LOGIN_CODE_SMS = /verifiseringskode|innloggingskode|verification code/i
+
+function osloMidnightUnix(dateStr) {
+  // The UTC instant of 00:00 Oslo on dateStr: try both possible offsets, keep the one whose Oslo
+  // date and hour match.
+  for (const h of [22, 23, 0, 1]) {
+    const base = new Date(`${dateStr}T00:00:00Z`)
+    const t = new Date(base.getTime() + (h >= 22 ? (h - 24) : h) * 3600000)
+    const hour = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Oslo', hour: '2-digit', hourCycle: 'h23' }).format(t)
+    if (osloDate(t) === dateStr && hour === '00') return Math.floor(t.getTime() / 1000)
+  }
+  return Math.floor(new Date(`${dateStr}T00:00:00Z`).getTime() / 1000)
+}
+
+export async function listSentSms(env, { actor, from, to, limit = 50, page = 1 }) {
+  if (!actor?.email) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!env.SMS_GATEWAY?.fetch) return fail(ERR.INTERNAL_ERROR, 'The SMS_GATEWAY service binding is not configured on this worker.')
+  const today = osloDate(new Date())
+  const last = to ? String(to).trim() : today
+  const firstDefault = (() => { const d = new Date(`${last}T12:00:00Z`); d.setUTCDate(d.getUTCDate() - 6); return d.toISOString().slice(0, 10) })()
+  const first = from ? String(from).trim() : firstDefault
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(first) || !/^\d{4}-\d{2}-\d{2}$/.test(last)) {
+    return fail(ERR.INVALID_INPUT, 'from and to must be YYYY-MM-DD.')
+  }
+  if (first > last) return fail(ERR.INVALID_INPUT, 'from must not be after to.')
+  const nextDay = (() => { const d = new Date(`${last}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10) })()
+  const n = Math.min(Math.max(Number(limit) || 50, 1), 100)
+  const p = Math.max(Number(page) || 1, 1)
+
+  const token = await callerToken(env, actor)
+  if (!token) return fail(ERR.FORBIDDEN_GRAPH, 'No credential on your account. Sign in at vegvisr.org once, then try again.')
+  const qs = `page=${p}&limit=${n}&date_from=${osloMidnightUnix(first)}&date_to=${osloMidnightUnix(nextDay) - 1}`
+  let res
+  let data
+  try {
+    res = await env.SMS_GATEWAY.fetch(`https://sms-gateway/api/sms/history?${qs}`, { headers: { 'X-API-Token': token } })
+    data = await res.json().catch(() => ({}))
+  } catch (e) {
+    console.error('[sms-service] history unreachable:', e.message)
+    return fail(ERR.INTERNAL_ERROR, `Could not reach the SMS gateway: ${e.message}`)
+  }
+  if (res.status === 401 || res.status === 403) {
+    return fail(ERR.FORBIDDEN_GRAPH, data?.error || 'You are not allowed to read the SMS history.')
+  }
+  if (!res.ok || data?.success !== true) {
+    return fail(ERR.INVALID_INPUT, data?.error || `SMS history request failed (status ${res.status}).`)
+  }
+  const pageData = data.data || {}
+  const rows = Array.isArray(pageData.data) ? pageData.data : []
+  const messages = rows.map((m) => {
+    const body = String(m.body || '')
+    const sentAt = Number(m.date) ? new Date(Number(m.date) * 1000) : null
+    return {
+      sentAt: sentAt ? sentAt.toISOString() : null,
+      date: sentAt ? osloDate(sentAt) : null,
+      time: sentAt ? new Intl.DateTimeFormat('nb-NO', { timeZone: 'Europe/Oslo', hour: '2-digit', minute: '2-digit' }).format(sentAt) : null,
+      to: m.to ? String(m.to) : null,
+      sender: m.from ? String(m.from) : null,
+      body: LOGIN_CODE_SMS.test(body) ? '[innloggingskode skjult]' : body,
+      status: String(m.status_text || m.status || ''),
+      price: m.message_price != null ? Number(m.message_price) : null,
+    }
+  })
+  return {
+    ok: true,
+    from: first,
+    to: last,
+    page: Number(pageData.current_page) || p,
+    lastPage: Number(pageData.last_page) || 1,
+    total: Number(pageData.total) || messages.length,
+    count: messages.length,
+    messages,
   }
 }

@@ -39,7 +39,7 @@ function looksLikeEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
 }
 
-async function callerToken(env, actor) {
+export async function callerToken(env, actor) {
   if (!actor?.email) return null
   const row = await env.vegvisr_org
     .prepare('SELECT emailVerificationToken FROM config WHERE email = ? LIMIT 1')

@@ -1857,6 +1857,81 @@ describe('list_contacts / search_contacts read the caller\'s own ContactHub book
 })
 
 
+describe('get_my_day and list_sent_sms read the caller\'s own calendar and sent SMS (contacts:read)', () => {
+  const READ = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'contacts:read'] } }
+
+  test('get_my_day asks for the caller, keeps Oslo days, and drops descriptions', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    env.CALENDAR_WORKER = {
+      fetch: async (url, init) => {
+        calls.push({ url: new URL(url), email: init.headers['X-User-Email'] })
+        return new Response(JSON.stringify({ events: [
+          // 00:30 Oslo on 2026-10-22 is 22:30Z the day before — must count as the 22nd.
+          { summary: 'Tidlig', start_time: '2026-10-21T22:30:00Z', end_time: '2026-10-21T23:00:00Z', all_day: false, calendar_name: 'Jobb', attendees: ['a@x.no'], description: 'SECRET NOTE' },
+          { summary: 'Samtale', start_time: '2026-10-22T07:00:00Z', end_time: '2026-10-22T08:00:00Z', all_day: false, location: 'Zoom', attendees: [] },
+          { summary: 'I går', start_time: '2026-10-21T10:00:00Z', end_time: '2026-10-21T11:00:00Z', all_day: false },
+        ], calendars: [] }), { status: 200 })
+      },
+    }
+    const { client } = await connect(env, READ)
+    const r = await callOk(client, 'get_my_day', { date: '2026-10-22' })
+    assert.equal(calls[0].email, 'alice@example.com', 'whose calendar comes from the token')
+    assert.equal(calls[0].url.searchParams.get('date'), '2026-10-21', 'one day wider for the UTC cut')
+    assert.deepEqual(r.events.map((e) => [e.start, e.title]), [['00:30', 'Tidlig'], ['09:00', 'Samtale']])
+    assert.ok(!JSON.stringify(r).includes('SECRET NOTE'), 'descriptions never reach the model')
+  })
+
+  test('list_sent_sms forwards the caller\'s token and never returns a login code', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    env.SMS_GATEWAY = {
+      fetch: async (url, init) => {
+        calls.push({ url: new URL(url), token: init.headers['X-API-Token'] })
+        return new Response(JSON.stringify({ success: true, data: { total: 2, current_page: 1, last_page: 1, data: [
+          { date: 1792648800, to: '+4790000000', from: 'ContactHub', body: 'Hei, vi sees i morgen', status_text: 'Delivered', message_price: '0.0750' },
+          { date: 1792648900, to: '+4790000001', from: 'VEGR.AI', body: 'Din VEGR.AI-innloggingskode: 123456', status_text: 'Delivered' },
+        ] } }), { status: 200 })
+      },
+    }
+    const { client } = await connect(env, READ)
+    const r = await callOk(client, 'list_sent_sms', { from: '2026-10-20', to: '2026-10-22' })
+    assert.equal(calls[0].url.pathname, '/api/sms/history')
+    assert.equal(calls[0].token, 'sess-alice')
+    assert.ok(calls[0].url.searchParams.get('date_from'))
+    assert.equal(r.messages[0].body, 'Hei, vi sees i morgen')
+    assert.equal(r.messages[1].body, '[innloggingskode skjult]')
+    assert.ok(!JSON.stringify(r).includes('123456'))
+  })
+
+  test('off the gateway\'s sender list is a refusal, not an empty list', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.SMS_GATEWAY = { fetch: async () => new Response(JSON.stringify({ error: 'You are not on the list' }), { status: 403 }) }
+    const { client } = await connect(env, READ)
+    const e = await callErr(client, 'list_sent_sms', {})
+    assert.equal(e.code, gs.ERR.FORBIDDEN_GRAPH)
+  })
+
+  test('both need contacts:read and are read-only', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    for (const name of ['get_my_day', 'list_sent_sms']) {
+      const e = await callErr(client, name, {})
+      assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+      assert.equal(e.requiredScope, 'contacts:read')
+    }
+    const { tools } = await client.listTools()
+    for (const name of ['get_my_day', 'list_sent_sms']) {
+      const t = tools.find((x) => x.name === name)
+      assert.equal(t.annotations.readOnlyHint, true)
+      assert.equal(t.annotations.openWorldHint, false)
+    }
+  })
+})
+
 describe('meeting reports: set (graph:write), preview + send (chat:write) via agent-worker', () => {
   function withAgent(reply = {}, status = 200) {
     const { env, raw } = freshDb()
