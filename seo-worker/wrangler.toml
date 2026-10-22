@@ -1,0 +1,24 @@
+# Tracked in git (public repo): binding names, ids and routes only — never a token, password,
+# e-mail address or phone number. Anything secret goes in as a Cloudflare secret.
+# Deployed by .github/workflows/deploy-seo-worker.yml behind the owner's approval.
+name = "seo-worker"
+
+main = "index.js"
+account_id = "5d9b2060ef095c777711a8649c24914e"
+workers_dev = false
+compatibility_date = "2025-03-13"
+
+routes = [
+  { pattern = "seo.vegvisr.org/*", zone_id = "9178eccd3a7e3d71d8ae09defb09422a" },
+  { pattern = "www.vegvisr.org/graph/*", zone_id = "9178eccd3a7e3d71d8ae09defb09422a" },
+  { pattern = "universi.no/graph/*", zone_id = "3adef6348a9c36282014fd78d88d49f5" },
+  { pattern = "www.universi.no/graph/*", zone_id = "3adef6348a9c36282014fd78d88d49f5" }
+]
+
+[[kv_namespaces]]
+binding = "SEO_PAGES"
+id = "e1d1272f61a746adb0522746319768e5"
+
+[[kv_namespaces]]
+binding = "PHOTO_ALBUMS"
+id = "baaee7b2eac9483990ab74df37547e86"
