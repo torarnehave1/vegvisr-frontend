@@ -616,8 +616,9 @@ function generateStaticHTML(options) {
     }
   }
 
-  // Extract some content from graph data for the page body
-  const nodes = graphData?.nodes || []
+  // Extract some content from graph data for the page body. Same reading order as the
+  // viewers: by node.order, a node without one falling back to its array position.
+  const nodes = sortNodesByOrder(graphData?.nodes || [])
   let contentHTML = ''
 
   // Generate HTML content from nodes
@@ -1092,13 +1093,20 @@ function renderImageQuote(params, content) {
   return `<figure class="image-quote" style="${figureStyle}">${img}<blockquote style="${quoteStyle}">${escapeHtml(text)}</blockquote>${cite}</figure>`
 }
 
+function sortNodesByOrder(nodes) {
+  return nodes
+    .map((n, i) => ({ n, key: Number(n && n.order) > 0 ? Number(n.order) : i + 1, i }))
+    .sort((a, b) => a.key - b.key || a.i - b.i)
+    .map((x) => x.n)
+}
+
 /**
  * Find the first usable image in a graph, for og:image fallback. Checks image
  * nodes, IMAGEQUOTE backgrounds, markdown images and inline <img> tags, in
  * node order.
  */
 function extractGraphImage(graphData) {
-  const nodes = graphData?.nodes || []
+  const nodes = sortNodesByOrder(graphData?.nodes || [])
 
   const imageNode = nodes.find(n => n?.type === 'image' && typeof n.path === 'string' && n.path.startsWith('http'))
   if (imageNode) return imageNode.path
