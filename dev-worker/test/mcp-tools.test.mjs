@@ -2839,6 +2839,8 @@ describe('reorder_nodes', () => {
     assert.equal(r.newVersion, g.version + 1)
     const read = await callOk(client, 'get_graph', { graphId: g.graphId })
     assert.deepEqual(shown(read.nodes), ['a', 'b', 'late', 'sources'])
+    // editor.vegvisr.org/view ignores `order` and reads the array as it is.
+    assert.deepEqual(read.nodes.map((n) => n.id), ['a', 'b', 'late', 'sources'], 'array order must match too')
     assert.equal(read.nodes.find((n) => n.id === 'a').info, 'a', 'content must not change')
   })
 
