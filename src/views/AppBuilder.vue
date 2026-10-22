@@ -3616,10 +3616,12 @@ const handleIframeMessage = async (event) => {
   if (type === 'sendSMS') {
     console.log('📱 SMS request received:', payload)
     try {
+      // sms-gateway requires the signed-in user's token on public sends (2026-10-22).
       const result = await fetch('https://sms-gateway.torarnehave.workers.dev/api/sms', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'X-API-Token': userStore.emailVerificationToken || ''
         },
         body: JSON.stringify({
           to: payload.phoneNumber,

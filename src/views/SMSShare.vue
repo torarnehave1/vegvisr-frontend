@@ -506,10 +506,12 @@ const sendSMS = async () => {
 
     console.log('Sending SMS:', payload)
 
+    // sms-gateway requires the signed-in user's token on public sends (2026-10-22).
     const response = await fetch('https://sms-gateway.torarnehave.workers.dev/api/sms', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-API-Token': userStore.emailVerificationToken || '',
       },
       body: JSON.stringify(payload),
     })
@@ -932,8 +934,10 @@ const loadHistory = async (page = 1) => {
   historyError.value = ''
 
   try {
+    // History needs the token too — it holds every sent SMS (2026-10-22).
     const response = await fetch(
-      `https://sms-gateway.torarnehave.workers.dev/api/sms/history?page=${page}&status=all`
+      `https://sms-gateway.torarnehave.workers.dev/api/sms/history?page=${page}&status=all`,
+      { headers: { 'X-API-Token': userStore.emailVerificationToken || '' } }
     )
 
     const result = await response.json()
