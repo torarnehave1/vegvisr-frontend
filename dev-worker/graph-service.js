@@ -1296,6 +1296,9 @@ export async function reorderNodes(env, { graphId, nodeIds, expectedVersion, act
   const byId = new Map(graphData.nodes.map((n) => [n.id, n]))
   const final = [...nodeIds.map((id) => byId.get(id)), ...shown.filter((n) => !listed.has(n.id))]
   final.forEach((n, i) => { n.order = i + 1 })
+  // The array itself is reordered too: the Knowledge-Editor viewer (editor.vegvisr.org/view)
+  // ignores `order` and shows nodes in array order, so both viewers only agree if both match.
+  graphData.nodes = final
 
   const newVersion = current + 1
   if (!graphData.metadata) graphData.metadata = {}
