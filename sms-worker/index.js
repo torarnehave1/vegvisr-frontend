@@ -17,11 +17,25 @@ export default {
 
     const url = new URL(request.url)
 
+    // Sending and the account history were open to anyone until 2026-10-22: anyone could send on
+    // the ClickSend account and read every sent SMS, login codes included. Now:
+    //  - /api/sms over a SERVICE BINDING (url host "sms-gateway") stays open: that is the login-code
+    //    senders (brand-worker, dev-worker OAuth) and MCP send_sms, which has its own allowlist.
+    //    A public request can never carry that host — Cloudflare routes public traffic by the
+    //    workers.dev / smsgway.vegvisr.org hostnames.
+    //  - public /api/sms needs X-API-Token + SMS_SENDERS (switched on by SMS_ENFORCE_SEND_AUTH).
+    //  - /api/sms/history needs X-API-Token + SMS_SENDERS on every path, binding included.
     if (url.pathname === '/api/sms' && request.method === 'POST') {
+      if (url.hostname !== 'sms-gateway' && env.SMS_ENFORCE_SEND_AUTH === 'true') {
+        const denied = await requireSmsSender(request, env)
+        if (denied) return denied
+      }
       return handleSendSMS(request, env)
     }
 
     if (url.pathname === '/api/sms/history' && request.method === 'GET') {
+      const denied = await requireSmsSender(request, env)
+      if (denied) return denied
       return handleGetSMSHistory(request, env)
     }
 
@@ -142,6 +156,11 @@ async function handleGetSMSHistory(request, env) {
     if (status !== 'all') {
       historyUrl += `&status=${status}`
     }
+    // Optional window and page size (ClickSend: unix seconds; limit 1–100), for MCP list_sent_sms.
+    for (const k of ['date_from', 'date_to', 'limit']) {
+      const v = url.searchParams.get(k)
+      if (v && /^\d+$/.test(v)) historyUrl += `&${k}=${v}`
+    }
 
     console.log('Fetching SMS history:', { page, status })
 
@@ -161,9 +180,15 @@ async function handleGetSMSHistory(request, env) {
     })
 
     if (response.ok) {
+      const pageData = data.data || data
+      if (Array.isArray(pageData?.data)) {
+        for (const m of pageData.data) {
+          if (LOGIN_CODE_SMS.test(String(m.body || ''))) m.body = '[innloggingskode skjult]'
+        }
+      }
       return jsonResponse({
         success: true,
-        data: data.data || data,
+        data: pageData,
         http_code: data.http_code
       })
     } else {
@@ -409,7 +434,7 @@ function jsonResponse(data, status = 200) {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Token',
     }
   })
 }
@@ -420,7 +445,7 @@ function handleCORS() {
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Token',
       'Access-Control-Max-Age': '86400',
     }
   })
@@ -456,6 +481,21 @@ async function resolveCaller(request, env) {
     return null
   }
 }
+
+/** X-API-Token resolved to an e-mail on SMS_SENDERS, or the refusal to return. */
+async function requireSmsSender(request, env) {
+  const email = await resolveCaller(request, env)
+  if (!email) return UNAUTHENTICATED()
+  const allowed = String(env.SMS_SENDERS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+  if (!allowed.includes(email)) {
+    return jsonResponse({ error: 'You are not on the list of people allowed to use the SMS gateway.' }, 403)
+  }
+  return null
+}
+
+// Login-code SMS (brand-worker, dev-worker OAuth, /api/auth/phone/send-code). Their text is
+// replaced in the history response so a live code never reaches a page or a model.
+const LOGIN_CODE_SMS = /verifiseringskode|innloggingskode|verification code/i
 
 const UNAUTHENTICATED = () =>
   jsonResponse({ error: 'Sign in required. Send your X-API-Token with this request.' }, 401)
