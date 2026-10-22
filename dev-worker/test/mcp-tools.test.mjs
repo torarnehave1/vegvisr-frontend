@@ -2746,6 +2746,57 @@ describe('the auth context is read the way the runtime actually supplies it', ()
   })
 })
 
+describe('reorder_nodes', () => {
+  async function fourNodes(client) {
+    return callOk(client, 'create_graph', {
+      title: 'T', metaArea: '#X',
+      nodes: ['a', 'b', 'sources', 'late'].map((id) => ({ id, label: id.toUpperCase(), info: id })),
+    })
+  }
+  const shown = (nodes) => [...nodes].sort((x, y) => x.order - y.order).map((n) => n.id)
+
+  test('moves a late node above Sources and keeps the rest in place', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await fourNodes(client)
+    const r = await callOk(client, 'reorder_nodes', { graphId: g.graphId, nodeIds: ['a', 'b', 'late'], expectedVersion: g.version })
+    assert.deepEqual(r.order.map((n) => n.id), ['a', 'b', 'late', 'sources'])
+    assert.equal(r.newVersion, g.version + 1)
+    const read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.deepEqual(shown(read.nodes), ['a', 'b', 'late', 'sources'])
+    assert.equal(read.nodes.find((n) => n.id === 'a').info, 'a', 'content must not change')
+  })
+
+  test('unlisted nodes follow in their CURRENT order, not array order', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await fourNodes(client)
+    const r1 = await callOk(client, 'reorder_nodes', { graphId: g.graphId, nodeIds: ['late', 'sources'], expectedVersion: g.version })
+    assert.deepEqual(r1.order.map((n) => n.id), ['late', 'sources', 'a', 'b'])
+    const r2 = await callOk(client, 'reorder_nodes', { graphId: g.graphId, nodeIds: ['b'], expectedVersion: r1.newVersion })
+    assert.deepEqual(r2.order.map((n) => n.id), ['b', 'late', 'sources', 'a'])
+  })
+
+  test('refuses unknown ids, duplicates and a stale version without writing', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await fourNodes(client)
+    assert.equal((await callErr(client, 'reorder_nodes', { graphId: g.graphId, nodeIds: ['nope'], expectedVersion: g.version })).code, gs.ERR.GRAPH_NOT_FOUND)
+    assert.equal((await callErr(client, 'reorder_nodes', { graphId: g.graphId, nodeIds: ['a', 'a'], expectedVersion: g.version })).code, gs.ERR.INVALID_INPUT)
+    assert.equal((await callErr(client, 'reorder_nodes', { graphId: g.graphId, nodeIds: ['b'], expectedVersion: g.version + 5 })).code, gs.ERR.VERSION_CONFLICT)
+    const read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(read.version, g.version, 'nothing may have been written')
+  })
+
+  test('needs graph:write', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await fourNodes(client)
+    const { client: ro } = await connect(env, ALICE_RO)
+    assert.equal((await callErr(ro, 'reorder_nodes', { graphId: g.graphId, nodeIds: ['b'], expectedVersion: g.version })).code, gs.ERR.INSUFFICIENT_SCOPE)
+  })
+})
+
 describe('update_node', () => {
   async function graphWithNode(client) {
     const g = await callOk(client, 'create_graph', {

@@ -1323,6 +1323,66 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
     },
   )
 
+  // ── reorder_nodes ─────────────────────────────────────────────────────────
+  //
+  // The viewer reads a graph top to bottom by each node's `order`, falling back to when the node
+  // was added. Without this, a node added after a closing "Sources" node stays under it forever
+  // unless a human opens the Reorder dialog.
+  server.registerTool(
+    'reorder_nodes',
+    {
+      title: 'Set the reading order of nodes',
+      description:
+        'Set the order in which the viewer shows a graph\'s nodes, top to bottom. List node ids in ' +
+        'the order you want: they come first, in that order. Every node you leave out keeps its ' +
+        'current relative place and follows after them — so to move one node above another, list ' +
+        'every node from the top down to and including the moved one. Nodes are otherwise shown in ' +
+        'the order they were added, which is why a node added last lands under a closing Sources ' +
+        'node. Changes no content. expectedVersion is REQUIRED (from get_graph). Requires the ' +
+        'graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph to reorder.'),
+        nodeIds: z.array(z.string().min(1)).min(1).describe('Node ids in the order they should be shown. Unlisted nodes follow, in their current order.'),
+        expectedVersion: z.number().int().describe('The version you read from get_graph.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        currentVersion: z.number(),
+        newVersion: z.number(),
+        order: z.array(z.object({ id: z.string(), label: z.string().nullable(), order: z.number() })),
+        title: z.string().nullable(),
+        metaArea: z.string().nullable(),
+        publicationState: z.string(),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ graphId, nodeIds, expectedVersion }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const access = await gs.checkAccess(env, actor, graphId, 'write')
+      if (!access.ok) return fromService(access)
+
+      const result = await gs.reorderNodes(env, { graphId, nodeIds, expectedVersion, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `New order in graph ${graphId}:\n` +
+          result.order.map((n) => `${n.order}. ${n.label ?? n.id}`).join('\n') +
+          `\nVersion ${result.currentVersion} → ${result.newVersion}.\nViewer: ${result.viewerUrl}`,
+      )
+    },
+  )
+
   // ── post_chat_message ─────────────────────────────────────────────────────
   //
   // The only tool here that reaches other people. Everything else touches the caller's own
@@ -5189,6 +5249,7 @@ export const TOOL_NAMES = [
   'add_edge',
   'get_graph_links',
   'update_node',
+  'reorder_nodes',
   'post_chat_message',
   'list_chat_groups',
   'read_chat_messages',
