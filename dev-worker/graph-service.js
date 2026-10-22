@@ -1243,6 +1243,97 @@ export async function updateNode(env, { graphId, nodeId, fields, expectedVersion
   })
 }
 
+/**
+ * Set the reading order of a graph's nodes — what the viewer's "Reorder" dialog does.
+ *
+ * The viewer sorts nodes by `order`, and a node without one falls back to its position in the
+ * array (index + 1). So a node appended later always lands last, under a closing "Sources" node,
+ * and nothing but this (or the dialog) can move it. `nodeIds` lists the nodes in the order
+ * wanted; they get 1..k. Every node NOT listed keeps its current relative place and follows
+ * after them, so moving one node up never scrambles the rest. All nodes get an explicit order,
+ * because a mix of set and unset orders sorts unpredictably in the viewer.
+ *
+ * Same concurrency control as updateNode: expectedVersion required, CAS on commit.
+ */
+export async function reorderNodes(env, { graphId, nodeIds, expectedVersion, actor = null, caller = undefined }) {
+  if (!graphId || !Array.isArray(nodeIds) || nodeIds.length === 0 || !Number.isInteger(expectedVersion)) {
+    return fail(ERR.INVALID_INPUT, 'graphId, nodeIds (non-empty array), and expectedVersion (integer) are required.')
+  }
+  if (new Set(nodeIds).size !== nodeIds.length) {
+    return fail(ERR.INVALID_INPUT, 'nodeIds lists the same node more than once.')
+  }
+
+  const located = await storeFor(env, { graphId, actor: caller === undefined ? actor : caller })
+  if (located.error) return located.error
+  const { store } = located
+  return guarded(async () => {
+  const result = await store.getRow(graphId)
+  if (!result) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
+
+  const graphData = JSON.parse(result.data)
+  if (!Array.isArray(graphData.nodes)) graphData.nodes = []
+
+  const known = new Set(graphData.nodes.map((n) => n.id))
+  const missing = nodeIds.filter((id) => !known.has(id))
+  if (missing.length) {
+    return fail(ERR.GRAPH_NOT_FOUND, `Node(s) not found in graph ${graphId}: ${missing.join(', ')}.`, { graphId, missing })
+  }
+
+  const current = Number(graphData.metadata?.version || 0)
+  if (current !== expectedVersion) {
+    return fail(ERR.VERSION_CONFLICT, 'Version mismatch. Reload the graph and retry the reorder.', {
+      currentVersion: current,
+      expectedVersion,
+    })
+  }
+
+  // The order the viewer shows today: explicit order first, else array position. Stable on ties.
+  const shown = graphData.nodes
+    .map((n, i) => ({ n, key: Number(n.order) > 0 ? Number(n.order) : i + 1, i }))
+    .sort((a, b) => a.key - b.key || a.i - b.i)
+    .map((x) => x.n)
+  const listed = new Set(nodeIds)
+  const byId = new Map(graphData.nodes.map((n) => [n.id, n]))
+  const final = [...nodeIds.map((id) => byId.get(id)), ...shown.filter((n) => !listed.has(n.id))]
+  final.forEach((n, i) => { n.order = i + 1 })
+
+  const newVersion = current + 1
+  if (!graphData.metadata) graphData.metadata = {}
+  graphData.metadata.version = newVersion
+
+  const committed = await store.commit({
+    id: graphId,
+    data: JSON.stringify(graphData),
+    version: newVersion,
+    casVersion: expectedVersion,
+    now: new Date().toISOString(),
+  })
+  if (committed.conflict) {
+    const latest = await store.getRow(graphId)
+    let latestVersion = 0
+    try {
+      latestVersion = Number(JSON.parse(latest?.data || '{}')?.metadata?.version || 0)
+    } catch { /* an unparseable graph reports version 0 */ }
+    return fail(ERR.VERSION_CONFLICT, 'Version mismatch. Graph was updated by another request.', {
+      currentVersion: latestVersion,
+      expectedVersion,
+    })
+  }
+
+  return {
+    ok: true,
+    graphId,
+    currentVersion: current,
+    newVersion,
+    order: final.map((n) => ({ id: n.id, label: n.label ?? null, order: n.order })),
+    title: graphData.metadata?.title || null,
+    metaArea: graphData.metadata?.metaArea || null,
+    publicationState: graphData.metadata?.publicationState || 'private',
+    ...graphLinks(graphId, store.world),
+  }
+  })
+}
+
 
 /**
  * Which meta areas the actor's own graphs use, and how many graphs each covers.
