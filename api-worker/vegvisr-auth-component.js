@@ -263,7 +263,7 @@ export const VEGVISR_AUTH_COMPONENT = `/**
     get requireAuth() { return this.hasAttribute('require-auth'); }
     get requireRoles() { return (this.getAttribute('require-role') || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean); }
     get appName() { return this.getAttribute('app-name') || 'Vegvisr'; }
-    get logo() { return this.getAttribute('logo') || ''; }
+    get logo() { return this.getAttribute('logo') || this._brandLogo || ''; }
     // Not named "lang": a getter-only accessor would shadow HTMLElement.lang, and any script
     // assigning element.lang would then throw in this strict class body.
     get uiLang() { return /^en/i.test(this.getAttribute('lang') || '') ? 'en' : 'nb'; }
@@ -273,6 +273,7 @@ export const VEGVISR_AUTH_COMPONENT = `/**
       var self = this;
       this._onChanged = function () { if (self.requireAuth) self.evaluate(); else self.refresh(); };
       window.addEventListener(CHANGED, this._onChanged);
+      this.loadBrand();
       if (this.requireAuth) { this.lockBody(true); this.access = 'loading'; this.card = 'form'; this.render(); this.evaluate(); }
       else { this.refresh(); }
       bootOnce();
@@ -330,6 +331,55 @@ export const VEGVISR_AUTH_COMPONENT = `/**
       } catch (e) {}
     }
 
+    // brand="auto" (2026-10-23): take the World's look from /branding.json on the page's own host,
+    // the same source and fields the World's editor reads (theme.editor: accent, ink, surface,
+    // scheme, fonts; brand.logoUrl). Opt-in: without the attribute, or with no theme.editor in
+    // /branding.json, nothing changes. Colours must be hex; font values lose any character that
+    // could leave the style block.
+    loadBrand() {
+      var self = this;
+      if (String(this.getAttribute('brand') || '').toLowerCase() !== 'auto' || this._brandLoaded) return;
+      this._brandLoaded = true;
+      fetch('/branding.json', { headers: { Accept: 'application/json' } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          var b = j && (j.branding || j);
+          var ed = b && b.theme && b.theme.editor;
+          if (!ed) return;
+          var hex = function (v) { return /^#[0-9a-fA-F]{3,8}$/.test(String(v || '')) ? String(v) : ''; };
+          var font = function (v) { return String(v || '').replace(/[<>{};]/g, '').slice(0, 120); };
+          var accent = hex(ed.accent), ink = hex(ed.ink) || '#2b3445', surface = hex(ed.surface) || '#f4f1f2';
+          var sans = font(ed.fontSans), display = font(ed.fontDisplay) || sans;
+          var light = String(ed.scheme || '').toLowerCase() === 'light';
+          var css = '';
+          if (sans) css += '.gate,.bar,.floatbar,.gin,.gbtn,.btn,.linkbtn{font-family:' + sans + '}';
+          if (display) css += '.title{font-family:' + display + '}';
+          if (light) {
+            css += '.gate{background:' + surface + '}'
+              + '.card{background:#ffffff;color:' + ink + ';border:1px solid rgba(43,52,69,.10);box-shadow:0 24px 60px rgba(43,52,69,.16)}'
+              + '.title{color:' + ink + '}.sub,.glabel{color:rgba(43,52,69,.72)}'
+              + '.logowrap{background:#ffffff;border-color:rgba(43,52,69,.10)}'
+              + '.gin{background:#ffffff;color:' + ink + ';border-color:rgba(43,52,69,.22)}.gin::placeholder{color:rgba(43,52,69,.45)}.gicon{color:rgba(43,52,69,.45)}'
+              + '.gbtn.ghost{color:' + ink + ';border-color:rgba(43,52,69,.25)}.gbtn.ghost:hover{background:rgba(43,52,69,.06)}'
+              + '.gfoot{border-top-color:rgba(43,52,69,.10);color:rgba(43,52,69,.6)}'
+              + '.gsent .gcheck,.gsent .gh{color:#3f7a5c}.gsent .gp{color:rgba(43,52,69,.75)}'
+              + '.floatbar{background:rgba(255,255,255,.94);color:' + ink + ';border-color:rgba(43,52,69,.15);box-shadow:0 6px 20px rgba(43,52,69,.15)}';
+          }
+          if (accent) {
+            css += '.gbtn,.btn{background:' + accent + ';box-shadow:none}.gbtn:hover,.btn:hover{background:' + accent + ';filter:brightness(.9)}'
+              + '.gin:focus{border-color:' + accent + ';box-shadow:0 0 0 3px ' + accent + '33}.linkbtn{color:' + accent + '}';
+          }
+          if (ed.fontsCssUrl && String(ed.fontsCssUrl).indexOf('https://fonts.googleapis.com/') === 0 && !document.querySelector('link[data-vegvisr-brand-fonts]')) {
+            var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = ed.fontsCssUrl; l.setAttribute('data-vegvisr-brand-fonts', '1'); document.head.appendChild(l);
+          }
+          var logoUrl = b.brand && (b.brand.logoUrl || b.brand.logo);
+          if (logoUrl && String(logoUrl).indexOf('https://') === 0) self._brandLogo = String(logoUrl);
+          self._brandCss = css;
+          self.render();
+        })
+        .catch(function () {});
+    }
+
     render() {
       if (this.requireAuth) return this.renderGate();
       var body, me = readStore();
@@ -347,7 +397,7 @@ export const VEGVISR_AUTH_COMPONENT = `/**
           + '<button class="btn" id="si">' + esc(this.t('login')) + '</button>' + reg
           + (this.note ? '<span class="err">' + esc(this.note) + '</span>' : '');
       }
-      this.shadowRoot.innerHTML = '<style>' + CSS + '</style><div class="bar">' + body + '</div>';
+      this.shadowRoot.innerHTML = '<style>' + CSS + (this._brandCss || '') + '</style><div class="bar">' + body + '</div>';
       var self = this, root = this.shadowRoot;
       var em = root.getElementById('em');
       var si = root.getElementById('si'); if (si) si.onclick = function () { self.doSignIn(em.value.trim()); };
@@ -377,7 +427,7 @@ export const VEGVISR_AUTH_COMPONENT = `/**
       if (this.access === 'granted') {
         // reveal the page; float a signed-in bar (email + logout) at top-right so it is visible
         // regardless of where the <vegvisr-auth> element sits in the DOM (gates inject at page end).
-        root.innerHTML = '<style>' + CSS + '</style><div class="floatbar"><span class="email">' + esc((this.me && this.me.email) || '') + '</span><button class="btn out" id="lo">' + esc(this.t('logout')) + '</button></div>';
+        root.innerHTML = '<style>' + CSS + (this._brandCss || '') + '</style><div class="floatbar"><span class="email">' + esc((this.me && this.me.email) || '') + '</span><button class="btn out" id="lo">' + esc(this.t('logout')) + '</button></div>';
         var lo = root.getElementById('lo'); if (lo) lo.onclick = function () { self.doLogout(); };
         this.hidePageLoginControls();
         return;
@@ -410,7 +460,7 @@ export const VEGVISR_AUTH_COMPONENT = `/**
           + form
           + '<div class="gfoot">' + esc(this.t('terms')) + '</div></div>';
       }
-      root.innerHTML = '<style>' + CSS + '</style><div class="gate">' + inner + '</div>';
+      root.innerHTML = '<style>' + CSS + (this._brandCss || '') + '</style><div class="gate">' + inner + '</div>';
       var gem = root.getElementById('gem');
       var gsi = root.getElementById('gsi'); if (gsi) gsi.onclick = function () { self.doSignIn(gem.value.trim()); };
       var greg = root.getElementById('greg'); if (greg) greg.onclick = function () { self.doRegister(gem.value.trim()); };
