@@ -43,6 +43,21 @@ async function optionalCaller(request, env) {
   return v.valid ? normalizeActor(v) : null
 }
 
+/** The read gate (read-gate.js) wired to this file's own way of finding a request's caller. */
+function readGate(request, env, graphId, knownCaller = null, opts = {}) {
+  return readGateFor(request, env, graphId, {
+    caller: knownCaller,
+    resolveCaller: () => readCallerOf(request, env),
+    history: Boolean(opts.history),
+  })
+}
+
+/** The caller of an open read route, including the plugin proxy, which optionalCaller() misses. */
+async function readCallerOf(request, env) {
+  if (isPluginAuthenticated(request)) return normalizeActor(await validateAuth(request, env))
+  return optionalCaller(request, env)
+}
+
 function graphStoreErrorResponse(error, corsHeaders) {
   const status = { FORBIDDEN_GRAPH: 403, STORE_UNAVAILABLE: 503, INVALID_INPUT: 400 }[error.code] || 500
   return new Response(JSON.stringify({ error: error.message, code: error.code }), { status, headers: corsHeaders })
@@ -60,6 +75,7 @@ import { resolveLoginToken } from './oauth/external-token.js'
 import { handleMediaUpload, UPLOAD_PATH as MEDIA_UPLOAD_PATH } from './media-upload-service.js'
 import { handleAuthorize, ISSUER, MCP_RESOURCE, SUPPORTED_SCOPES } from './oauth/authorize.js'
 import { mcpHandler } from './mcp/server.js'
+import { readGate as readGateFor } from './read-gate.js'
 
 /**
  * @typedef {Object} Env
@@ -8038,6 +8054,14 @@ const restHandler = {
 
           console.log(`[Worker] Fetching graph with ID: ${id}`)
 
+          const refused = await readGate(request, env, id, readCaller)
+          if (refused) {
+            return new Response(JSON.stringify({ error: refused.message }), {
+              status: refused.status,
+              headers: corsHeaders,
+            })
+          }
+
           // Read through graphService — the SAME function the MCP get_graph tool calls.
           // Response shape is unchanged: the graph object itself, 404 {error} when missing.
           const read = await gsGetGraph(env, id, {
@@ -8080,6 +8104,14 @@ const restHandler = {
           }
 
           console.log(`[Worker] Fetching public graph with ID: ${id}`)
+
+          const refused = await readGate(request, env, id)
+          if (refused) {
+            return new Response(generateErrorHtml(refused.status === 404 ? 'Graph not found.' : refused.message), {
+              status: refused.status,
+              headers: { ...corsHeaders, 'Content-Type': 'text/html' },
+            })
+          }
 
           const result = await (await resolveGraphStore(env, { graphId: id })).getRow(id)
 
@@ -8898,6 +8930,14 @@ const restHandler = {
 
           console.log(`[Worker] Fetching version ${version} for graph ID: ${graphId}`)
 
+          const refused = await readGate(request, env, graphId, null, { history: true })
+          if (refused) {
+            return new Response(JSON.stringify({ error: refused.message }), {
+              status: refused.status,
+              headers: corsHeaders,
+            })
+          }
+
           const result = await (await resolveGraphStore(env, { graphId, actor: await optionalCaller(request, env) })).historyVersion(graphId, version)
 
           if (!result) {
@@ -9335,6 +9375,14 @@ const restHandler = {
           }
 
           console.log(`[Worker] Generating slideshow for node ${nodeId} in graph ${graphId}`)
+
+          const refused = await readGate(request, env, graphId)
+          if (refused) {
+            return new Response(refused.status === 404 ? 'Graph not found' : refused.message, {
+              status: refused.status,
+              headers: corsHeaders,
+            })
+          }
 
           // Fetch the graph data
           const graphResult = await (await resolveGraphStore(env, { graphId })).getRow(graphId)

@@ -129,6 +129,10 @@ MCP_DAILY_SEND_CAP = "100"
 # caller.
 MCP_SMS_SENDER = "VEGR.AI"
 MCP_SMS_DAILY_CAP = "20"
+# Reading graphs over REST (/getknowgraph, /getknowgraphversion, /public-graph, /slideshow): "" = open as
+# before, "report" = open but each read that would be refused is logged ([read-gate]),
+# "true" = only approved sources read a graph that is not published. See readGate() in index.js.
+KG_ENFORCE_READ_AUTH = ""
 
 # The chat bot every AI-posted message appears as. Adding this bot to a group is what permits
 # post_chat_message to post there, so a group's bot list is the access control — set and revoked
