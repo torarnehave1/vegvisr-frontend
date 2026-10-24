@@ -320,6 +320,39 @@ export async function checkAccess(env, actor, graphId, action = 'read') {
   })
 }
 
+/**
+ * May `caller` READ this graph over the open REST read routes? The gate behind
+ * KG_ENFORCE_READ_AUTH (owner decision 2026-10-24: a graph is read only from approved sources).
+ *
+ *   - an identified caller (a user's token, a server source's own token, a bound worker acting
+ *     for a user): checkAccess(..., 'read') — owner, Superadmin, or published
+ *   - an anonymous caller (no credentials, a trusted origin, a browser component): published
+ *     graphs only. An id shipped to a visitor's browser can be copied, so it names a source but
+ *     proves nothing, and gets no more than nobody does.
+ *
+ * A graph in a World store keeps its own admission rule, applied by resolveGraphStore().
+ * Pure check — the caller decides what a refusal looks like on the wire.
+ */
+export async function checkReadAccess(env, caller, graphId) {
+  if (!graphId) return fail(ERR.INVALID_INPUT, 'Graph ID is required.')
+  if (caller && !caller.anonymous) return checkAccess(env, caller, graphId, 'read')
+
+  const { store, error } = await storeFor(env, { graphId, actor: caller || null })
+  if (error) return error
+  return guarded(async () => {
+    const row = await store.getRow(graphId)
+    if (!row) return fail(ERR.GRAPH_NOT_FOUND, `Graph ${graphId} not found.`)
+    let meta = {}
+    try {
+      meta = JSON.parse(row.data)?.metadata || {}
+    } catch {
+      /* unparseable JSON has no publicationState, so it is not published */
+    }
+    if (meta.publicationState === 'published') return { ok: true, isPublished: true }
+    return fail(ERR.FORBIDDEN_GRAPH, `Graph ${graphId} is not published.`)
+  })
+}
+
 /** The owner e-mail of a graph, or null when the creator field names an app, not a person. */
 function ownerOf(row, meta) {
   for (const candidate of [meta?.createdBy, row?.created_by]) {
