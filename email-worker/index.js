@@ -519,6 +519,16 @@ async function isLoginAllowed(env2, redirectUrl, targetEmail) {
   } catch (err) {
     console.warn("system_owners check failed:", err);
   }
+  // A platform Superadmin may log in on every World domain, e.g. to help a founder in her
+  // editor (decided 2026-10-26: Maiken was refused on editor.sodesign.no). Login only —
+  // what she may read or change there is still decided by the KG worker's own access rules.
+  try {
+    const sa = await env2.vegvisr_org.prepare("SELECT 1 FROM config WHERE lower(email) = ? AND role = 'Superadmin'").bind(email).first();
+    if (sa)
+      return true;
+  } catch (err) {
+    console.warn("Superadmin check failed:", err);
+  }
   for (const cand of domainCandidates(host)) {
     try {
       const f = await env2.vegvisr_org.prepare("SELECT 1 FROM world_founders WHERE domain = ? AND lower(founder_email) = ?").bind(cand, email).first();
