@@ -1329,7 +1329,7 @@ const processGraphData = (graphSummary, graphData) => {
 
 const fetchGraphDetails = async (graphSummary) => {
   try {
-    const graphResponse = await fetch(apiUrls.getKnowledgeGraph(graphSummary.id))
+    const graphResponse = await fetch(apiUrls.getKnowledgeGraph(graphSummary.id), { headers: kgAuthHeaders(userStore) })
     if (!graphResponse.ok) return null
     const graphData = await graphResponse.json()
     const processedGraph = processGraphData(graphSummary, graphData)
@@ -1379,6 +1379,9 @@ const fetchGraphSummariesPage = async (offset, limit) => {
       offset: String(offset),
       limit: String(limit),
     }),
+    // Signed in: the list includes the caller's drafts and the graphs stored in their World
+    // (a World graph is missing from an anonymous list and answers 403 to an anonymous read).
+    { headers: kgAuthHeaders(userStore) },
   )
 
   if (response.status === 404) {
@@ -1579,7 +1582,7 @@ const vectorizeGraph = async (graph) => {
 }
 
 const fetchGraphsLegacyFromDetails = async (runId) => {
-  const response = await fetch(apiUrls.getKnowledgeGraphs())
+  const response = await fetch(apiUrls.getKnowledgeGraphs(), { headers: kgAuthHeaders(userStore) })
   if (!response.ok) {
     throw new Error('Failed to fetch knowledge graphs')
   }
@@ -1918,7 +1921,7 @@ const ensureFullGraphData = async (graph) => {
   if (!graph || !graph.id) return null
   if (!graph.isSummaryOnly) return graph
 
-  const response = await fetch(apiUrls.getKnowledgeGraph(graph.id))
+  const response = await fetch(apiUrls.getKnowledgeGraph(graph.id), { headers: kgAuthHeaders(userStore) })
   if (!response.ok) {
     throw new Error(`Failed to fetch full graph data (${response.status})`)
   }
@@ -1970,7 +1973,7 @@ const editGraph = async (graph) => {
     graphStore.setCurrentGraphId(graph.id)
 
     // Fetch the complete graph data
-    const response = await fetch(apiUrls.getKnowledgeGraph(graph.id))
+    const response = await fetch(apiUrls.getKnowledgeGraph(graph.id), { headers: kgAuthHeaders(userStore) })
     if (response.ok) {
       const graphData = await response.json()
 
@@ -2110,6 +2113,7 @@ const saveEdit = async (originalGraph) => {
     // Fetch latest graph data to ensure metadata preservation (same pattern as GraphAdmin)
     const latestResponse = await fetch(
       `https://knowledge.vegvisr.org/getknowgraph?id=${originalGraph.id}`,
+      { headers: kgAuthHeaders(userStore) },
     )
     if (!latestResponse.ok) {
       throw new Error('Failed to fetch latest graph data')
@@ -2230,7 +2234,7 @@ const toggleGraphPublicationState = async (graph) => {
 
   try {
     // Fetch latest graph data to preserve all fields
-    const graphResponse = await fetch(apiUrls.getKnowledgeGraph(graph.id))
+    const graphResponse = await fetch(apiUrls.getKnowledgeGraph(graph.id), { headers: kgAuthHeaders(userStore) })
     if (!graphResponse.ok) {
       throw new Error('Failed to fetch current graph data')
     }
@@ -2692,7 +2696,7 @@ const insertPortfolioImage = async (imageUrl = null) => {
       throw new Error('No graph selected for portfolio image update')
     }
 
-    const latestResponse = await fetch(apiUrls.getKnowledgeGraph(editingGraph.value.id))
+    const latestResponse = await fetch(apiUrls.getKnowledgeGraph(editingGraph.value.id), { headers: kgAuthHeaders(userStore) })
     if (!latestResponse.ok) {
       throw new Error('Failed to fetch latest graph before image update')
     }
