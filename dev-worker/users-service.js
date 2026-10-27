@@ -600,3 +600,53 @@ export function sendMeetingReport(env, { actor, contactId, coachingId }) {
   }
   return reportCall(env, actor, '/contacts/report/send', { contactId: String(contactId).trim(), coachingId: Number(coachingId) })
 }
+
+/**
+ * A contact's interaction history, the recordings among it, and server-side transcription of one,
+ * through agent-worker's /contacts/logs, /contacts/recordings and /contacts/transcribe doors — the
+ * same executors the Agent-Builder chat uses. Whose tables are read or written is decided there
+ * from the caller's own token.
+ */
+async function contactHistoryCall(env, actor, path, payload) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!env.AGENT_WORKER?.fetch) {
+    return fail(ERR.INTERNAL_ERROR, 'The AGENT_WORKER service binding is not configured on this worker.')
+  }
+  const token = await callerToken(env, actor)
+  if (!token) {
+    return fail(ERR.FORBIDDEN_GRAPH, 'No credential on your account. Sign in at vegvisr.org once, then try again.')
+  }
+  let res
+  let data
+  try {
+    res = await env.AGENT_WORKER.fetch(`https://agent-worker${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Token': token },
+      body: JSON.stringify(payload),
+    })
+    data = await res.json().catch(() => ({}))
+  } catch (e) {
+    console.error(`[contacts${path}] agent-worker unreachable:`, e.message)
+    return fail(ERR.INTERNAL_ERROR, `Could not reach the contacts service: ${e.message}`)
+  }
+  if (res.status === 404) return fail(ERR.INVALID_INPUT, data?.error || 'Not found.')
+  if (!res.ok || data?.success === false) {
+    return fail(res.status === 400 ? ERR.INVALID_INPUT : ERR.INTERNAL_ERROR, data?.error || `Request failed (status ${res.status}).`)
+  }
+  const { success: _s, ...rest } = data || {}
+  return { ok: true, ...rest }
+}
+
+export function getContactLogs(env, { actor, contactId, limit }) {
+  if (!String(contactId || '').trim()) return Promise.resolve(fail(ERR.INVALID_INPUT, 'contactId is required.'))
+  return contactHistoryCall(env, actor, '/contacts/logs', { contactId: String(contactId).trim(), limit })
+}
+
+export function listRecordings(env, { actor, query, limit }) {
+  return contactHistoryCall(env, actor, '/contacts/recordings', { query, limit })
+}
+
+export function transcribeContactRecording(env, { actor, recordingId, graphId, language }) {
+  if (!String(recordingId || '').trim()) return Promise.resolve(fail(ERR.INVALID_INPUT, 'recordingId is required.'))
+  return contactHistoryCall(env, actor, '/contacts/transcribe', { recordingId: String(recordingId).trim(), graphId, language })
+}

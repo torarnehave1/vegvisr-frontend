@@ -4711,6 +4711,202 @@ ${result.warnings.join('\n')}` : ''),
   // register_user refuses an email that already exists, which left no way to tag someone who is
   // already registered. This is that way. It shares user:register — the scope that covers writing
   // to the user directory — rather than adding a sixth opt-in that would force another reconnect.
+  // ── get_contact_logs / list_recordings / transcribe_contact_recording (2026-10-27) ──
+  //
+  // A contact's interaction history, the recordings among it, and transcription of one ON THE
+  // SERVER — the chat's transcribe_audio runs in the browser, which an MCP client does not have.
+  // All three go through agent-worker (the executors the chat uses). Reading sits behind
+  // contacts:read; transcribing also needs graph:write (it saves a graph node and appends to the
+  // interaction's note) and sends the audio to OpenAI Whisper, hence openWorldHint.
+  const LOG_SHAPE = z.object({
+    id: z.string(),
+    loggedAt: z.string(),
+    type: z.string(),
+    hasAudio: z.boolean(),
+    recordingId: z.string().nullable(),
+    notes: z.string(),
+  })
+  server.registerTool(
+    'get_contact_logs',
+    {
+      title: "A contact's interaction history (ContactHub)",
+      description:
+        'Every logged interaction with ONE contact in YOUR OWN ContactHub, newest first — meetings, ' +
+        'Zoom calls, phone calls, notes — the list the app shows under "Interaction History". Each ' +
+        'entry has its date (UTC), type, a short note and, when it carries an audio recording, its ' +
+        'recordingId for transcribe_contact_recording. A recording is usually its OWN entry, logged ' +
+        'when the recording was saved (shortly after the meeting ended), not the calendar entry of ' +
+        'the meeting. Find the contactId with search_contacts. Requires the contacts:read scope.',
+      inputSchema: {
+        contactId: z.string().min(1).describe('The contact, from search_contacts.'),
+        limit: z.number().int().optional().describe('Maximum entries, 1–200. Default 50.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        contactId: z.string(),
+        total: z.number(),
+        returned: z.number(),
+        withRecording: z.number(),
+        logs: z.array(LOG_SHAPE),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ contactId, limit }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'contacts:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await users.getContactLogs(env, { actor, contactId, limit })
+      if (!r.ok) return fromService(r)
+      const logs = (Array.isArray(r.logs) ? r.logs : []).map((l) => ({
+        id: String(l.id ?? ''),
+        loggedAt: String(l.logged_at || ''),
+        type: String(l.contact_type || ''),
+        hasAudio: !!l.hasAudio,
+        recordingId: l.recordingId ? String(l.recordingId) : null,
+        notes: String(l.notes || ''),
+      }))
+      const total = Number(r.total) || logs.length
+      const name = r.logs?.[0]?.contact_name || 'this contact'
+      const head = logs.length === 0
+        ? `No interactions logged for ${name}.`
+        : `${total} interaction${total === 1 ? '' : 's'} with ${name}` +
+          `${total > logs.length ? ` (showing the ${logs.length} newest)` : ''}, ${Number(r.withRecording) || 0} with audio:`
+      const lines = logs.map((l) => `• ${l.loggedAt.replace('T', ' ').slice(0, 16)} UTC · ${l.type || 'note'}` +
+        `${l.recordingId ? ` · AUDIO recordingId ${l.recordingId}` : ''}` +
+        `${l.notes ? ` · ${l.notes.replace(/\s+/g, ' ').slice(0, 160)}` : ''}`)
+      return ok({
+        success: true,
+        contactId: String(r.contactId || contactId),
+        total,
+        returned: logs.length,
+        withRecording: Number(r.withRecording) || 0,
+        logs,
+      }, [head, ...lines].join('\n'))
+    },
+  )
+
+  const RECORDING_SHAPE = z.object({
+    recordingId: z.string(),
+    name: z.string(),
+    contactId: z.string().nullable(),
+    contactName: z.string().nullable(),
+    createdAt: z.string(),
+    sizeMB: z.number().nullable(),
+    hasTranscription: z.boolean(),
+    transcriptionChars: z.number(),
+  })
+  server.registerTool(
+    'list_recordings',
+    {
+      title: 'List my recordings (ContactHub + audio portfolio)',
+      description:
+        'Your own audio recordings, newest first: those made in ContactHub on an interaction ' +
+        '(named "Contact Log — <person>") and those in your audio portfolio. query filters by name, ' +
+        'person or tag (e.g. "Thomas"). Each has a recordingId for transcribe_contact_recording, its ' +
+        'date (UTC) and whether it is already transcribed. For a person\'s whole history use ' +
+        'get_contact_logs — this lists only the entries that carry audio. Requires the ' +
+        'contacts:read scope.',
+      inputSchema: {
+        query: z.string().optional().describe('Filter, e.g. a person\'s name.'),
+        limit: z.number().int().optional().describe('Maximum recordings, 1–200. Default 20.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        count: z.number(),
+        recordings: z.array(RECORDING_SHAPE),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ query, limit }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'contacts:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await users.listRecordings(env, { actor, query, limit })
+      if (!r.ok) return fromService(r)
+      const recordings = (Array.isArray(r.recordings) ? r.recordings : []).map((x) => ({
+        recordingId: String(x.recordingId || ''),
+        name: String(x.displayName || x.fileName || ''),
+        contactId: x.contactId ? String(x.contactId) : null,
+        contactName: x.contactName ? String(x.contactName) : null,
+        createdAt: String(x.createdAt || ''),
+        sizeMB: Number(x.fileSize) ? Math.round(Number(x.fileSize) / 104857.6) / 10 : null,
+        hasTranscription: !!x.hasTranscription,
+        transcriptionChars: Number(x.transcriptionChars) || 0,
+      }))
+      const lines = recordings.map((x) => `• ${x.name} — ${x.createdAt.replace('T', ' ').slice(0, 16)} UTC` +
+        `${x.sizeMB ? ` · ${x.sizeMB} MB` : ''} · ${x.hasTranscription ? `transcribed (${x.transcriptionChars} chars)` : 'not transcribed'}` +
+        ` · recordingId ${x.recordingId}`)
+      const head = recordings.length ? `${recordings.length} recording${recordings.length === 1 ? '' : 's'}:` : 'No recordings matched.'
+      return ok({ success: true, count: recordings.length, recordings }, [head, ...lines].join('\n'))
+    },
+  )
+
+  server.registerTool(
+    'transcribe_contact_recording',
+    {
+      title: 'Transcribe a ContactHub recording',
+      description:
+        'Transcribe ONE recording from YOUR OWN ContactHub on the server (OpenAI Whisper, Norwegian ' +
+        'by default; long recordings are split into ~8-minute parts and joined with [mm:ss] ' +
+        'timestamps). The text is saved in two places: a fulltext node in a graph — a new private ' +
+        'graph, or graphId to add it to one — and appended to the interaction\'s note in ContactHub ' +
+        '(skipped if a transcript from here is already there). Returns the whole transcript, so you ' +
+        'can build a report or a graph from it. Takes 20–60 seconds. recordingId comes from ' +
+        'get_contact_logs or list_recordings, copied exactly. The audio is sent to OpenAI. Requires ' +
+        'the contacts:read and graph:write scopes.',
+      inputSchema: {
+        recordingId: z.string().min(1).describe('From get_contact_logs or list_recordings, exactly as returned.'),
+        graphId: z.string().optional().describe('Add the transcript node to this graph instead of creating a new one.'),
+        language: z.string().optional().describe('ISO language code. Default "no" (Norwegian).'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        nodeId: z.string(),
+        viewerUrl: z.string(),
+        recordingId: z.string(),
+        contactId: z.string().nullable(),
+        contactName: z.string(),
+        loggedAt: z.string().nullable(),
+        parts: z.number(),
+        failedParts: z.number(),
+        chars: z.number(),
+        notesUpdated: z.boolean(),
+        transcript: z.string(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ recordingId, graphId, language }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'contacts:read') || requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await users.transcribeContactRecording(env, { actor, recordingId, graphId, language })
+      if (!r.ok) return fromService(r)
+      const out = {
+        success: true,
+        graphId: String(r.graphId || ''),
+        nodeId: String(r.nodeId || ''),
+        viewerUrl: String(r.viewerUrl || ''),
+        recordingId: String(r.recordingId || recordingId),
+        contactId: r.contactId ? String(r.contactId) : null,
+        contactName: String(r.contactName || ''),
+        loggedAt: r.loggedAt ? String(r.loggedAt) : null,
+        parts: Number(r.chunks) || 0,
+        failedParts: Number(r.failedChunks) || 0,
+        chars: Number(r.chars) || 0,
+        notesUpdated: r.notesUpdated === true,
+        transcript: String(r.transcript || ''),
+      }
+      return ok(out, `${r.message || 'Transcribed.'}\nShow the user ${out.viewerUrl}\n\nTRANSCRIPT:\n${out.transcript}`)
+    },
+  )
+
   server.registerTool(
     'set_user_groups',
     {
@@ -5427,6 +5623,9 @@ export const TOOL_NAMES = [
   'set_meeting_report',
   'preview_meeting_report',
   'send_meeting_report',
+  'get_contact_logs',
+  'list_recordings',
+  'transcribe_contact_recording',
   'set_user_groups',
   'update_user_profile',
   'set_user_role',

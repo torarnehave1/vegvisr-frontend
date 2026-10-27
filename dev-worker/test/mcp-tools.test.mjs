@@ -911,6 +911,8 @@ describe('annotations tell the client the truth about each tool', () => {
       // endring CMS, not recallable. preview_meeting_report is deliberately NOT here — it
       // transmits nothing, like preview_sms.
       'send_meeting_report',
+      // Added 2026-10-27. Sends a ContactHub recording to OpenAI Whisper for transcription.
+      'transcribe_contact_recording',
     ])
     for (const t of tools) {
       assert.equal(t.annotations?.openWorldHint, outward.has(t.name), `${t.name} openWorldHint`)
@@ -1319,6 +1321,7 @@ describe('publish_html_node is the one tool that reaches the public internet', (
       'send_sms',
       'send_sms_to_user',
       'set_group_member_role',
+      'transcribe_contact_recording',
     ])
     const t = tools.find((x) => x.name === 'publish_html_node')
     assert.equal(t.annotations.destructiveHint, true, 'it replaces the page that is there')
@@ -3050,6 +3053,7 @@ describe('post_chat_message is gated harder than everything else', () => {
       'send_sms',
       'send_sms_to_user',
       'set_group_member_role',
+      'transcribe_contact_recording',
     ])
   })
 
@@ -3141,6 +3145,7 @@ describe('read_chat_messages is gated apart from posting', () => {
       'send_sms',
       'send_sms_to_user',
       'set_group_member_role',
+      'transcribe_contact_recording',
     ])
     // The property that makes adding another one safe: no such scope is advertised, so every
     // one of them requires a person to tick a box on the consent screen.
@@ -3554,5 +3559,75 @@ describe('get_graph exposes nodes to a client, not only to the payload', () => {
 
     const e = await callErr(client, 'get_graph', { graphId: g.graphId, nodeId: 'nope' })
     assert.equal(e.code, gs.ERR.GRAPH_NOT_FOUND)
+  })
+})
+
+describe('contact history + server transcription via agent-worker (2026-10-27)', () => {
+  function withAgent(replies) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    env.AGENT_WORKER = {
+      fetch: async (url, init) => {
+        const path = new URL(url).pathname
+        calls.push({ path, token: init.headers['X-API-Token'], body: JSON.parse(init.body) })
+        const [status, body] = replies[path] || [404, { success: false, error: 'no route' }]
+        return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+      },
+    }
+    return { env, calls }
+  }
+  const READ = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'contacts:read'] } }
+  const BOTH = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'graph:write', 'contacts:read'] } }
+
+  test('get_contact_logs puts every recordingId in the text the model sees', async () => {
+    const { env, calls } = withAgent({ '/contacts/logs': [200, { success: true, contactId: 'c1', total: 2, returned: 2, withRecording: 1, logs: [
+      { id: 'L2', logged_at: '2026-10-27T13:44:00Z', contact_type: 'zoom', contact_name: 'Thomas', hasAudio: true, recordingId: 'contactlog:L2', notes: 'samtale', audioUrl: 'https://audio.vegvisr.org/x.webm' },
+      { id: 'L1', logged_at: '2026-10-27T12:00:00Z', contact_type: 'zoom', contact_name: 'Thomas', hasAudio: false, notes: '1-1 Thomas' },
+    ] }] })
+    const { client } = await connect(env, READ)
+    const res = await client.callTool({ name: 'get_contact_logs', arguments: { contactId: 'c1' } })
+    assert.equal(res.isError, undefined)
+    assert.match(res.content[0].text, /AUDIO recordingId contactlog:L2/)
+    assert.equal(res.structuredContent.logs[0].recordingId, 'contactlog:L2')
+    assert.equal(res.structuredContent.logs[1].recordingId, null)
+    assert.equal(JSON.stringify(res.structuredContent).includes('audio.vegvisr.org'), false, 'no public audio URL flows to the model')
+    assert.equal(calls[0].token, 'sess-alice')
+  })
+
+  test('list_recordings whitelists the fields and needs contacts:read', async () => {
+    const { env } = withAgent({ '/contacts/recordings': [200, { success: true, recordings: [
+      { recordingId: 'rec_1', displayName: 'Contact Log — Thomas', contactId: 'c1', contactName: 'Thomas', createdAt: '2026-10-27T13:44:00Z', fileSize: 38655617, hasTranscription: false, transcriptionChars: 0, transcriptionPreview: 'secret', audioUrl: 'https://audio.vegvisr.org/x.webm' },
+    ] }] })
+    const denied = await connect(env, ALICE_RW)
+    const e = await callErr(denied.client, 'list_recordings', {})
+    assert.equal(e.requiredScope, 'contacts:read')
+    const { client } = await connect(env, READ)
+    const r = await callOk(client, 'list_recordings', { query: 'Thomas' })
+    assert.equal(r.recordings[0].sizeMB, 36.9)
+    assert.equal('audioUrl' in r.recordings[0], false)
+    assert.equal('transcriptionPreview' in r.recordings[0], false)
+  })
+
+  test('transcribe needs graph:write as well, and returns the transcript in the text', async () => {
+    const { env, calls } = withAgent({ '/contacts/transcribe': [200, { success: true, graphId: 'g1', nodeId: 'n1', viewerUrl: 'https://www.vegvisr.org/gnew-viewer?graphId=g1', recordingId: 'contactlog:L2', contactId: 'c1', contactName: 'Thomas', loggedAt: '2026-10-27T13:44:00Z', chunks: 5, failedChunks: 0, chars: 12, notesUpdated: true, transcript: '[00:00] hei', message: 'Transcribed.' }] })
+    const ro = await connect(env, READ)
+    const e = await callErr(ro.client, 'transcribe_contact_recording', { recordingId: 'contactlog:L2' })
+    assert.equal(e.requiredScope, 'graph:write')
+    assert.equal(calls.length, 0, 'nothing was sent without the scope')
+    const { client } = await connect(env, BOTH)
+    const res = await client.callTool({ name: 'transcribe_contact_recording', arguments: { recordingId: 'contactlog:L2' } })
+    assert.match(res.content[0].text, /TRANSCRIPT:\n\[00:00\] hei/)
+    assert.equal(res.structuredContent.parts, 5)
+    assert.deepEqual(calls[0].body, { recordingId: 'contactlog:L2' })
+    const { tools } = await client.listTools()
+    assert.equal(tools.find((t) => t.name === 'transcribe_contact_recording').annotations.openWorldHint, true)
+  })
+
+  test('a missing recording is reported, not thrown', async () => {
+    const { env } = withAgent({ '/contacts/transcribe': [404, { success: false, error: 'Interaction L9 has no recording' }] })
+    const { client } = await connect(env, BOTH)
+    const e = await callErr(client, 'transcribe_contact_recording', { recordingId: 'contactlog:L9' })
+    assert.match(e.message, /has no recording/)
   })
 })
