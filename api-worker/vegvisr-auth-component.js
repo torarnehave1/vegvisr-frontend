@@ -262,7 +262,8 @@ export const VEGVISR_AUTH_COMPONENT = `/**
     get registerMode() { return (this.getAttribute('register-mode') || 'invite').toLowerCase(); }
     get requireAuth() { return this.hasAttribute('require-auth'); }
     get requireRoles() { return (this.getAttribute('require-role') || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean); }
-    get appName() { return this.getAttribute('app-name') || 'Vegvisr'; }
+    // No app-name: a World host's brand name from /branding.json (brand="auto"), else Vegvisr (2026-10-27).
+    get appName() { return this.getAttribute('app-name') || this._brandName || 'Vegvisr'; }
     get logo() { return this.getAttribute('logo') || this._brandLogo || ''; }
     // Not named "lang": a getter-only accessor would shadow HTMLElement.lang, and any script
     // assigning element.lang would then throw in this strict class body.
@@ -344,6 +345,9 @@ export const VEGVISR_AUTH_COMPONENT = `/**
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
           var b = j && (j.branding || j);
+          var bname = b && b.brand && b.brand.name ? String(b.brand.name).slice(0, 80) : '';
+          // The proxy's default brand is "Vegvisr"; only a real World name replaces the card title.
+          if (bname && bname !== 'Vegvisr' && !self.getAttribute('app-name')) { self._brandName = bname; self.render(); }
           var ed = b && b.theme && b.theme.editor;
           if (!ed) return;
           var hex = function (v) { return /^#[0-9a-fA-F]{3,8}$/.test(String(v || '')) ? String(v) : ''; };
