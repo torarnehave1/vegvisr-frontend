@@ -846,6 +846,110 @@ export async function updateMetadata(env, { graphId, fields, expectedVersion, ac
 }
 
 /**
+ * The stored form of a graph password — byte-for-byte what the graph editor writes, because
+ * both viewers compare against it: GNewViewer (src/composables/useGraphPasswordGate.js) and
+ * graph-portfolio (Agent-Builder worker/components/graph-portfolio.js) both do
+ * `btoa(input) === metadata.passwordHash`. That is base64, not a hash: anyone who can read the
+ * graph's metadata can read the password. Chosen 2026-10-27 (option A) for parity with the app;
+ * a real hash needs both viewers changed in the same step.
+ *
+ * Returns null for a password the viewers cannot check: btoa throws on characters above U+00FF,
+ * so such a password could never be typed in correctly.
+ */
+export function encodeGraphPassword(password) {
+  try {
+    return btoa(password)
+  } catch {
+    return null
+  }
+}
+
+export const GRAPH_PASSWORD_MIN = 8 // the editor's rule (GNewPasswordProtectionNode.vue)
+export const GRAPH_PASSWORD_MAX = 128
+
+/**
+ * Turn a graph's password protection on (password given) or off (password null), the way the
+ * editor's password node does: metadata.passwordProtected + metadata.passwordHash, which is what
+ * the viewers gate on, and passwordEnabled + passwordHash on every password-protection node, which
+ * is what the editor's node shows. One write, one version. The password itself is never returned.
+ */
+export async function setGraphPassword(env, { graphId, password, actor = null, caller = undefined }) {
+  if (!graphId) return fail(ERR.INVALID_INPUT, 'graphId is required.')
+
+  let stored = null
+  if (password !== null && password !== undefined) {
+    if (typeof password !== 'string' || password.length < GRAPH_PASSWORD_MIN || password.length > GRAPH_PASSWORD_MAX) {
+      return fail(ERR.INVALID_INPUT, `The password must be ${GRAPH_PASSWORD_MIN}–${GRAPH_PASSWORD_MAX} characters.`)
+    }
+    stored = encodeGraphPassword(password)
+    if (stored === null) {
+      return fail(
+        ERR.INVALID_INPUT,
+        'The password contains characters the viewer cannot check (emoji or letters outside ' +
+          'Western European). Use letters, digits and ordinary punctuation; æ, ø and å are fine.',
+      )
+    }
+  }
+
+  const located = await storeFor(env, { graphId, actor: caller === undefined ? actor : caller })
+  if (located.error) return located.error
+  const { store } = located
+  return guarded(async () => {
+  const row = await store.getRow(graphId)
+  if (!row) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
+
+  const graphData = JSON.parse(row.data)
+  if (!graphData.metadata) graphData.metadata = {}
+  if (!Array.isArray(graphData.nodes)) graphData.nodes = []
+
+  const jsonVersion = graphData.metadata.version
+  const current = await store.currentVersion(graphId)
+
+  graphData.metadata.passwordProtected = stored !== null
+  graphData.metadata.passwordHash = stored
+
+  let nodesSynced = 0
+  for (const node of graphData.nodes) {
+    if (node && node.type === 'password-protection') {
+      node.passwordEnabled = stored !== null
+      node.passwordHash = stored
+      nodesSynced++
+    }
+  }
+
+  const newVersion = Math.max(current, Number(jsonVersion) || 0) + 1
+  graphData.metadata.version = newVersion
+
+  const committed = await store.commit({
+    id: graphId,
+    data: JSON.stringify(graphData),
+    version: newVersion,
+    casVersion: Number.isInteger(jsonVersion) ? jsonVersion : null,
+    now: new Date().toISOString(),
+    title: graphData.metadata.title || null,
+    description: graphData.metadata.description || null,
+  })
+  if (committed && committed.conflict) {
+    return fail(ERR.VERSION_CONFLICT, 'The graph changed while the password was being set. Try again.', {
+      currentVersion: current,
+    })
+  }
+
+  return {
+    ok: true,
+    graphId,
+    passwordProtected: stored !== null,
+    nodesSynced,
+    newVersion,
+    title: graphData.metadata.title || null,
+    metaArea: graphData.metadata.metaArea || null,
+    publicationState: graphData.metadata.publicationState || 'private',
+    ...graphLinks(graphId, store.world),
+  }
+  })
+}
+
+/**
  * Publish a graph — the ONLY way publicationState becomes 'published' (rule 2).
  * Deliberately separate from updateMetadata so it can require graph:publish scope and be
  * audited as its own action. Not wired to an MCP tool in v1; the architecture is ready.

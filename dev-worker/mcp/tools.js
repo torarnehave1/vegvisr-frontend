@@ -4030,6 +4030,78 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── set_graph_password ────────────────────────────────────────────────────
+  //
+  // The editor's password node, as a tool. update_graph_metadata cannot do this: its schema
+  // allows four fields and zod strips the rest, so passwordProtected/passwordHash never reach
+  // the service. The stored form is the editor's (base64) so both viewers keep working — see
+  // gs.encodeGraphPassword. The password never appears in the result, the text or a log line,
+  // and the audit log keeps no payloads (mcp/server.js).
+  server.registerTool(
+    'set_graph_password',
+    {
+      title: 'Password-protect a graph, change its password, or remove it',
+      description:
+        'Turn on password protection for a graph, change its password, or remove it ' +
+        '(password: null). This is how a "password node" or "security node" gets its password: ' +
+        'the viewer asks visitors for this password before showing the graph. It sets the ' +
+        "graph's protection and updates any password-protection node already in the graph; a " +
+        'graph does not need such a node to be protected (add one with add_node, type ' +
+        '"password-protection", if the user wants it visible in the editor). The password must ' +
+        `be ${gs.GRAPH_PASSWORD_MIN}–${gs.GRAPH_PASSWORD_MAX} characters; æ, ø and å work, emoji ` +
+        'do not. NEVER repeat the password back in your reply or write it into a node — the user ' +
+        'already knows it. Note for the user: this is the same light protection the editor ' +
+        'gives — it stops casual visitors in the viewer, it is not encryption. Requires the ' +
+        'graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph to protect.'),
+        password: z
+          .string()
+          .nullable()
+          .describe(`The new password (${gs.GRAPH_PASSWORD_MIN}–${gs.GRAPH_PASSWORD_MAX} characters), or null to remove protection.`),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        passwordProtected: z.boolean(),
+        nodesSynced: z.number(),
+        newVersion: z.number(),
+        title: z.string().nullable(),
+        metaArea: z.string().nullable(),
+        publicationState: z.string(),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      // Replaces the old password, so destructive. Idempotent: the same password twice lands on
+      // the same protection.
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ graphId, password }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const access = await gs.checkAccess(env, actor, graphId, 'write')
+      if (!access.ok) return fromService(access)
+
+      const result = await gs.setGraphPassword(env, { graphId, password, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        (result.passwordProtected
+          ? `Graph ${graphId} is now password protected. Visitors to the viewer must enter the password.`
+          : `Password protection removed from graph ${graphId}.`) +
+          (result.nodesSynced ? `\nUpdated ${result.nodesSynced} password-protection node(s) to match.` : '') +
+          `\nVersion is now ${result.newVersion}.\nViewer: ${result.viewerUrl}`,
+      )
+    },
+  )
+
   // ── publish_html_node ─────────────────────────────────────────────────────
   //
   // The only tool here that puts something on the public internet. It is narrowed twice over
@@ -5612,6 +5684,7 @@ export const TOOL_NAMES = [
   'generate_node_image',
   'compose_node_image',
   'update_graph_metadata',
+  'set_graph_password',
   'publish_html_node',
   'register_user',
   'list_users',

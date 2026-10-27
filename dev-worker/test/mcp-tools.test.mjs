@@ -1103,6 +1103,78 @@ describe('generate_node_image fills a placeholder the node already has', () => {
 
 
 
+describe('set_graph_password writes what the editor writes, so the viewers gate on it', () => {
+  // The viewers' check, copied from useGraphPasswordGate.js / graph-portfolio.js.
+  const viewerAccepts = (meta, typed) => {
+    try { return !!meta?.passwordProtected && btoa(typed) === meta.passwordHash } catch { return false }
+  }
+  const storedGraph = (raw, id) => JSON.parse(raw.prepare('SELECT data FROM knowledge_graphs WHERE id = ?').get(id).data)
+
+  test('sets metadata the viewer checks, syncs the password node, never returns the password', async () => {
+    const { env, raw } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', {
+      title: 'Locked',
+      metaArea: '#A',
+      nodes: [
+        { id: 'n1', label: 'Intro', type: 'fulltext', info: 'body' },
+        { id: 'password-protection-001', label: 'Password Protection', type: 'password-protection', info: 'x' },
+      ],
+    })
+    const res = await client.callTool({ name: 'set_graph_password', arguments: { graphId: g.graphId, password: 'blåbærsyltetøy' } })
+    assert.ok(!res.isError, JSON.stringify(res))
+    const wire = JSON.stringify(res)
+    assert.ok(!wire.includes('blåbærsyltetøy') && !wire.includes(btoa('blåbærsyltetøy')), 'neither password nor stored form in the result')
+    assert.equal(res.structuredContent.passwordProtected, true)
+    assert.equal(res.structuredContent.nodesSynced, 1)
+
+    const data = storedGraph(raw, g.graphId)
+    assert.ok(viewerAccepts(data.metadata, 'blåbærsyltetøy'), 'viewer accepts the right password')
+    assert.ok(!viewerAccepts(data.metadata, 'wrongpassword'), 'viewer refuses a wrong one')
+    const pn = data.nodes.find((n) => n.type === 'password-protection')
+    assert.equal(pn.passwordEnabled, true)
+    assert.equal(pn.passwordHash, data.metadata.passwordHash, 'editor node shows the same state')
+    assert.equal(data.nodes.find((n) => n.id === 'n1').info, 'body', 'other nodes untouched')
+  })
+
+  test('null removes protection; a graph without a password node can still be protected', async () => {
+    const { env, raw } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#A' })
+    const on = await callOk(client, 'set_graph_password', { graphId: g.graphId, password: 'hemmelig1' })
+    assert.equal(on.nodesSynced, 0)
+    assert.ok(viewerAccepts(storedGraph(raw, g.graphId).metadata, 'hemmelig1'))
+    const off = await callOk(client, 'set_graph_password', { graphId: g.graphId, password: null })
+    assert.equal(off.passwordProtected, false)
+    const meta = storedGraph(raw, g.graphId).metadata
+    assert.equal(meta.passwordProtected, false)
+    assert.equal(meta.passwordHash, null)
+    // A following write still works — the version bookkeeping stayed consistent.
+    await callOk(client, 'update_graph_metadata', { graphId: g.graphId, fields: { metaArea: '#A #B' } })
+  })
+
+  test('too short and emoji passwords are refused before anything is written', async () => {
+    const { env, raw } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#A' })
+    const short = await callErr(client, 'set_graph_password', { graphId: g.graphId, password: 'kort' })
+    assert.equal(short.code, gs.ERR.INVALID_INPUT)
+    const emoji = await callErr(client, 'set_graph_password', { graphId: g.graphId, password: '🙂🙂🙂🙂🙂🙂🙂🙂' })
+    assert.equal(emoji.code, gs.ERR.INVALID_INPUT)
+    assert.ok(!storedGraph(raw, g.graphId).metadata.passwordProtected)
+  })
+
+  test("another user's graph and a read-only connection are refused", async () => {
+    const { env } = freshDb()
+    const { client: alice } = await connect(env, ALICE_RW)
+    const g = await callOk(alice, 'create_graph', { title: 'Hers', metaArea: '#A' })
+    const { client: bob } = await connect(env, BOB_RW)
+    assert.equal((await callErr(bob, 'set_graph_password', { graphId: g.graphId, password: 'hemmelig1' })).code, gs.ERR.FORBIDDEN_GRAPH)
+    const { client: ro } = await connect(env, ALICE_RO)
+    assert.equal((await callErr(ro, 'set_graph_password', { graphId: g.graphId, password: 'hemmelig1' })).code, gs.ERR.INSUFFICIENT_SCOPE)
+  })
+})
+
 describe('update_graph_metadata gives updateMetadata its first caller', () => {
   test('replaces metaArea and leaves title and nodes alone', async () => {
     const { env } = freshDb()
