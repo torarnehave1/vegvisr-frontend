@@ -32,7 +32,7 @@ export default {
       }
 
       await ensureSchema(env)
-      const user = getUserContext(request)
+      const user = await getUserContext(request, env)
 
       if (pathname === '/sessions' && request.method === 'POST') {
         return await handleUpsertSession(request, env, user, ctx)
@@ -202,6 +202,19 @@ async function handleUpsertSession(request, env, user, ctx) {
   const metadata = body.metadata || {}
   const sessionId = body.sessionId || crypto.randomUUID()
 
+  if (PROTECTED_PROVIDERS.has(provider) && !user.verified) {
+    return jsonResponse({ error: 'This conversation requires sign-in: send X-API-Token' }, 401)
+  }
+  const existing = await env.DB.prepare('SELECT id, user_id, provider FROM chat_sessions WHERE id = ?')
+    .bind(sessionId)
+    .first()
+  if (existing && existing.user_id !== userId) {
+    // ON CONFLICT(id) under sjekket ikke eieren: en kjent oekt-ID kunne overskrives av andre.
+    return jsonResponse({ error: 'Session not found' }, 404)
+  }
+  const deniedUpsert = protectedDenied(existing, user)
+  if (deniedUpsert) return deniedUpsert
+
   const statement = `
     INSERT INTO chat_sessions (id, user_id, graph_id, provider, title, metadata, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -249,6 +262,10 @@ async function handleListSessions(url, env, user) {
 
   let query = 'SELECT * FROM chat_sessions WHERE user_id = ?'
   let bindings = [userId]
+  if (!user.verified) {
+    query += ` AND provider NOT IN (${[...PROTECTED_PROVIDERS].map(() => '?').join(',')})`
+    bindings.push(...PROTECTED_PROVIDERS)
+  }
 
   if (graphId) {
     query += ' AND graph_id = ?'
@@ -282,6 +299,8 @@ async function handleGetSession(sessionId, env, user) {
   if (!session) {
     return jsonResponse({ error: 'Session not found' }, 404)
   }
+  const deniedGet = protectedDenied(session, user)
+  if (deniedGet) return deniedGet
 
   return jsonResponse({ session: normalizeSession(session) })
 }
@@ -300,6 +319,12 @@ async function handleRenameSession(request, sessionId, env, user) {
   if (!userId) {
     throw new Error('Unable to determine user ID')
   }
+
+  const renameTarget = await env.DB.prepare('SELECT user_id, provider FROM chat_sessions WHERE id = ? AND user_id = ?')
+    .bind(sessionId, userId)
+    .first()
+  const deniedRename = protectedDenied(renameTarget, user)
+  if (deniedRename) return deniedRename
 
   await env.DB.prepare('UPDATE chat_sessions SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?')
     .bind(title, sessionId, userId)
@@ -325,13 +350,15 @@ async function handleDeleteSession(sessionId, env, user, ctx) {
   }
 
   // Get the session to find its graph_id before deleting
-  const session = await env.DB.prepare('SELECT id, graph_id FROM chat_sessions WHERE id = ? AND user_id = ?')
+  const session = await env.DB.prepare('SELECT id, graph_id, user_id, provider FROM chat_sessions WHERE id = ? AND user_id = ?')
     .bind(sessionId, userId)
     .first()
 
   if (!session) {
     return jsonResponse({ error: 'Session not found' }, 404)
   }
+  const deniedDelete = protectedDenied(session, user)
+  if (deniedDelete) return deniedDelete
 
   const graphId = session.graph_id
 
@@ -465,13 +492,15 @@ async function handleCreateMessage(request, env, user) {
     throw new Error('Unable to determine user ID')
   }
 
-  const session = await env.DB.prepare('SELECT id, user_id FROM chat_sessions WHERE id = ?')
+  const session = await env.DB.prepare('SELECT id, user_id, provider FROM chat_sessions WHERE id = ?')
     .bind(sessionId)
     .first()
 
   if (!session || session.user_id !== userId) {
     return jsonResponse({ error: 'Session not found' }, 404)
   }
+  const deniedMsg = protectedDenied(session, user)
+  if (deniedMsg) return deniedMsg
 
   let encrypted
   if (plaintext) {
@@ -543,13 +572,15 @@ async function handleListMessages(url, env, user) {
     throw new Error('Unable to determine user ID')
   }
 
-  const session = await env.DB.prepare('SELECT id, user_id FROM chat_sessions WHERE id = ?')
+  const session = await env.DB.prepare('SELECT id, user_id, provider FROM chat_sessions WHERE id = ?')
     .bind(sessionId)
     .first()
 
   if (!session || session.user_id !== userId) {
     return jsonResponse({ error: 'Session not found' }, 404)
   }
+  const deniedMsg = protectedDenied(session, user)
+  if (deniedMsg) return deniedMsg
 
   const { results } = await env.DB.prepare(
     'SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?'
@@ -853,12 +884,38 @@ async function ensureSchema(env) {
   schemaBootstrapped = true
 }
 
-function getUserContext(request) {
-  return {
+// Samtaler fra disse klientene kan bare leses og endres med et gyldig X-API-Token
+// for eieren. De andre klientene sender fortsatt bare e-post/ID-headere (uverifisert)
+// og virker som foer, men ser ikke disse oektene. Se lipi-app-topology / 2026-10-28.
+const PROTECTED_PROVIDERS = new Set(['lipi'])
+
+async function getUserContext(request, env) {
+  const ctx = {
     userId: request.headers.get('x-user-id'),
     email: request.headers.get('x-user-email'),
-    role: request.headers.get('x-user-role') || 'User'
+    role: request.headers.get('x-user-role') || 'User',
+    verified: false
   }
+  const token = request.headers.get('X-API-Token')
+  if (token) {
+    const row = await env.DB.prepare('SELECT user_id, email FROM config WHERE emailVerificationToken = ? LIMIT 1')
+      .bind(token)
+      .first()
+    // Et ukjent token avvises ikke her: da faller kallet tilbake til headerne som foer,
+    // og beskyttede oekter svarer 401 i protectedDenied().
+    if (row?.user_id) {
+      ctx.userId = row.user_id
+      ctx.email = row.email
+      ctx.verified = true
+    }
+  }
+  return ctx
+}
+
+function protectedDenied(session, user) {
+  if (!session || !PROTECTED_PROVIDERS.has(session.provider)) return null
+  if (user.verified && user.userId === session.user_id) return null
+  return jsonResponse({ error: 'This conversation requires sign-in: send X-API-Token' }, 401)
 }
 
 async function resolveUserIdFromEmail(email, env) {
