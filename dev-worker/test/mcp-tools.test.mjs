@@ -1435,6 +1435,34 @@ describe('node types: a graph generated over MCP cannot carry a type that will n
     assert.equal(after.nodeCount, 0, 'nothing was written')
   })
 
+  test('a youtube-video node keeps path, imageWidth and imageHeight (add_node and update_node)', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X' })
+    const url = 'https://www.youtube.com/watch?v=AawWsJNi0gM'
+    const added = await callOk(client, 'add_node', {
+      graphId: g.graphId,
+      node: { label: 'v', type: 'youtube-video', path: url, imageWidth: '100%', imageHeight: '100%' },
+    })
+    let read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    let n = read.nodes.find((x) => x.id === added.nodeId)
+    assert.equal(n.path, url, 'path was stripped by the schema before')
+    assert.equal(n.imageWidth, '100%')
+    assert.equal(n.imageHeight, '100%')
+
+    await callOk(client, 'update_node', {
+      graphId: g.graphId, nodeId: added.nodeId, expectedVersion: read.version,
+      fields: { imageWidth: '80%', imageHeight: '60%' },
+    })
+    read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    n = read.nodes.find((x) => x.id === added.nodeId)
+    assert.equal(n.imageWidth, '80%')
+    assert.equal(n.imageHeight, '60%')
+
+    const one = await client.callTool({ name: 'get_graph', arguments: { graphId: g.graphId, nodeId: added.nodeId } })
+    assert.match(one.content[0].text, /path: https:\/\/www\.youtube\.com/, 'a single-node read shows the media fields')
+  })
+
   test('create_graph refuses a bad type in its initial nodes too', async () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RW)

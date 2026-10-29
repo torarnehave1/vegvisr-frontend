@@ -115,6 +115,12 @@ const makeNodeInput = (nodeTypes) => z
     bibl: z.array(z.string()).optional().describe('Source URLs or references.'),
     position: z.object({ x: z.number(), y: z.number() }).optional().describe('Canvas position.'),
     visible: z.boolean().optional(),
+    // Media fields. Without them in the schema the protocol silently stripped them, so a
+    // youtube-video or mermaid-diagram node could not be built in one call the way its template
+    // (get_node_types) says — and the viewer sizes media from imageWidth/imageHeight.
+    path: z.string().nullable().optional().describe('Media path/URL, e.g. the YouTube URL of a youtube-video node. Copy what get_node_types shows.'),
+    imageWidth: z.string().nullable().optional().describe('Media width, e.g. "100%" for youtube-video. Copy what get_node_types shows.'),
+    imageHeight: z.string().nullable().optional().describe('Media height, e.g. "100%" for youtube-video. Copy what get_node_types shows.'),
     metadata: NodeMetadata.optional().describe(
       'Structured fields for machines, beside the prose a human reads in `info` — a kind, a ' +
         'binding name, a pointer to another graph. The viewer renders `info`; tools query this. ' +
@@ -894,6 +900,11 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         summary =
           `Node ${nodeId} of graph "${payload.title}" (version ${payload.version}).\n` +
           `label: ${node.label ?? '(none)'}\ntype: ${node.type ?? '(none)'}\n` +
+          // Media fields shown when set, so a writer can verify a youtube-video or diagram node.
+          ['path', 'imageWidth', 'imageHeight', 'bibl']
+            .filter((k) => node[k] != null && !(Array.isArray(node[k]) && !node[k].length))
+            .map((k) => `${k}: ${Array.isArray(node[k]) ? node[k].join(', ') : node[k]}\n`)
+            .join('') +
           (info ? `info (${info.length} chars):\n${info}` : 'info: (empty)')
       } else {
         const lines = g.nodes.map((n) => {
@@ -1046,6 +1057,11 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         summary =
           `Node ${nodeId} of graph "${payload.title}" at version ${version}.\n` +
           `label: ${node.label ?? '(none)'}\ntype: ${node.type ?? '(none)'}\n` +
+          // Media fields shown when set, so a writer can verify a youtube-video or diagram node.
+          ['path', 'imageWidth', 'imageHeight', 'bibl']
+            .filter((k) => node[k] != null && !(Array.isArray(node[k]) && !node[k].length))
+            .map((k) => `${k}: ${Array.isArray(node[k]) ? node[k].join(', ') : node[k]}\n`)
+            .join('') +
           (info ? `info (${info.length} chars):\n${info}` : 'info: (empty)')
       } else {
         const lines = g.nodes.map((n) => {
@@ -1226,7 +1242,7 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
     {
       title: 'Update fields of a node',
       description:
-        'Change named fields of one existing node — its text, label, colour or path — without ' +
+        'Change named fields of one existing node — its text, label, colour, path or media size — without ' +
         'sending the whole graph. Only the fields you pass are touched; everything else on the ' +
         'node is left alone. expectedVersion is REQUIRED: read it from get_graph, and if the ' +
         'graph has moved on the write is refused with VERSION_CONFLICT rather than overwriting ' +
@@ -1241,6 +1257,8 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
             type: z.enum(nodeTypes).optional().describe('New node type. Must be one of the known types — "html-node", not "html". Data types registered with register_node_type (e.g. work-context) are accepted too.'),
             color: z.string().optional().describe('New hex colour.'),
             path: z.string().nullable().optional().describe('New media path.'),
+            imageWidth: z.string().nullable().optional().describe('New media width, e.g. "100%".'),
+            imageHeight: z.string().nullable().optional().describe('New media height, e.g. "100%".'),
             bibl: z.array(z.string()).optional().describe('New source list — replaces the old one.'),
             visible: z.boolean().optional(),
             metadata: NodeMetadata.optional().describe(
