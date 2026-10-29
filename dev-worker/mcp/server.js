@@ -63,6 +63,9 @@ Rules this server enforces, so you do not have to ask:
 Three things on this system cannot be inferred from general knowledge, so ask rather than guess:
 - Node types: call list_node_types when unsure of a type. It names every type and says what each
   registered one is for; a near miss ("html" for "html-node") is refused rather than corrected.
+- Node shape: call get_node_types before adding a node of any type other than plain fulltext. It
+  returns each type's template example node and ai_instructions from the node templates — copy
+  that shape (which of label, info, path, bibl it uses) instead of guessing it.
 - Fulltext syntax: call get_fulltext_elements before writing a node's "info" and copy the format
   verbatim. A wrong parameter renders as literal text instead of failing, so mistakes are silent.
 - Images: call get_image_guide before generating one. Five image models are available and they

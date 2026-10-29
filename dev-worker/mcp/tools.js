@@ -3402,6 +3402,75 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── get_node_types ────────────────────────────────────────────────────────
+  //
+  // The counterpart of get_fulltext_elements for STANDALONE nodes (agreed 2026-10-29). Elements
+  // are what goes inside a fulltext node; this is the shape of a whole node of a given type —
+  // read from the node templates already in graphTemplates (their example node and their
+  // ai_instructions). Nothing new is stored: the recipes were there, unread. On 2026-10-29 a
+  // youtube-video node was written three different ways while the YouTube template's recipe
+  // sat in that table.
+  server.registerTool(
+    'get_node_types',
+    {
+      title: 'Get the recipe for a node type',
+      description:
+        'Return how a standalone node of a given type is built, read from the node templates in ' +
+        'VEGR.AI: for each type (youtube-video, mermaid-diagram, fulltext, chart, map, …) the ' +
+        "templates' example node and their ai_instructions. CALL THIS BEFORE adding a node of any " +
+        'type other than plain fulltext, and copy the example\'s shape — which fields it sets ' +
+        '(label, info, path, bibl, imageWidth …) and how. For the syntax INSIDE a fulltext node use ' +
+        'get_fulltext_elements; for which types exist at all use list_node_types. Pass type to get ' +
+        'one type without pulling the whole catalog into context. Requires the graph:read scope.',
+      inputSchema: {
+        type: z.string().optional().describe('One node type, e.g. "youtube-video". Omit for every type that has a template.'),
+        name: z.string().optional().describe('Only templates whose name contains this, e.g. "Gantt".'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        count: z.number().describe('Node types listed.'),
+        types: z.array(z.object({
+          type: z.string(),
+          templates: z.array(z.object({
+            name: z.string(),
+            category: z.string(),
+            aiInstructions: z.unknown().nullable().describe('The template\'s recipe: parsed JSON, or text, or null when it has none.'),
+            example: z.record(z.string(), z.any()).describe('The template\'s example node (no id). Copy its shape.'),
+          })),
+        })),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ type, name }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await templates.listNodeTemplates(env, { type, name })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      // The full recipe goes in the text too: most clients read content[0].text, not structuredContent.
+      const lines = []
+      for (const t of result.types) {
+        lines.push(`■ ${t.type}`)
+        for (const tpl of t.templates) {
+          lines.push(`  • template "${tpl.name}" (${tpl.category})`)
+          if (tpl.aiInstructions != null) {
+            lines.push(`    ai_instructions: ${typeof tpl.aiInstructions === 'string' ? tpl.aiInstructions : JSON.stringify(tpl.aiInstructions)}`)
+          }
+          lines.push(`    example node: ${JSON.stringify(tpl.example)}`)
+        }
+      }
+      return ok(
+        { success: true, ...payload },
+        [`Recipes for ${result.count} node type${result.count === 1 ? '' : 's'}, from the node templates. Copy the example's shape:`, ...lines].join('\n'),
+      )
+    },
+  )
+
   // ── get_image_guide ───────────────────────────────────────────────────────
   //
   // WHY A TOOL AND NOT A PROMPT OR A RESOURCE.
@@ -5714,4 +5783,5 @@ export const TOOL_NAMES = [
   'set_node_type_renderer',
   'approve_node_type_renderer',
   'list_node_types',
+  'get_node_types',
 ]
