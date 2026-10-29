@@ -34,7 +34,6 @@ import {
   REGISTRY_GRAPH_ID, REGISTRY_NODE_TYPE, TYPE_NAME, WORLD_TYPES_TAG, invalidateNodeTypeCache,
   normalizeWorld, registeredNodeTypes, worldRegistryGraph, nodeTypeAllowedIn,
   nodeTypeEntry, nodeTypeRenderers, worldTypeInfo,
-  normalizeNetwork, normalizeExample, sameNetwork, embedHost,
 } from '../node-type-registry.js'
 import { mayUseWorld, defaultWorldFor, HISTORY_CAP } from '../graph-store.js'
 import * as nts from '../node-type-service.js'
@@ -348,72 +347,9 @@ async function nodeTypeRefusal(env, type, world) {
     : `"${type}" is a World's own node type; it can only be used in a graph stored in that World.`)
 }
 
-// The recipe and network inputs shared by register_node_type and update_node_type (2026-10-29).
-// A type's recipe is what an agent reads in list_node_types before writing a node of it; without
-// one a youtube-video node was written three different ways on the same day.
-const TypeFieldInput = z.object({
-  key: z.string().optional().describe('The metadata key, e.g. "videoId". Made from the label when omitted.'),
-  label: z.string().min(1).describe('What the field is called, e.g. "Video ID".'),
-  kind: z.enum(nts.FIELD_KINDS).optional().describe('text (default), longtext, number, date, link or image.'),
-  hint: z.string().optional().describe('One line on what goes in it, e.g. "the 11-character YouTube id".'),
-})
-const TypeExampleInput = z.object({
-  label: z.string().optional(),
-  info: z.string().optional(),
-  metadata: z.record(z.string(), z.any()).optional(),
-}).describe('One complete, correct example node of this type — the recipe in its most direct form. Shown by list_node_types.')
-const TypeNetworkInput = z.object({
-  embed: z.string().min(10).describe('https URL template with {id} exactly once in its path or query, e.g. "https://www.youtube-nocookie.com/embed/{id}".'),
-  idPattern: z.string().min(1).describe('Regular expression an id must match in full, e.g. "[A-Za-z0-9_-]{11}". It may never accept / ? # % or spaces.'),
-  idField: z.string().min(1).describe('The metadata key of a node that holds the id, e.g. "videoId".'),
-}).describe('Network the type needs: an embed from ONE host. Saved PENDING; <vegvisr-node> shows it only after approve_node_type_network (Superadmin). Platform types only.')
-
-/**
- * The recipe part of a type write, validated: { metadata patch } or { error }. `fields`, `example`
- * and `network` are each optional; a network that differs from the stored one starts a new
- * PENDING version — an approval never carries over to a declaration nobody reviewed.
- */
-function recipePatch(actor, prevMeta, { fields, example, network, removeNetwork }, scope) {
-  const patch = {}
-  if (fields != null) {
-    const f = nts.normalizeFields(fields)
-    if (!f.ok) return { error: fromService(f) }
-    patch.fields = f.fields
-  }
-  if (example != null) {
-    const e = normalizeExample(example)
-    if (!e.ok) return { error: fromService(e) }
-    patch.example = e.example
-  }
-  if (network != null && removeNetwork) return { error: err(gs.ERR.INVALID_INPUT, 'Pass network or removeNetwork, not both.') }
-  if (network != null) {
-    if (scope !== 'platform') return { error: err(gs.ERR.INVALID_INPUT, "A World's own type cannot declare network yet; only platform types can (decided 2026-10-29).") }
-    const v = normalizeNetwork(network)
-    if (!v.ok) return { error: fromService(v) }
-    const prev = prevMeta?.network || null
-    patch.network = sameNetwork(prev, v.network)
-      ? prev
-      : {
-          version: (Number(prev?.version) || 0) + 1,
-          ...v.network,
-          status: 'pending',
-          scope,
-          updatedBy: actor.userEmail || actor.userId,
-          updatedAt: new Date().toISOString(),
-        }
-  }
-  return { patch }
-}
-
-const networkLine = (type, net) => net
-  ? (net.status === 'approved'
-      ? ` Network: embed from ${embedHost(net.embed)}, v${net.version} approved.`
-      : ` Network: embed from ${embedHost(net.embed)} saved as PENDING v${net.version} — shown nowhere until approve_node_type_network({ type: "${type}", version: ${net.version} }).`)
-  : ''
-
 /** register_node_type with `world` — the rules live in node-type-service.js, shared with REST. */
-async function registerWorldNodeType(env, actor, { name, description, consumer, world, fields, example }) {
-  const r = await nts.createWorldType(env, actor, { world, type: name, title: name, description, consumer, fields, example })
+async function registerWorldNodeType(env, actor, { name, description, consumer, world }) {
+  const r = await nts.createWorldType(env, actor, { world, type: name, title: name, description, consumer })
   if (!r.ok) return fromService(r)
   const registryNodeId = `nodetype-${r.type}`
   return ok({ success: true, type: r.type, registryNodeId, alreadyRegistered: r.alreadyExisted, registryGraphId: r.registryGraphId, world: r.world },
@@ -559,20 +495,12 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         'Renderable types cannot be added here: those follow the viewer\'s renderers. Without ' +
         'world: a platform type, Superadmin only. With world (e.g. "sodesign.no"): a type of that ' +
         'World only, stored in the World\'s own storage and usable only in its graphs — for its ' +
-        'founder (or a Superadmin); a name the platform already has is refused. GIVE IT A RECIPE: ' +
-        'fields (the metadata keys a node carries) and example (one correct node) are what ' +
-        'list_node_types shows the next writer, so a node of the type is written right the first ' +
-        'time. A platform type may also declare network (an embed from one host, saved PENDING ' +
-        'until approve_node_type_network). Change any of it later with update_node_type. ' +
-        'Requires the graph:write scope.',
+        'founder (or a Superadmin); a name the platform already has is refused. Requires the graph:write scope.',
       inputSchema: {
         type: z.string().min(2).max(40).describe('The type name: lowercase letters, digits, - or _, starting with a letter, e.g. "work-context".'),
-        description: z.string().min(10).describe('What a node of this type holds — say what goes in label and in info.'),
+        description: z.string().min(10).describe('What a node of this type holds, in a sentence or two.'),
         consumer: z.string().min(3).describe('What reads these nodes, e.g. "agent-worker GET /work-contexts".'),
         world: z.string().optional().describe("Register the type in this World's own registry, e.g. \"sodesign.no\". Omit for a platform type."),
-        fields: z.array(TypeFieldInput).optional().describe('The metadata keys a node of this type carries.'),
-        example: TypeExampleInput.optional(),
-        network: TypeNetworkInput.optional(),
       },
       outputSchema: {
         success: z.boolean(),
@@ -581,11 +509,10 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         alreadyRegistered: z.boolean(),
         registryGraphId: z.string().optional(),
         world: z.string().nullable().optional(),
-        network: z.object({ version: z.number(), status: z.string() }).nullable().optional(),
       },
       annotations: ADDITIVE_WRITE,
     },
-    async ({ type, description, consumer, world, fields, example, network }) => {
+    async ({ type, description, consumer, world }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:write')
       if (scopeErr) return scopeErr
@@ -596,17 +523,12 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
       if (!TYPE_NAME.test(name)) {
         return err(gs.ERR.INVALID_INPUT, `"${name}" is not a valid type name: lowercase letters, digits, - or _, starting with a letter, 2–40 characters.`)
       }
-      if (normalizeWorld(world)) {
-        if (network != null) return err(gs.ERR.INVALID_INPUT, "A World's own type cannot declare network yet; only platform types can (decided 2026-10-29).")
-        return registerWorldNodeType(env, actor, { name, description, consumer, world, fields, example })
-      }
+      if (normalizeWorld(world)) return registerWorldNodeType(env, actor, { name, description, consumer, world })
       if (!actor.isSuperadmin) return err(gs.ERR.FORBIDDEN_GRAPH, 'Registering a platform node type is for the Superadmin only. A World founder passes world: "<your domain>".')
       if (NODE_TYPES.includes(name)) {
         return ok({ success: true, type: name, registryNodeId: '', alreadyRegistered: true },
           `"${name}" is already a renderable type; nothing to register.`)
       }
-      const recipe = recipePatch(actor, null, { fields, example, network }, 'platform')
-      if (recipe.error) return recipe.error
       const registryNodeId = `nodetype-${name}`
       const result = await gs.addNode(env, {
         graphId: REGISTRY_GRAPH_ID,
@@ -615,7 +537,7 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
           label: name,
           type: REGISTRY_NODE_TYPE,
           info: String(description).trim(),
-          metadata: { consumer: String(consumer).trim(), renders: false, registeredAt: new Date().toISOString(), ...recipe.patch },
+          metadata: { consumer: String(consumer).trim(), renders: false, registeredAt: new Date().toISOString() },
         },
         actor,
       })
@@ -623,155 +545,13 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         if (result.code === 'NODE_EXISTS' || /exist/i.test(result.message || '')) {
           invalidateNodeTypeCache()
           return ok({ success: true, type: name, registryNodeId, alreadyRegistered: true },
-            `"${name}" was already registered (${registryNodeId} in ${REGISTRY_GRAPH_ID}). Nothing was changed — use update_node_type to change its description, recipe or network.`)
+            `"${name}" was already registered (${registryNodeId} in ${REGISTRY_GRAPH_ID}).`)
         }
         return fromService(result)
       }
       invalidateNodeTypeCache()
-      const net = recipe.patch.network || null
-      return ok({ success: true, type: name, registryNodeId, alreadyRegistered: false, network: net ? { version: net.version, status: net.status } : null },
-        `Registered node type "${name}" as ${registryNodeId} in ${REGISTRY_GRAPH_ID}. add_node and update_node accept it from the next request.` +
-          networkLine(name, net))
-    },
-  )
-
-  // ── update_node_type ──────────────────────────────────────────────────────
-  // Change an existing registered type: its description, consumer, recipe (fields, example) or
-  // network. Before 2026-10-29 a type could be registered but never corrected over MCP.
-  server.registerTool(
-    'update_node_type',
-    {
-      title: 'Change a registered node type',
-      description:
-        'Change a registered DATA node type: its description, consumer, recipe (fields and example — ' +
-        'what list_node_types shows the next writer) or network (an embed from one host). Only the ' +
-        'parts you pass change; fields and example are replaced whole. A network that differs from ' +
-        'the stored one is saved as a new PENDING version and shown nowhere until ' +
-        'approve_node_type_network; removeNetwork takes it away at once. The renderer is changed ' +
-        'with set_node_type_renderer, not here. Without world: a platform type, Superadmin only. ' +
-        'With world: that World\'s own type, for its founder (no network). Requires the graph:write scope.',
-      inputSchema: {
-        type: z.string().min(2).max(40).describe('The registered type, e.g. "youtube".'),
-        world: z.string().optional().describe('The World whose own type this is, e.g. "sodesign.no". Omit for a platform type.'),
-        description: z.string().min(10).optional().describe('New description: what a node holds, and what goes in label and in info.'),
-        consumer: z.string().min(3).optional().describe('New consumer: what reads nodes of this type.'),
-        fields: z.array(TypeFieldInput).optional().describe('The complete new list of metadata keys.'),
-        example: TypeExampleInput.optional(),
-        network: TypeNetworkInput.optional(),
-        removeNetwork: z.boolean().optional().describe('true removes the network declaration; embeds stop at once.'),
-      },
-      outputSchema: {
-        success: z.boolean(),
-        type: z.string(),
-        changed: z.array(z.string()),
-        network: z.object({ version: z.number(), status: z.string() }).nullable(),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    },
-    async ({ type, world, description, consumer, fields, example, network, removeNetwork }) => {
-      const { auth, env, props } = getContext()
-      const scopeErr = requireScope(auth, 'graph:write')
-      if (scopeErr) return scopeErr
-      const actor = actorFromAuth(auth, props)
-      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
-      if (NODE_TYPES.includes(type)) {
-        return err(gs.ERR.INVALID_INPUT, `"${type}" is a built-in renderable type; it is described by the viewer's code, not by the registry.`)
-      }
-
-      // A fresh read, not the cache: the write below merges into this node.
-      const reg = await typeRegistryFor(env, actor, world, 'Changing a node type')
-      if (reg.error) return reg.error
-      const entry = reg.graphId ? typeEntryIn(reg.nodes, type) : null
-      if (!entry) return err(gs.ERR.INVALID_INPUT, `"${type}" is not registered${reg.world ? ` in ${reg.world}` : ''}. Call register_node_type first.`)
-
-      const prevMeta = entry.metadata || {}
-      const recipe = recipePatch(actor, prevMeta, { fields, example, network, removeNetwork }, reg.scope)
-      if (recipe.error) return recipe.error
-      const metadata = { ...prevMeta, ...recipe.patch }
-      const changed = Object.keys(recipe.patch).filter((k) => k !== 'network' || !sameNetwork(prevMeta.network, recipe.patch.network))
-      if (consumer != null) { metadata.consumer = String(consumer).trim(); changed.push('consumer') }
-      if (removeNetwork) {
-        if (prevMeta.network) changed.push('network')
-        delete metadata.network
-      }
-      const patch = { metadata }
-      if (description != null) { patch.info = String(description).trim(); changed.push('description') }
-      if (!changed.length) {
-        return ok({ success: true, type, changed: [], network: metadata.network ? { version: Number(metadata.network.version) || 1, status: String(metadata.network.status) } : null },
-          `Nothing changed on "${type}": what you passed is what it already holds.`)
-      }
-
-      const result = await gs.updateNode(env, { graphId: reg.graphId, nodeId: entry.id, fields: patch, expectedVersion: reg.version, actor })
-      if (!result.ok) return fromService(result)
-      invalidateNodeTypeCache()
-      const net = metadata.network || null
-      return ok({ success: true, type, changed, network: net ? { version: Number(net.version) || 1, status: String(net.status) } : null },
-        `Changed ${changed.join(', ')} on "${type}"${reg.world ? ` in ${reg.world}` : ''}. list_node_types shows it within a minute.` +
-          (removeNetwork ? ' Network removed: no embed is shown any more.' : (changed.includes('network') ? networkLine(type, net) : '')))
-    },
-  )
-
-  // ── approve_node_type_network ─────────────────────────────────────────────
-  // The network twin of approve_node_type_renderer. Opening a host is a security decision about
-  // every viewer, so it is the Superadmin's alone, per version, with how it was checked recorded.
-  server.registerTool(
-    'approve_node_type_network',
-    {
-      title: 'Approve the network a node type declares',
-      description:
-        'Approve the PENDING network declaration (embed from one host) of a registered platform ' +
-        'type, so <vegvisr-node> v6 shows the embed for nodes of the type in every viewer. The embed ' +
-        'is built by the engine itself from the declaration and the node\'s id field — the renderer ' +
-        'sandbox stays closed. Pass the version you reviewed: if the declaration changed since, the ' +
-        'approval is refused. Superadmin only. Requires the graph:write scope.',
-      inputSchema: {
-        type: z.string().min(2).max(40).describe('The type, e.g. "youtube".'),
-        version: z.number().int().min(1).describe('The network version you reviewed.'),
-        verifyMethod: z.string().min(5).describe('How it was checked before approval, e.g. "host and id pattern reviewed".'),
-        observed: z.string().optional().describe('What the check showed.'),
-      },
-      outputSchema: {
-        success: z.boolean(),
-        type: z.string(),
-        version: z.number(),
-        status: z.string(),
-        host: z.string(),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    },
-    async ({ type, version, verifyMethod, observed }) => {
-      const { auth, env, props } = getContext()
-      const scopeErr = requireScope(auth, 'graph:write')
-      if (scopeErr) return scopeErr
-      const actor = actorFromAuth(auth, props)
-      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
-
-      const reg = await typeRegistryFor(env, actor, null, 'Approving network access')
-      if (reg.error) return reg.error
-      const entry = typeEntryIn(reg.nodes, type)
-      const prev = entry?.metadata?.network
-      if (!entry || !prev) return err(gs.ERR.INVALID_INPUT, `"${type}" declares no network to approve. Declare it with update_node_type first.`)
-      if (Number(prev.version) !== version) {
-        return err(gs.ERR.VERSION_CONFLICT, `The network of "${type}" is at v${prev.version}, not v${version}. Review the current version and approve that.`)
-      }
-      const valid = normalizeNetwork(prev)
-      if (!valid.ok) return err(gs.ERR.INVALID_INPUT, `The stored network of "${type}" no longer validates (${valid.message}). Declare it again with update_node_type.`)
-      const net = {
-        ...prev,
-        status: 'approved',
-        approvedBy: actor.userEmail || actor.userId,
-        approvedAt: new Date().toISOString(),
-        verify: { method: verifyMethod, ...(observed ? { observed } : {}) },
-      }
-      const result = await gs.updateNode(env, {
-        graphId: reg.graphId, nodeId: entry.id, fields: { metadata: { ...(entry.metadata || {}), network: net } },
-        expectedVersion: reg.version, actor,
-      })
-      if (!result.ok) return fromService(result)
-      invalidateNodeTypeCache()
-      const host = embedHost(prev.embed)
-      return ok({ success: true, type, version, status: 'approved', host },
-        `Network v${version} for "${type}" approved: <vegvisr-node> v6 embeds from ${host} for nodes whose metadata.${prev.idField} matches. GET /node-types carries it within a minute.`)
+      return ok({ success: true, type: name, registryNodeId, alreadyRegistered: false },
+        `Registered node type "${name}" as ${registryNodeId} in ${REGISTRY_GRAPH_ID}. add_node and update_node accept it from the next request.`)
     },
   )
 
@@ -951,12 +731,6 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
           consumer: z.string().nullable().describe('What reads nodes of this type. Null for a World\'s type.'),
           renderer: z.object({ version: z.number(), status: z.string() }).nullable()
             .describe('Null: no renderer, the node is read by a program. status "approved": displayed in every viewer.'),
-          fields: z.array(z.object({ key: z.string(), label: z.string(), kind: z.string(), hint: z.string().optional() }))
-            .describe('The metadata keys a node of this type carries. Write them into node.metadata.'),
-          example: z.object({ label: z.string().optional(), info: z.string().optional(), metadata: z.record(z.string(), z.any()).optional() }).nullable()
-            .describe('One correct node of this type. Copy its shape.'),
-          network: z.object({ version: z.number(), status: z.string(), host: z.string(), embed: z.string(), idPattern: z.string(), idField: z.string() }).nullable()
-            .describe('An embed the type declares. status "approved": the viewers show it, built from node.metadata[idField].'),
         })),
         world: z.string().nullable(),
       },
@@ -971,19 +745,8 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
 
       const domain = normalizeWorld(world)
       const renderers = await nodeTypeRenderers(env, domain ? { world: domain } : {})
-      // An entry may hold only an embed (no renderer): then it has no status and is no renderer.
-      const rendererOf = (t) => (renderers[t]?.status ? { version: Number(renderers[t].version) || 1, status: String(renderers[t].status) } : null)
+      const rendererOf = (t) => (renderers[t] ? { version: Number(renderers[t].version) || 1, status: String(renderers[t].status) } : null)
       const text = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null)
-      const fieldsOf = (m) => (Array.isArray(m?.fields) ? m.fields.filter((f) => f && f.key && f.label).map((f) => ({ key: String(f.key), label: String(f.label), kind: String(f.kind || 'text'), ...(f.hint ? { hint: String(f.hint) } : {}) })) : [])
-      const exampleOf = (m) => (m?.example && typeof m.example === 'object' && !Array.isArray(m.example) ? m.example : null)
-      // The declaration as stored, pending or approved — a writer needs to know which key holds the id either way.
-      const networkOf = (m) => {
-        const n = m?.network
-        if (!n) return null
-        const v = normalizeNetwork(n)
-        if (!v.ok) return null
-        return { version: Number(n.version) || 1, status: String(n.status || 'pending'), host: embedHost(v.network.embed), ...v.network }
-      }
 
       const registered = []
       for (const type of await registeredNodeTypes(env)) {
@@ -996,17 +759,14 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
           description: text(entry?.info),
           consumer: text(entry?.metadata?.consumer),
           renderer: rendererOf(type),
-          fields: fieldsOf(entry?.metadata),
-          example: exampleOf(entry?.metadata),
-          network: networkOf(entry?.metadata),
         })
       }
-      // A World's own types: names, titles, fields and renderer status only — the same public
-      // contract as GET /node-types?world= (decided 2026-10-18, D4 A). Their descriptions stay in the World.
+      // A World's own types: names, titles and renderer status only — the same public contract as
+      // GET /node-types?world= (decided 2026-10-18, D4 A). Their descriptions stay in the World.
       if (domain) {
         for (const [type, info] of Object.entries(await worldTypeInfo(env, domain))) {
           if (NODE_TYPES.includes(type) || registered.some((r) => r.type === type)) continue
-          registered.push({ type, scope: 'world', title: text(info?.title), description: null, consumer: null, renderer: rendererOf(type), fields: fieldsOf(info), example: null, network: null })
+          registered.push({ type, scope: 'world', title: text(info?.title), description: null, consumer: null, renderer: rendererOf(type) })
         }
       }
 
@@ -1019,16 +779,10 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         ...registered.map((r) => {
           const shown = r.renderer
             ? `renderer v${r.renderer.version} ${r.renderer.status}`
-            : (r.network?.status === 'approved' ? 'no renderer — shown as its embed' : 'no renderer — read by a program')
+            : 'no renderer — read by a program'
           const what = r.description || r.title || ''
-          const recipe = [
-            r.fields.length ? `    fields (node.metadata): ${r.fields.map((f) => `${f.key} (${f.kind})${f.hint ? ` — ${f.hint}` : ''}`).join('; ')}` : null,
-            r.network ? `    network: embed from ${r.network.host}, id from metadata.${r.network.idField} matching ${r.network.idPattern} [${r.network.status} v${r.network.version}]` : null,
-            r.example ? `    example: ${JSON.stringify(r.example)}` : null,
-          ].filter(Boolean)
           return `- ${r.type}${r.scope === 'world' ? ` (${domain})` : ''} — ${what ? `${what} ` : ''}[${shown}]` +
-            (r.consumer ? ` Read by: ${r.consumer}.` : '') +
-            (recipe.length ? `\n${recipe.join('\n')}` : '')
+            (r.consumer ? ` Read by: ${r.consumer}.` : '')
         }),
       ]
       return ok({ success: true, count, renderable: [...NODE_TYPES], registered, world: domain }, lines.join('\n'))
@@ -5960,6 +5714,4 @@ export const TOOL_NAMES = [
   'set_node_type_renderer',
   'approve_node_type_renderer',
   'list_node_types',
-  'update_node_type',
-  'approve_node_type_network',
 ]
