@@ -356,7 +356,7 @@ describe('list_node_types with world', () => {
 
     const withWorld = sc(await call(stranger, 'list_node_types', { world: WORLD }))
     const card = withWorld.registered.find((x) => x.type === 'test-card')
-    assert.deepEqual(card, { type: 'test-card', scope: 'world', title: 'test-card', description: null, consumer: null, renderer: null },
+    assert.deepEqual(card, { type: 'test-card', scope: 'world', title: 'test-card', description: null, consumer: null, renderer: null, fields: [], example: null, network: null },
       "a World's description stays in the World — the same public contract as GET /node-types?world=")
     assert.equal(withWorld.registered.findIndex((x) => x.type === 'work-context') < withWorld.registered.indexOf(card), true)
 

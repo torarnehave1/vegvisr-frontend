@@ -184,17 +184,27 @@ export async function nodeTypeEntry(env, type, opts = {}) {
 }
 
 /**
- * { type: { version, status } } for every registered type that has a renderer. No code. With
- * `world`, that World's types are added (marked scope: 'world'); a platform type is never replaced.
+ * { type: { version, status, embed? } } for every registered type that has a renderer or an
+ * APPROVED network declaration. No code. With `world`, that World's types are added (marked
+ * scope: 'world'); a platform type is never replaced. A type with only an embed has no
+ * version/status — it has no renderer — and carries `embed` alone.
  */
 export async function nodeTypeRenderers(env, opts = {}) {
   const out = {}
   const add = (nodes, scope) => {
     for (const n of nodes) {
       const name = String(n.label).trim()
+      if (out[name]) continue
       const r = n.metadata?.renderer
-      if (out[name] || !r || !(r.impl || r.component)) continue
-      out[name] = { version: r.version ?? 1, status: r.status || 'pending', ...(scope ? { scope } : {}) }
+      const hasRenderer = Boolean(r && (r.impl || r.component))
+      // Network is a platform-only privilege (2026-10-29): a World's type never gets an embed.
+      const embed = scope ? null : approvedEmbed(n)
+      if (!hasRenderer && !embed) continue
+      out[name] = {
+        ...(hasRenderer ? { version: r.version ?? 1, status: r.status || 'pending' } : {}),
+        ...(embed ? { embed } : {}),
+        ...(scope ? { scope } : {}),
+      }
     }
   }
   add(await registryTypeNodes(env, opts), null)
@@ -220,4 +230,120 @@ export async function approvedRenderer(env, type, { getGraph = gs.getGraph, ...o
     if (typeof impl === 'string' && impl.trim()) return { type, version: r.version ?? 1, impl, component: r.component }
   }
   return null
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Recipe and network — what a node of a type must hold, and what it may embed (2026-10-29)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Decided by the architect 2026-10-29 (graph e1678d8c "Nodetyper med oppskrift og nettverk"):
+// a type carries its own recipe, so an agent writes a correct node the first time instead of
+// searching other graphs for one that works (a youtube-video node was written wrong three ways
+// that day). The recipe is metadata.fields (the World types' shape, reused) plus metadata.example.
+//
+// A type may also DECLARE network: an embed URL template on ONE approved host, e.g.
+//   { embed: 'https://www.youtube-nocookie.com/embed/{id}', idPattern: '[A-Za-z0-9_-]{11}', idField: 'videoId' }
+// The renderer sandbox is NOT opened for it — "Isolation, not approval, is the security
+// boundary" still holds. <vegvisr-node> v6 builds the iframe itself, outside the sandbox, from
+// the declaration and the node's metadata[idField], and only when the declaration is APPROVED.
+// Like a renderer: saved pending, approved per version by the Superadmin, and any change to it
+// starts a new pending version. Platform types only; a World's type cannot declare network.
+
+const META_KEY = /^[a-z][a-zA-Z0-9_]{0,39}$/
+const MAX_EMBED = 300
+const MAX_ID_PATTERN = 200
+const MAX_EXAMPLE = 4000
+/** Characters an id may never contain, whatever its pattern says: they would leave the slot. */
+const ID_FORBIDDEN = /[/?#%\\\s]/
+
+const bad = (message) => ({ ok: false, code: gs.ERR.INVALID_INPUT, status: gs.statusForCode(gs.ERR.INVALID_INPUT), message })
+
+/** The pattern a declared idPattern is tested with: anchored, whatever anchors it was written with. */
+export function anchoredIdPattern(idPattern) {
+  const core = String(idPattern || '').trim().replace(/^\^/, '').replace(/\$$/, '')
+  return new RegExp(`^(?:${core})$`)
+}
+
+/**
+ * A validated network declaration { embed, idPattern, idField }, or a failure naming what is wrong.
+ * The id may only fill the URL's path or query — never its host — and must be https.
+ */
+export function normalizeNetwork(network) {
+  if (!network || typeof network !== 'object' || Array.isArray(network)) return bad('network must be an object { embed, idPattern, idField }.')
+  const embed = String(network.embed || '').trim()
+  if (!embed || embed.length > MAX_EMBED) return bad(`network.embed must be a URL of at most ${MAX_EMBED} characters.`)
+  if (embed.split('{id}').length !== 2) return bad('network.embed must contain {id} exactly once, where the node\'s id goes.')
+  if (/[{}]/.test(embed.replace('{id}', ''))) return bad('network.embed may hold no other { } than {id}.')
+  let a, b
+  try {
+    a = new URL(embed.replace('{id}', 'AAAAAAAAAAA'))
+    b = new URL(embed.replace('{id}', 'BBBBBBBBBBB'))
+  } catch {
+    return bad('network.embed is not a valid URL.')
+  }
+  if (a.protocol !== 'https:') return bad('network.embed must be https.')
+  if (a.username || a.password) return bad('network.embed may not carry a user name or password.')
+  if (a.host !== b.host) return bad('{id} may only stand in the path or query of network.embed, never in its host.')
+
+  const idPattern = String(network.idPattern || '').trim().replace(/^\^/, '').replace(/\$$/, '')
+  if (!idPattern || idPattern.length > MAX_ID_PATTERN) return bad(`network.idPattern must be a regular expression of at most ${MAX_ID_PATTERN} characters.`)
+  let re
+  try { re = anchoredIdPattern(idPattern) } catch (e) { return bad(`network.idPattern is not a valid regular expression: ${e.message}`) }
+  if (re.test('')) return bad('network.idPattern must not accept an empty id.')
+  for (const probe of ['a/b', 'a?b', 'a#b', 'a%2Fb', 'a b']) {
+    if (re.test(probe)) return bad(`network.idPattern accepts "${probe}". An id may not contain / ? # % or spaces — narrow the pattern, e.g. [A-Za-z0-9_-]{11}.`)
+  }
+
+  const idField = String(network.idField || '').trim().replace(/^metadata\./, '')
+  if (!META_KEY.test(idField)) return bad('network.idField must be the metadata key that holds the id, e.g. "videoId".')
+  return { ok: true, network: { embed, idPattern, idField } }
+}
+
+/** The host a network declaration opens, for messages: "www.youtube-nocookie.com". */
+export function embedHost(embed) {
+  try { return new URL(String(embed).replace('{id}', 'x')).host } catch { return '' }
+}
+
+/** True when two declarations open exactly the same thing — then an approval may be kept. */
+export function sameNetwork(a, b) {
+  return Boolean(a && b) && a.embed === b.embed && a.idPattern === b.idPattern && a.idField === b.idField
+}
+
+/**
+ * The public description of an APPROVED declaration on a registry node, or null. What
+ * <vegvisr-node> builds the iframe from: { version, url, idPattern, idField }. A stored declaration
+ * that no longer validates is treated as absent — nothing unchecked ever reaches a browser.
+ */
+export function approvedEmbed(node) {
+  const net = node?.metadata?.network
+  if (!net || net.status !== 'approved') return null
+  const v = normalizeNetwork(net)
+  if (!v.ok) return null
+  return { version: Number(net.version) || 1, url: v.network.embed, idPattern: v.network.idPattern, idField: v.network.idField }
+}
+
+/** The id an embed would use for a node, or null when it is missing or does not match. */
+export function embedIdFor(embed, node) {
+  if (!embed) return null
+  const id = String(node?.metadata?.[embed.idField] ?? '').trim()
+  if (!id || id.length > 200 || ID_FORBIDDEN.test(id)) return null
+  try { return anchoredIdPattern(embed.idPattern).test(id) ? id : null } catch { return null }
+}
+
+/**
+ * A validated example node { label?, info?, metadata? } — the recipe in its most direct form —
+ * or a failure. Small on purpose: it is shown in list_node_types, not stored as content.
+ */
+export function normalizeExample(example) {
+  if (!example || typeof example !== 'object' || Array.isArray(example)) return bad('example must be an object { label, info, metadata }.')
+  const out = {}
+  if (example.label != null) out.label = String(example.label).slice(0, 200)
+  if (example.info != null) out.info = String(example.info)
+  if (example.metadata != null) {
+    if (typeof example.metadata !== 'object' || Array.isArray(example.metadata)) return bad('example.metadata must be an object.')
+    out.metadata = JSON.parse(JSON.stringify(example.metadata))
+  }
+  if (!Object.keys(out).length) return bad('example needs at least one of label, info or metadata.')
+  if (JSON.stringify(out).length > MAX_EXAMPLE) return bad(`example is larger than ${MAX_EXAMPLE} characters; keep it to one short node.`)
+  return { ok: true, example: out }
 }

@@ -24,7 +24,7 @@ import { mayUseWorld, worldsFoundedBy } from './graph-store.js'
 import { NODE_TYPES } from './node-types.js'
 import {
   REGISTRY_NODE_TYPE, TYPE_NAME, WORLD_TYPES_TAG, normalizeWorld, registeredNodeTypes,
-  worldRegistryGraph, invalidateNodeTypeCache,
+  worldRegistryGraph, invalidateNodeTypeCache, normalizeExample,
 } from './node-type-registry.js'
 
 const ERR = gs.ERR
@@ -73,7 +73,10 @@ export function normalizeFields(fields) {
     if (!FIELD_KEY.test(key)) return fail(ERR.INVALID_INPUT, `fields[${i}] ("${label}"): key must start with a letter and hold only letters, digits or _.`)
     if (seen.has(key)) return fail(ERR.INVALID_INPUT, `Two fields share the key "${key}".`)
     seen.add(key)
-    out.push({ key, label, kind })
+    // hint (2026-10-29): one line telling a writer what goes in the field, e.g. "the 11-character
+    // YouTube video id". Optional, and absent from the stored field unless given.
+    const hint = f?.hint != null ? String(f.hint).trim().slice(0, 200) : ''
+    out.push({ key, label, kind, ...(hint ? { hint } : {}) })
   }
   return { ok: true, fields: out }
 }
@@ -128,7 +131,7 @@ async function platformNames(env) {
  * this World gets -2, -3 … when it came from a title, and is reported when it was asked for.
  * A platform name is never taken (no shadowing, D2 A). The registry graph is created on first use.
  */
-export async function createWorldType(env, actor, { world, type, title, description, consumer, fields }) {
+export async function createWorldType(env, actor, { world, type, title, description, consumer, fields, example }) {
   const where = await resolveTypeWorld(env, actor, world)
   if (!where.ok) return where
   const domain = where.world
@@ -140,6 +143,12 @@ export async function createWorldType(env, actor, { world, type, title, descript
   if (!f.ok) return f
   const desc = String(description || '').trim()
   if (desc.length < 10) return fail(ERR.INVALID_INPUT, 'Describe in a sentence what a node of this type holds.')
+  let ex = null
+  if (example != null) {
+    const e = normalizeExample(example)
+    if (!e.ok) return e
+    ex = e.example
+  }
 
   const reg = await registryOf(env, domain)
   if (!reg.ok) return reg
@@ -166,6 +175,7 @@ export async function createWorldType(env, actor, { world, type, title, descript
     metadata: {
       title: shownTitle || name,
       fields: f.fields,
+      ...(ex ? { example: ex } : {}),
       consumer: String(consumer || 'vegvisr-node').trim(),
       scope: `world:${domain}`,
       renders: false,

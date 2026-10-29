@@ -259,7 +259,7 @@ describe('list_node_types: every type, and what each registered one is for', () 
 
     const before = sc(await call(alice, 'list_node_types', {}))
     const ms = before.registered.find((x) => x.type === 'micro-story')
-    assert.deepEqual(ms, { type: 'micro-story', scope: 'platform', title: null, description: 'One captured micro-narrative.', consumer: 'vegvisr-node', renderer: null })
+    assert.deepEqual(ms, { type: 'micro-story', scope: 'platform', title: null, description: 'One captured micro-narrative.', consumer: 'vegvisr-node', renderer: null, fields: [], example: null, network: null })
 
     await call(owner, 'set_node_type_renderer', { type: 'micro-story', impl: IMPL })
     invalidateNodeTypeCache()
