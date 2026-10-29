@@ -123,7 +123,7 @@ export async function listGroupMembers(env, { groupId, actor }) {
   const detailed = CAN_INVITE.includes(gate.role)
 
   const rows = await env.CHAT_DB.prepare(
-    'SELECT user_id, role, joined_at FROM group_members WHERE group_id = ? ORDER BY joined_at',
+    'SELECT user_id, role, joined_at, alerts_enabled FROM group_members WHERE group_id = ? ORDER BY joined_at',
   )
     .bind(groupId)
     .all()
@@ -152,6 +152,8 @@ export async function listGroupMembers(env, { groupId, actor }) {
         name: p?.display_name || null,
         role: m.role,
         joinedAt: m.joined_at ? new Date(m.joined_at).toISOString() : null,
+        // Opted in to email alerts from the owner (Group Info in the chat app).
+        alertsEnabled: !!m.alerts_enabled,
         ...(detailed ? { email: p?.email || null } : {}),
       }
     }),
@@ -345,6 +347,53 @@ export async function removeGroupMember(env, { groupId, email, actor }) {
   }
 
   return { ok: true, groupId, email: address, removedUserId: target.user_id }
+}
+
+/**
+ * Send an email alert to a member — the bell menu in the chat app, from the MCP side.
+ *
+ * Owner only, and only to a member who has turned alerts on for this group. Both rules are
+ * enforced by group-chat-worker's POST /groups/{id}/alert, which also composes and sends the
+ * email ("New activity in <group>" with an "Open the chat" link). The owner check is repeated
+ * here only so the refusal is plain and arrives before the caller's credentials are looked up.
+ */
+export async function sendGroupAlert(env, { groupId, email, actor }) {
+  if (!groupId) return fail(ERR.INVALID_INPUT, 'groupId is required.')
+  const address = String(email || '').trim().toLowerCase()
+  if (!address) return fail(ERR.INVALID_INPUT, 'email is required.')
+
+  const gate = await requireGroupRole(env, groupId, actor, ['owner'])
+  if (!gate.ok) return gate
+
+  const target = await env.vegvisr_org
+    .prepare('SELECT user_id FROM config WHERE LOWER(email) = ? LIMIT 1')
+    .bind(address)
+    .first()
+  if (!target?.user_id) {
+    return fail(ERR.GRAPH_NOT_FOUND, `${address} is not a registered VEGR.AI user.`, { email: address })
+  }
+
+  const creds = await callerCredentials(env, actor)
+  if (!creds.ok) {
+    return fail(ERR.FORBIDDEN_GRAPH, `The chat service cannot identify you: ${creds.reason}.`)
+  }
+
+  const res = await env.CHAT_WORKER.fetch(`https://group-chat-worker/groups/${groupId}/alert`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: creds.userId, phone: creds.phone, email: creds.email, target_user_id: target.user_id }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || !data.success) {
+    console.error('[chat-members] alert refused, status', res.status)
+    return fail(
+      res.status === 404 ? ERR.GRAPH_NOT_FOUND : res.status === 409 || res.status === 422 ? ERR.INVALID_INPUT : ERR.FORBIDDEN_GRAPH,
+      data.error || `The chat service refused the alert (status ${res.status}).`,
+      { groupId, email: address },
+    )
+  }
+
+  return { ok: true, groupId, email: address, alertedUserId: target.user_id }
 }
 
 /**

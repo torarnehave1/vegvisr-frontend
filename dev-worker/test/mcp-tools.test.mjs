@@ -113,6 +113,7 @@ describe('18. tools/list', () => {
     'set_user_role',
     'add_group_member',
     'remove_group_member',
+    'send_group_alert',
     'set_group_member_role',
   ])
 
@@ -895,6 +896,8 @@ describe('annotations tell the client the truth about each tool', () => {
       // system's own database and changes nothing.
       'add_group_member',
       'remove_group_member',
+      // Added 2026-10-29: e-mails a member who opted in; owner only, like the bell menu.
+      'send_group_alert',
       'create_group_invite',
       // Added 2026-10-03. The only e-mail tool that reaches outside: preview_email renders and
       // list_email_senders reads, but this one delivers to a person and cannot be recalled.
@@ -1389,6 +1392,7 @@ describe('publish_html_node is the one tool that reaches the public internet', (
       'register_user',
       'remove_group_member',
       'send_email',
+      'send_group_alert',
       'send_meeting_report',
       'send_sms',
       'send_sms_to_user',
@@ -3149,6 +3153,7 @@ describe('post_chat_message is gated harder than everything else', () => {
       'register_user',
       'remove_group_member',
       'send_email',
+      'send_group_alert',
       'send_meeting_report',
       'send_sms',
       'send_sms_to_user',
@@ -3241,6 +3246,7 @@ describe('read_chat_messages is gated apart from posting', () => {
       'register_user',
       'remove_group_member',
       'send_email',
+      'send_group_alert',
       'send_meeting_report',
       'send_sms',
       'send_sms_to_user',

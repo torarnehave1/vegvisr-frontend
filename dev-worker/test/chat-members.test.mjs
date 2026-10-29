@@ -322,3 +322,42 @@ describe('changing a member\'s role', () => {
     assert.match(r.message, /cannot change their own role/)
   })
 })
+
+describe('send_group_alert — the bell menu, from MCP', () => {
+  test('owner only: admin and member are refused before any call', async () => {
+    const { env, worker } = setup()
+    for (const actor of [BOB, CAROL]) {
+      const r = await members.sendGroupAlert(env, { groupId: 'g1', email: 'carol@example.com', actor })
+      assert.equal(r.code, gs.ERR.FORBIDDEN_GRAPH)
+    }
+    assert.equal(worker.calls.length, 0)
+  })
+
+  test("the owner's own credentials and the target's user id go to /alert", async () => {
+    const { env, worker } = setup()
+    const r = await members.sendGroupAlert(env, { groupId: 'g1', email: 'Carol@Example.com', actor: ALICE })
+    assert.equal(r.ok, true, JSON.stringify(r))
+    assert.equal(r.alertedUserId, 'u-carol')
+    assert.equal(worker.calls.length, 1)
+    assert.match(worker.calls[0].url, /\/groups\/g1\/alert$/)
+    assert.equal(worker.calls[0].method, 'POST')
+    assert.equal(worker.calls[0].body.user_id, 'u-alice')
+    assert.equal(worker.calls[0].body.target_user_id, 'u-carol')
+  })
+
+  test('a member without alerts on: the chat worker refusal passes through', async () => {
+    const { env } = setup({ ok: false, status: 409, body: { error: 'Target user has not enabled email alerts' } })
+    const r = await members.sendGroupAlert(env, { groupId: 'g1', email: 'carol@example.com', actor: ALICE })
+    assert.equal(r.ok, false)
+    assert.match(r.message, /not enabled email alerts/)
+  })
+
+  test('list_group_members says who has alerts on', async () => {
+    const { env, raw } = setup()
+    raw.prepare("UPDATE group_members SET alerts_enabled = 1 WHERE user_id = 'u-carol'").run()
+    const r = await members.listGroupMembers(env, { groupId: 'g1', actor: ALICE })
+    const byId = Object.fromEntries(r.members.map((m) => [m.userId, m.alertsEnabled]))
+    assert.equal(byId['u-carol'], true)
+    assert.equal(byId['u-bob'], false)
+  })
+})

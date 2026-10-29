@@ -1537,7 +1537,8 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         'admin or member) and when they joined. Use it before add_group_member or ' +
         'remove_group_member to see who is already there and whether you have the standing to ' +
         'change it — your own role is in the reply. E-mail addresses are included only if you ' +
-        'are the owner or an admin; an ordinary member sees display names. Requires the ' +
+        'are the owner or an admin; an ordinary member sees display names. alertsEnabled says who ' +
+        'has turned on email alerts (see send_group_alert). Requires the ' +
         'chat:write scope.',
       inputSchema: {
         groupId: z.string().min(1).describe('The group. Use list_chat_groups to find one.'),
@@ -1553,6 +1554,7 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
             name: z.string().nullable(),
             role: z.string(),
             joinedAt: z.string().nullable(),
+            alertsEnabled: z.boolean(),
             email: z.string().nullable().optional(),
           }),
         ),
@@ -1571,7 +1573,7 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
 
       const { ok: _o, ...payload } = result
       const lines = result.members.map(
-        (m) => `• ${m.name || m.userId}${m.email ? ` <${m.email}>` : ''} — ${m.role}`,
+        (m) => `• ${m.name || m.userId}${m.email ? ` <${m.email}>` : ''} — ${m.role}${m.alertsEnabled ? ' · email alerts on' : ''}`,
       )
       return ok(
         { success: true, ...payload },
@@ -1673,6 +1675,47 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
 
       const { ok: _o, ...payload } = result
       return ok({ success: true, ...payload }, `Removed ${result.email} from the group.`)
+    },
+  )
+
+  // ── send_group_alert ──────────────────────────────────────────────────────
+  // The chat app's bell menu ("Send alert"), as a tool. group-chat-worker composes and sends the
+  // email and enforces both rules (owner only; the member has alerts turned on).
+  server.registerTool(
+    'send_group_alert',
+    {
+      title: 'Send an email alert to a chat group member',
+      description:
+        'Send an email alert to a member of a chat group you OWN, by e-mail — the same as "Send ' +
+        'alert" in the chat app\'s bell menu. The member must have turned on email alerts for ' +
+        'the group (list_group_members shows alertsEnabled). The email is fixed: "New activity ' +
+        'in <group>" with a link that opens the chat; there is no custom text. It lands in the ' +
+        'person\'s inbox, so confirm with the user before calling this. Requires the chat:write scope.',
+      inputSchema: {
+        groupId: z.string().min(1).describe('The group you own. Use list_chat_groups to find one.'),
+        email: z.string().min(3).describe("The member's registered e-mail address. Use list_group_members to check it."),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        groupId: z.string(),
+        email: z.string(),
+        alertedUserId: z.string(),
+      },
+      // Sends an email to a real person: not read-only, not idempotent (twice is two emails).
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ groupId, email }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await members.sendGroupAlert(env, { groupId, email, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok({ success: true, ...payload }, `Email alert sent to ${result.email}.`)
     },
   )
 
@@ -5723,6 +5766,7 @@ export const TOOL_NAMES = [
   'list_group_members',
   'add_group_member',
   'remove_group_member',
+  'send_group_alert',
   'set_group_member_role',
   'create_group_invite',
   'list_email_senders',
