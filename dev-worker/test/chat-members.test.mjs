@@ -13,7 +13,7 @@
  */
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { freshDb, seedUsers, seedChat } from './d1-adapter.mjs'
+import { freshDb, seedUsers, seedChat, seedSenders, seedGrants, RecordingEmailWorker } from './d1-adapter.mjs'
 import * as members from '../chat-members.js'
 import * as gs from '../graph-service.js'
 
@@ -359,5 +359,57 @@ describe('send_group_alert — the bell menu, from MCP', () => {
     const byId = Object.fromEntries(r.members.map((m) => [m.userId, m.alertsEnabled]))
     assert.equal(byId['u-carol'], true)
     assert.equal(byId['u-bob'], false)
+  })
+})
+
+describe('send_group_alert — a Superadmin who does not own the group', () => {
+  const SUPER = gs.normalizeActor({ valid: true, userId: 'u-boss', userEmail: 'boss@example.com', userRole: 'Superadmin', scopes: ['chat:write'] })
+
+  function superWorld({ holdsVegr = true, alertsOn = true } = {}) {
+    const ctx = setup()
+    seedGrants(ctx.raw)
+    seedSenders(ctx.raw, 'boss@example.com', holdsVegr ? [{ email: 'post@vegr.ai', name: 'VEGR.AI', verified: true }] : [], { role: 'Superadmin', userId: 'u-boss' })
+    ctx.raw.prepare("INSERT OR REPLACE INTO groups (id, name) VALUES ('g1', 'Testgruppe')").run()
+    if (alertsOn) ctx.raw.prepare("UPDATE group_members SET alerts_enabled = 1 WHERE user_id = 'u-carol'").run()
+    const mail = new RecordingEmailWorker()
+    ctx.env.EMAIL_WORKER = mail
+    ctx.env.INTERNAL_SHARED_SECRET = 'secret'
+    return { ...ctx, mail }
+  }
+
+  test('sends the same fixed email from post@vegr.ai, not through the chat worker', async () => {
+    const { env, worker, mail } = superWorld()
+    const r = await members.sendGroupAlert(env, { groupId: 'g1', email: 'carol@example.com', actor: SUPER })
+    assert.equal(r.ok, true, JSON.stringify(r))
+    assert.equal(r.sentAs, 'superadmin')
+    assert.equal(r.fromEmail, 'post@vegr.ai')
+    assert.equal(worker.calls.length, 0, 'the owner-only chat endpoint is not used')
+    assert.equal(mail.calls.length, 1)
+    assert.equal(mail.calls[0].body.toEmail, 'carol@example.com')
+    assert.equal(mail.calls[0].body.subject, 'New activity in Testgruppe')
+  })
+
+  test('the member must still have alerts on', async () => {
+    const { env, mail } = superWorld({ alertsOn: false })
+    const r = await members.sendGroupAlert(env, { groupId: 'g1', email: 'carol@example.com', actor: SUPER })
+    assert.equal(r.ok, false)
+    assert.match(r.message, /not enabled email alerts/)
+    assert.equal(mail.calls.length, 0)
+  })
+
+  test('Superadmin grants no sender: without post@vegr.ai on the profile or a grant, nothing is sent', async () => {
+    const { env, mail } = superWorld({ holdsVegr: false })
+    const r = await members.sendGroupAlert(env, { groupId: 'g1', email: 'carol@example.com', actor: SUPER })
+    assert.equal(r.ok, false)
+    assert.equal(mail.calls.length, 0)
+  })
+
+  test('the owner still goes through the chat worker, as the bell menu does', async () => {
+    const { env, worker, mail } = superWorld()
+    const r = await members.sendGroupAlert(env, { groupId: 'g1', email: 'carol@example.com', actor: ALICE })
+    assert.equal(r.ok, true)
+    assert.equal(r.sentAs, 'owner')
+    assert.equal(worker.calls.length, 1)
+    assert.equal(mail.calls.length, 0)
   })
 })

@@ -29,6 +29,7 @@
  */
 
 import { ERR, statusForCode } from './graph-service.js'
+import { sendEmail } from './email-service.js'
 
 function fail(code, message, extra = {}) {
   return { ok: false, code, status: statusForCode(code), message, ...extra }
@@ -349,30 +350,91 @@ export async function removeGroupMember(env, { groupId, email, actor }) {
   return { ok: true, groupId, email: address, removedUserId: target.user_id }
 }
 
+/** The address a Superadmin's alert comes from. The caller must hold it (profile or grant). */
+export const SUPERADMIN_ALERT_SENDER = 'post@vegr.ai'
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+/** The same email the chat worker sends from the bell menu, so a member cannot tell the doors apart. */
+export function alertEmail(groupId, groupName) {
+  const chatUrl = `https://chat.vegvisr.org/?group=${encodeURIComponent(groupId)}`
+  return {
+    subject: `New activity in ${groupName}`,
+    bodyHtml:
+      `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;color:#0f172a;line-height:1.5">` +
+      `<p>There's new activity in <strong>${escapeHtml(groupName)}</strong>.</p>` +
+      `<p><a href="${chatUrl}" style="display:inline-block;padding:10px 18px;background:#0284c7;color:#fff;border-radius:8px;text-decoration:none">Open the chat</a></p>` +
+      `<p style="color:#64748b;font-size:13px">You're receiving this because you enabled email alerts for this group. Turn them off anytime in Group Info.</p></div>`,
+  }
+}
+
 /**
  * Send an email alert to a member — the bell menu in the chat app, from the MCP side.
  *
- * Owner only, and only to a member who has turned alerts on for this group. Both rules are
- * enforced by group-chat-worker's POST /groups/{id}/alert, which also composes and sends the
- * email ("New activity in <group>" with an "Open the chat" link). The owner check is repeated
- * here only so the refusal is plain and arrives before the caller's credentials are looked up.
+ * Two doors, one rule that never changes: the MEMBER must have turned alerts on for this group.
+ *
+ * - The group OWNER goes through group-chat-worker's POST /groups/{id}/alert, exactly as the
+ *   bell menu does (the worker re-checks owner + opt-in and sends from its own alert sender).
+ * - A platform SUPERADMIN who does not own the group (added 2026-10-29, Tor Arne's decision):
+ *   the opt-in is checked here, and the same fixed email goes out from post@vegr.ai through
+ *   sendEmail — so the e-mail gate still applies. Superadmin widens WHO may alert, never which
+ *   address may be sent from: the caller must hold post@vegr.ai on their profile or by a grant,
+ *   and the send is rate-limited and logged like any other.
  */
 export async function sendGroupAlert(env, { groupId, email, actor }) {
   if (!groupId) return fail(ERR.INVALID_INPUT, 'groupId is required.')
   const address = String(email || '').trim().toLowerCase()
   if (!address) return fail(ERR.INVALID_INPUT, 'email is required.')
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
 
-  const gate = await requireGroupRole(env, groupId, actor, ['owner'])
-  if (!gate.ok) return gate
+  const role = actor.userId ? await groupRole(env, groupId, actor.userId) : null
+  const asOwner = role === 'owner'
+  if (!asOwner && !actor.isSuperadmin) {
+    return fail(
+      ERR.FORBIDDEN_GRAPH,
+      role
+        ? `You are a ${role} of that group; only the owner or a Superadmin can send email alerts.`
+        : 'You are not a member of that group.',
+      { groupId },
+    )
+  }
 
   const target = await env.vegvisr_org
-    .prepare('SELECT user_id FROM config WHERE LOWER(email) = ? LIMIT 1')
+    .prepare('SELECT user_id, email FROM config WHERE LOWER(email) = ? LIMIT 1')
     .bind(address)
     .first()
   if (!target?.user_id) {
     return fail(ERR.GRAPH_NOT_FOUND, `${address} is not a registered VEGR.AI user.`, { email: address })
   }
 
+  if (!asOwner) {
+    // ── Superadmin door ──
+    const group = await env.CHAT_DB.prepare('SELECT name FROM groups WHERE id = ?').bind(groupId).first()
+    if (!group) return fail(ERR.GRAPH_NOT_FOUND, 'No such group.', { groupId })
+    const member = await env.CHAT_DB
+      .prepare('SELECT alerts_enabled FROM group_members WHERE group_id = ? AND user_id = ?')
+      .bind(groupId, target.user_id)
+      .first()
+    if (!member) return fail(ERR.GRAPH_NOT_FOUND, `${address} is not a member of that group.`, { groupId, email: address })
+    if (!member.alerts_enabled) {
+      return fail(ERR.INVALID_INPUT, `${address} has not enabled email alerts for that group.`, { groupId, email: address })
+    }
+    const { subject, bodyHtml } = alertEmail(groupId, group.name || 'your group chat')
+    const sent = await sendEmail(env, {
+      actor,
+      fromEmail: SUPERADMIN_ALERT_SENDER,
+      toEmail: target.email || address,
+      subject,
+      bodyHtml,
+      surface: 'mcp-group-alert',
+    })
+    if (!sent.ok) return sent
+    return { ok: true, groupId, email: address, alertedUserId: target.user_id, sentAs: 'superadmin', fromEmail: SUPERADMIN_ALERT_SENDER }
+  }
+
+  // ── Owner door: the bell menu's own path ──
   const creds = await callerCredentials(env, actor)
   if (!creds.ok) {
     return fail(ERR.FORBIDDEN_GRAPH, `The chat service cannot identify you: ${creds.reason}.`)
@@ -393,7 +455,7 @@ export async function sendGroupAlert(env, { groupId, email, actor }) {
     )
   }
 
-  return { ok: true, groupId, email: address, alertedUserId: target.user_id }
+  return { ok: true, groupId, email: address, alertedUserId: target.user_id, sentAs: 'owner' }
 }
 
 /**

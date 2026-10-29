@@ -1686,11 +1686,14 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
     {
       title: 'Send an email alert to a chat group member',
       description:
-        'Send an email alert to a member of a chat group you OWN, by e-mail — the same as "Send ' +
-        'alert" in the chat app\'s bell menu. The member must have turned on email alerts for ' +
-        'the group (list_group_members shows alertsEnabled). The email is fixed: "New activity ' +
-        'in <group>" with a link that opens the chat; there is no custom text. It lands in the ' +
-        'person\'s inbox, so confirm with the user before calling this. Requires the chat:write scope.',
+        'Send an email alert to a member of a chat group, by e-mail — the same as "Send alert" ' +
+        'in the chat app\'s bell menu. Allowed for the group OWNER, or for a platform Superadmin ' +
+        'in any group; a Superadmin\'s alert comes from post@vegr.ai and needs that address on ' +
+        'their profile or granted to them (list_email_senders). Either way the member must have ' +
+        'turned on email alerts for the group (list_group_members shows alertsEnabled). The ' +
+        'email is fixed: "New activity in <group>" with a link that opens the chat; there is no ' +
+        'custom text. It lands in the person\'s inbox, so confirm with the user before calling ' +
+        'this. Requires the chat:write scope.',
       inputSchema: {
         groupId: z.string().min(1).describe('The group you own. Use list_chat_groups to find one.'),
         email: z.string().min(3).describe("The member's registered e-mail address. Use list_group_members to check it."),
@@ -1700,6 +1703,8 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         groupId: z.string(),
         email: z.string(),
         alertedUserId: z.string(),
+        sentAs: z.enum(['owner', 'superadmin']),
+        fromEmail: z.string().optional(),
       },
       // Sends an email to a real person: not read-only, not idempotent (twice is two emails).
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -1715,7 +1720,10 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
       if (!result.ok) return fromService(result)
 
       const { ok: _o, ...payload } = result
-      return ok({ success: true, ...payload }, `Email alert sent to ${result.email}.`)
+      return ok(
+        { success: true, ...payload },
+        `Email alert sent to ${result.email}${result.fromEmail ? ` from ${result.fromEmail}` : ''} (as ${result.sentAs}).`,
+      )
     },
   )
 
