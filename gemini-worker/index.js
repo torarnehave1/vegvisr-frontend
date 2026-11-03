@@ -142,7 +142,7 @@ export default {
 
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-role, X-API-Token, x-user-email, X-Email'
     }
 
@@ -192,6 +192,10 @@ export default {
 
       if (pathname === '/speech/library' && request.method === 'DELETE') {
         return await handleSpeechPrune(request, env, corsHeaders)
+      }
+
+      if (pathname === '/speech/clip' && (request.method === 'GET' || request.method === 'PUT')) {
+        return await handleSpeechClip(request, env, corsHeaders)
       }
 
       if (pathname === '/speech/voices' && request.method === 'GET') {
@@ -925,6 +929,21 @@ function handleApiDocs(corsHeaders) {
           }
         }
       },
+      '/speech/clip': {
+        get: {
+          summary: 'Hent et innspilt klipp (sutra/…)',
+          security: [{ apiToken: [] }],
+          parameters: [{ name: 'key', in: 'query', required: true, schema: { type: 'string' }, description: 'Maa begynne med sutra/' }],
+          responses: { 200: { description: 'Lydbytene med lagret Content-Type' }, 404: { description: 'Fant ikke klippet' } }
+        },
+        put: {
+          summary: 'Last opp et innspilt klipp (sutra/…)',
+          description: 'Kropp = lydbytene. Krever Superadmin. Klippene holdes utenfor /speech/library og prune.',
+          security: [{ apiToken: [] }],
+          parameters: [{ name: 'key', in: 'query', required: true, schema: { type: 'string' }, description: 'Maa begynne med sutra/' }],
+          responses: { 200: { description: '{ ok, key, bytes, contentType }' }, 403: { description: 'Ikke Superadmin' } }
+        }
+      },
       '/speech/voices': {
         get: {
           summary: 'Hvilke modeller naar denne noekkelen',
@@ -1178,6 +1197,50 @@ async function handleSpeech(request, env, corsHeaders) {
   }), { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 }
 
+/**
+ * /speech/clip — innspilte klipp (f.eks. sutraer klippet ut av en lærers video)
+ * i samme R2-bøtte som TTS-bufferet, men under prefikset sutra/.
+ *   PUT  ?key=sutra/<...>  kropp = lydbytene, Content-Type settes. Krever Superadmin.
+ *   GET  ?key=sutra/<...>  gyldig X-API-Token. Opptakene er ikke offentlige.
+ */
+const CLIP_PREFIX = 'sutra/'
+async function handleSpeechClip(request, env, corsHeaders) {
+  const json = (body, status = 200) => new Response(JSON.stringify(body), {
+    status, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  })
+  const auth = await resolveSpeechCaller(request, env)
+  if (!auth.valid) return json({ error: auth.error }, auth.status)
+  if (!env.SPEECH_CACHE) return json({ error: 'SPEECH_CACHE binding not configured' }, 500)
+  const key = new URL(request.url).searchParams.get('key') || ''
+  if (!key.startsWith(CLIP_PREFIX) || key.includes('..') || key.length > 300) {
+    return json({ error: `key må begynne med ${CLIP_PREFIX}` }, 400)
+  }
+  if (request.method === 'PUT') {
+    if ((auth.role || '').toLowerCase() !== 'superadmin') {
+      return json({ error: 'Opplasting krever Superadmin' }, 403)
+    }
+    const body = await request.arrayBuffer()
+    if (!body.byteLength) return json({ error: 'Tom kropp' }, 400)
+    if (body.byteLength > 20 * 1024 * 1024) return json({ error: 'Over 20 MB' }, 413)
+    const contentType = request.headers.get('Content-Type') || 'audio/mp4'
+    await env.SPEECH_CACHE.put(key, body, {
+      httpMetadata: { contentType },
+      customMetadata: { uploadedBy: auth.email, createdAt: new Date().toISOString() },
+    })
+    return json({ ok: true, key, bytes: body.byteLength, contentType })
+  }
+  const obj = await env.SPEECH_CACHE.get(key)
+  if (!obj) return json({ error: 'Fant ikke klippet', key }, 404)
+  return new Response(obj.body, {
+    headers: {
+      ...corsHeaders,
+      'Content-Type': obj.httpMetadata?.contentType || 'audio/mp4',
+      'Content-Length': String(obj.size),
+      'Cache-Control': 'private, max-age=86400',
+    }
+  })
+}
+
 async function speechCacheKey(text, voice, style, pinnedModel) {
   const basis = `${text}|${voice}|${style || ''}${pinnedModel ? `|model=${pinnedModel}` : ''}`
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(basis))
@@ -1195,7 +1258,9 @@ async function listAllSpeechObjects(env, maxObjects = 10000) {
   let cursor
   do {
     const page = await env.SPEECH_CACHE.list({ limit: 1000, cursor, include: ['customMetadata'] })
-    out.push(...page.objects)
+    // Sutraklipp (sutra/…) er opptak, ikke TTS-buffer: de skal aldri listes
+    // eller prunes sammen med de genererte klippene.
+    out.push(...page.objects.filter((o) => !o.key.startsWith(CLIP_PREFIX)))
     cursor = page.truncated ? page.cursor : undefined
   } while (cursor && out.length < maxObjects)
   return out
