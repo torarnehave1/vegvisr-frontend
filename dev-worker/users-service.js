@@ -287,6 +287,82 @@ export async function setUserGroups(env, { email, groupTags, mode = 'add', actor
 
 
 /**
+ * World member roles (2026-11-03) — a World Founder gives members of their OWN World a role such
+ * as #NIBI-SEKRETAER, without a Superadmin.
+ *
+ * No role logic lives here. agent-worker's `executeSetWorldMemberRoles` / `executeListWorldMemberRoles`
+ * are the one implementation, and they hold the gate: Superadmin or that World's founder, only
+ * tags named <World tag>-<ROLE>, only people who already carry the World tag, never the platform
+ * role. This file owns the MCP narrowing only — the caller's own credential, read server-side.
+ */
+async function worldRoleCall(env, actor, path, payload) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  const domain = String(payload.domain || '').trim().toLowerCase()
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) return fail(ERR.INVALID_INPUT, 'domain must be a World domain such as "nibi.no".')
+  const token = await callerToken(env, actor)
+  if (!token) return fail(ERR.FORBIDDEN_GRAPH, 'No credential on your account. Sign in at vegvisr.org once, then try again.')
+  if (!env.AGENT_WORKER?.fetch) return fail(ERR.INTERNAL_ERROR, 'The AGENT_WORKER service binding is not configured on this worker.')
+  let res
+  let data
+  try {
+    res = await env.AGENT_WORKER.fetch(`https://agent-worker${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Token': token },
+      body: JSON.stringify({ ...payload, domain }),
+    })
+    data = await res.json().catch(() => ({}))
+  } catch (e) {
+    return fail(ERR.INTERNAL_ERROR, `Could not reach the role service: ${e.message}`)
+  }
+  if (!res.ok || data?.success === false) {
+    const code = res.status === 403 || /Only a Superadmin or the World Founder/i.test(data?.error || '') ? ERR.FORBIDDEN_GRAPH : ERR.INVALID_INPUT
+    return fail(code, data?.error || `The role service refused the request (status ${res.status}).`, { domain })
+  }
+  return { ok: true, data, domain }
+}
+
+export async function listWorldMemberRoles(env, { domain, actor }) {
+  const r = await worldRoleCall(env, actor, '/world/member-roles', { domain })
+  if (!r.ok) return r
+  const d = r.data
+  return {
+    ok: true,
+    domain: r.domain,
+    worldTag: d.worldTag || null,
+    rolePrefix: d.rolePrefix || null,
+    count: Number(d.count) || 0,
+    members: (Array.isArray(d.members) ? d.members : []).map((m) => ({
+      email: String(m.email || ''),
+      name: m.name ? String(m.name) : null,
+      roles: Array.isArray(m.roles) ? m.roles.map(String) : [],
+    })),
+    formerMembersWithRoles: (Array.isArray(d.formerMembersWithRoles) ? d.formerMembersWithRoles : []).map((m) => ({
+      email: String(m.email || ''),
+      name: m.name ? String(m.name) : null,
+      roles: Array.isArray(m.roles) ? m.roles.map(String) : [],
+    })),
+    message: d.message || null,
+  }
+}
+
+export async function setWorldMemberRoles(env, { domain, email, roles, mode = 'add', actor }) {
+  if (!looksLikeEmail(email)) return fail(ERR.INVALID_INPUT, 'A valid member e-mail is required.')
+  const r = await worldRoleCall(env, actor, '/world/member-roles/set', { domain, email, roles: Array.isArray(roles) ? roles : [], mode })
+  if (!r.ok) return r
+  const d = r.data
+  return {
+    ok: true,
+    domain: r.domain,
+    email: String(d.email || email).toLowerCase(),
+    changed: !!d.changed,
+    verified: d.changed ? d.verified === true : true,
+    roles: Array.isArray(d.roles) ? d.roles.map(String) : [],
+    rolesBefore: Array.isArray(d.rolesBefore) ? d.rolesBefore.map(String) : [],
+    message: d.message || null,
+  }
+}
+
+/**
  * Update contact info — phone, address, street, postal code, place, city, country, name — for
  * someone who is ALREADY registered.
  *

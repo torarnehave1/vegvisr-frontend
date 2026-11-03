@@ -5126,8 +5126,9 @@ ${result.warnings.join('\n')}` : ''),
         "to put them in another group while keeping the ones they have, 'replace' to set the " +
         "whole list, and 'remove' to take a group away. Tags are written like \"#IIBA #DEMO\"; a " +
         'missing # is added for you. For someone who does not have an account yet, use ' +
-        'register_user instead — it takes groupTags directly. Requires the user:register scope ' +
-        'and the Superadmin role.',
+        'register_user instead — it takes groupTags directly. A World founder giving a member a ' +
+        'role in their own World (e.g. #NIBI-SEKRETAER) uses set_world_member_roles. Requires the ' +
+        'user:register scope and the Superadmin role.',
       inputSchema: {
         email: z.string().min(3).describe('The registered person to change.'),
         groupTags: z.string().min(1).describe('The tags to act on, e.g. "#IIBA" or "#IIBA #DEMO".'),
@@ -5165,6 +5166,93 @@ ${result.warnings.join('\n')}` : ''),
           ? `${r.email}: ${r.before || '(no groups)'} → ${r.groupTags || '(no groups)'}`
           : `${r.email} was already ${r.groupTags ? `in ${r.groupTags}` : 'in no groups'}. Nothing changed.`,
       )
+    },
+  )
+
+  // ── list_world_member_roles / set_world_member_roles (2026-11-03) ─────────
+  //
+  // Board roles inside ONE World (#NIBI-SEKRETAER), for that World's founder — set_user_groups is
+  // Superadmin-only and can write any tag, so it is the wrong door for a founder. The gate lives in
+  // agent-worker's executor; see users-service.js worldRoleCall. Same scopes as the directory tools.
+  const WORLD_MEMBER = z.object({ email: z.string(), name: z.string().nullable(), roles: z.array(z.string()) })
+  server.registerTool(
+    'list_world_member_roles',
+    {
+      title: "A World's members and their roles",
+      description:
+        "List the members of a World (everyone carrying its tag, e.g. #NIBI for nibi.no) and the " +
+        "World roles each holds — tags named <World tag>-<ROLE>, e.g. #NIBI-LEDER, " +
+        "#NIBI-SEKRETAER, #NIBI-OKONOMI. These are board or office roles inside one World, NOT the " +
+        "platform role (Admin, Superadmin). Only that World's role tags are shown, with name and " +
+        "e-mail. Read this before set_world_member_roles. Only a platform Superadmin or that " +
+        "World's founder may. Requires the user:read scope.",
+      inputSchema: {
+        domain: z.string().min(3).describe('The World domain, e.g. "nibi.no".'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        domain: z.string(),
+        worldTag: z.string().nullable(),
+        rolePrefix: z.string().nullable(),
+        count: z.number(),
+        members: z.array(WORLD_MEMBER),
+        formerMembersWithRoles: z.array(WORLD_MEMBER),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ domain }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'user:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await users.listWorldMemberRoles(env, { domain, actor })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, message, ...payload } = r
+      return ok({ success: true, ...payload }, message || `${r.count} members in ${r.domain}.`)
+    },
+  )
+
+  server.registerTool(
+    'set_world_member_roles',
+    {
+      title: "Give a World member a role",
+      description:
+        "Give, take away or set the World roles of ONE member of a World — e.g. make Giulia " +
+        "secretary of nibi.no (#NIBI-SEKRETAER). Pass the role name (\"SEKRETAER\") or the full " +
+        "tag; Æ/Ø/Å become AE/O/AA. The person must already be a member (carry the World tag). Only " +
+        "that World's own <World tag>-<ROLE> tags are touched: mode 'add' (default), 'remove', or " +
+        "'replace' (sets exactly these roles, keeps every other tag). Use this for \"make X " +
+        "secretary / treasurer / board member of <World>\" — NOT set_user_role, which changes the " +
+        "platform role, and NOT set_user_groups, which is Superadmin-only. Only a platform " +
+        "Superadmin or that World's founder may. Requires the user:register scope.",
+      inputSchema: {
+        domain: z.string().min(3).describe('The World domain, e.g. "nibi.no".'),
+        email: z.string().min(3).describe('The member to change. Must already carry the World tag.'),
+        roles: z.array(z.string()).describe('Role names, e.g. ["SEKRETAER"] or ["#NIBI-OKONOMI"]. Empty with mode replace clears all of this World\'s roles.'),
+        mode: z.enum(['add', 'remove', 'replace']).optional().describe("'add' (default), 'remove' or 'replace'."),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        domain: z.string(),
+        email: z.string(),
+        changed: z.boolean(),
+        verified: z.boolean(),
+        roles: z.array(z.string()),
+        rolesBefore: z.array(z.string()),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ domain, email, roles, mode }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'user:register')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await users.setWorldMemberRoles(env, { domain, email, roles, mode: mode || 'add', actor })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, message, ...payload } = r
+      return ok({ success: true, ...payload }, message || `${r.email}: ${r.roles.join(' ') || 'no role'}`)
     },
   )
 
@@ -5249,6 +5337,8 @@ ${result.warnings.join('\n')}` : ''),
         'register_user completes a profile but deliberately leaves the existing role alone, so ' +
         'passing a role there does nothing for someone who already has an account. Superadmin ' +
         'cannot be granted here, and a person who already IS Superadmin cannot be changed. ' +
+        'This is the PLATFORM role only: for a role inside a World (secretary, treasurer, board ' +
+        'member of nibi.no) use set_world_member_roles. ' +
         'Requires the user:register scope and the Superadmin role.',
       inputSchema: {
         email: z.string().min(3).describe('The registered person whose role to change.'),
@@ -5841,6 +5931,8 @@ export const TOOL_NAMES = [
   'set_user_groups',
   'update_user_profile',
   'set_user_role',
+  'list_world_member_roles',
+  'set_world_member_roles',
   'create_worker',
   'list_published_sites',
   'search_graphs',

@@ -111,6 +111,8 @@ describe('18. tools/list', () => {
     'set_user_groups',
     'update_user_profile',
     'set_user_role',
+    // set_world_member_roles (2026-11-03) names the member whose World role changes.
+    'set_world_member_roles',
     'add_group_member',
     'remove_group_member',
     'send_group_alert',
@@ -3735,5 +3737,68 @@ describe('contact history + server transcription via agent-worker (2026-10-27)',
     const { client } = await connect(env, BOTH)
     const e = await callErr(client, 'transcribe_contact_recording', { recordingId: 'contactlog:L9' })
     assert.match(e.message, /has no recording/)
+  })
+})
+
+
+describe('World member roles go through agent-worker with the caller\'s own credential', () => {
+  const FOUNDER = {
+    auth: { ...ALICE_RW.auth, scope: ['graph:read', 'user:read', 'user:register'], userId: 'post@nibi.no' },
+    props: { userId: 'post@nibi.no', email: 'post@nibi.no', role: 'Admin', authMethod: 'oauth' },
+  }
+  class FakeRoleRoutes {
+    constructor(reply, status = 200) { this.calls = []; this.reply = reply; this.status = status }
+    async fetch(url, init) {
+      this.calls.push({ url, token: new Headers(init.headers).get('X-API-Token'), body: JSON.parse(init.body) })
+      return new Response(JSON.stringify(this.reply), { status: this.status })
+    }
+  }
+  function seeded(reply, status) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    raw.prepare("INSERT OR REPLACE INTO config (user_id, data, email, emailVerificationToken, Role, group_tags) VALUES (?,?,?,?,?,?)")
+      .run('u-post', '{}', 'post@nibi.no', 'sess-post', 'Admin', null)
+    env.AGENT_WORKER = new FakeRoleRoutes(reply, status)
+    return env
+  }
+
+  test('set sends the founder\'s own token and the subject, and returns the read-back roles', async () => {
+    const env = seeded({ success: true, email: 'giulia@example.com', changed: true, verified: true, roles: ['#NIBI-SEKRETAER'], rolesBefore: [], message: 'ok' })
+    const { client } = await connect(env, FOUNDER)
+    const r = await callOk(client, 'set_world_member_roles', { domain: 'NIBI.no', email: 'giulia@example.com', roles: ['SEKRETAER'] })
+    const call = env.AGENT_WORKER.calls[0]
+    assert.equal(call.url, 'https://agent-worker/world/member-roles/set')
+    assert.equal(call.token, 'sess-post')
+    assert.deepEqual(call.body, { domain: 'nibi.no', email: 'giulia@example.com', roles: ['SEKRETAER'], mode: 'add' })
+    assert.deepEqual(r.roles, ['#NIBI-SEKRETAER'])
+    assert.equal(r.verified, true)
+  })
+
+  test('the executor\'s refusal surfaces as FORBIDDEN', async () => {
+    const env = seeded({ success: false, error: 'Only a Superadmin or the World Founder of nibi.no can manage its member roles.' }, 403)
+    const { client } = await connect(env, FOUNDER)
+    const res = await client.callTool({ name: 'set_world_member_roles', arguments: { domain: 'nibi.no', email: 'giulia@example.com', roles: ['LEDER'] } })
+    assert.equal(res.isError, true)
+    assert.match(JSON.stringify(res), /World Founder of nibi\.no/)
+  })
+
+  test('set needs user:register, list needs user:read', async () => {
+    const env = seeded({ success: true, members: [], count: 0 })
+    const { client } = await connect(env, ALICE_RW)
+    const a = await client.callTool({ name: 'set_world_member_roles', arguments: { domain: 'nibi.no', email: 'giulia@example.com', roles: ['LEDER'] } })
+    const b = await client.callTool({ name: 'list_world_member_roles', arguments: { domain: 'nibi.no' } })
+    assert.equal(a.isError, true)
+    assert.equal(b.isError, true)
+    assert.equal(env.AGENT_WORKER.calls.length, 0)
+  })
+
+  test('list returns members with only their World roles', async () => {
+    const env = seeded({ success: true, worldTag: '#NIBI', rolePrefix: '#NIBI-', count: 1, members: [{ email: 'giulia@example.com', name: 'Giulia', roles: ['#NIBI-SEKRETAER'] }], message: 'nibi.no: 1 member' })
+    const { client } = await connect(env, FOUNDER)
+    const r = await callOk(client, 'list_world_member_roles', { domain: 'nibi.no' })
+    assert.equal(env.AGENT_WORKER.calls[0].url, 'https://agent-worker/world/member-roles')
+    assert.equal(r.worldTag, '#NIBI')
+    assert.deepEqual(r.members, [{ email: 'giulia@example.com', name: 'Giulia', roles: ['#NIBI-SEKRETAER'] }])
+    assert.deepEqual(r.formerMembersWithRoles, [])
   })
 })
