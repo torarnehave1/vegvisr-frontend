@@ -1378,6 +1378,30 @@ var email_worker_default = {
           const body = await request.json();
           let { fromEmail, toEmail, subject, html, text, cfAccountId, token } = body || {};
           const { userEmail: userEmail2, accountId: accountId2 } = body || {};
+          // Optional copies. Cloudflare Email Sending takes cc and bcc as arrays of addresses,
+          // and allows at most 50 recipients across to + cc + bcc. Anything that is not a valid
+          // address is a 400 here, before the send: a copy that silently vanished is worse than
+          // a refusal the caller can see.
+          const copyList = (v) => (Array.isArray(v) ? v : v ? [v] : []).map((a) => String(a || "").trim().toLowerCase()).filter(Boolean);
+          const ccList = copyList(body?.cc);
+          const bccList = copyList(body?.bcc);
+          const badCopy = [...ccList, ...bccList].find((a) => !isValidEmail(a));
+          if (badCopy) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ success: false, error: `cc/bcc contains an invalid address: ${badCopy}` }),
+                { status: 400, headers: { "Content-Type": "application/json" } }
+              )
+            );
+          }
+          if (1 + ccList.length + bccList.length > 50) {
+            return addCorsHeaders(
+              new Response(
+                JSON.stringify({ success: false, error: "At most 50 recipients across to, cc and bcc." }),
+                { status: 400, headers: { "Content-Type": "application/json" } }
+              )
+            );
+          }
           if (userEmail2 && accountId2 && (!token || !cfAccountId || !fromEmail)) {
             const data2 = await loadUserSettings(env2, userEmail2);
             const settings = data2.settings || {};
@@ -1423,6 +1447,8 @@ var email_worker_default = {
             cfAccountId,
             fromEmail,
             toEmail,
+            ccCount: ccList.length,
+            bccCount: bccList.length,
             subject,
             htmlLength: html ? html.length : 0
           });
@@ -1431,7 +1457,15 @@ var email_worker_default = {
             {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-              body: JSON.stringify({ from: fromEmail, to: toEmail, subject, html: html || void 0, text: text || void 0 })
+              body: JSON.stringify({
+                from: fromEmail,
+                to: toEmail,
+                cc: ccList.length ? ccList : void 0,
+                bcc: bccList.length ? bccList : void 0,
+                subject,
+                html: html || void 0,
+                text: text || void 0
+              })
             }
           );
           const cfText = await cfResp.text();
@@ -1488,7 +1522,9 @@ var email_worker_default = {
           }
           return addCorsHeaders(
             new Response(
-              JSON.stringify({ success: true, result: { messageId } }),
+              // cc and bcc are echoed as counts so the caller can tell this version (which honours
+              // them) from an older one (which would have dropped them without a word).
+              JSON.stringify({ success: true, result: { messageId, cc: ccList.length, bcc: bccList.length } }),
               { status: 200, headers: { "Content-Type": "application/json" } }
             )
           );

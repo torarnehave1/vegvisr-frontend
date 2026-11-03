@@ -293,11 +293,11 @@ async function rememberSentFolder(env, address, { hostname, port, sentFolder }) 
  * up, because the alternative is a silent stop that nobody notices until they look for an e-mail
  * that is not there.
  */
-export async function fileSentCopy(env, { address, toEmail, subject, html, fromName, messageId }) {
+export async function fileSentCopy(env, { address, toEmail, cc = [], bcc = [], subject, html, fromName, messageId }) {
   const cred = await mailboxCredential(env, address)
   if (!cred.ok) return { filed: false, reason: cred.reason }
 
-  const rfc822 = buildRfc822({ fromEmail: address, fromName, toEmail, subject, html, messageId })
+  const rfc822 = buildRfc822({ fromEmail: address, fromName, toEmail, cc, bcc, subject, html, messageId })
 
   let folder = cred.sentFolder
   let measured = false

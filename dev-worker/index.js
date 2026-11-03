@@ -5914,6 +5914,8 @@ const restHandler = {
         const args = {
           fromEmail: body.fromEmail,
           toEmail: body.toEmail,
+          cc: body.cc,
+          bcc: body.bcc,
           subject: body.subject,
           bodyHtml: body.bodyHtml,
           templatePurpose: body.templatePurpose,
@@ -5943,6 +5945,8 @@ const restHandler = {
             senderEmail: r.senderEmail,
             fromName: r.fromName,
             toEmail: r.toEmail,
+            cc: r.cc,
+            bcc: r.bcc,
             subject: r.subject,
             html: r.html,
             textPreview: r.textPreview,

@@ -554,9 +554,12 @@ export class RecordingSmsGateway {
 }
 
 export class RecordingEmailWorker {
-  constructor({ ok = true, status = 200, error = null, messageId = 'msg-1' } = {}) {
+  // `echoCopies: false` imitates an email-worker from before cc/bcc existed: it accepts the
+  // request and returns no counts, which is how a dropped copy would look from here.
+  constructor({ ok = true, status = 200, error = null, messageId = 'msg-1', echoCopies = true } = {}) {
     this.calls = []
     this.ok = ok; this.status = status; this.error = error; this.messageId = messageId
+    this.echoCopies = echoCopies
   }
   async fetch(url, init = {}) {
     const headers = new Headers(init.headers)
@@ -569,6 +572,12 @@ export class RecordingEmailWorker {
     if (!this.ok) {
       return new Response(JSON.stringify({ success: false, error: this.error }), { status: this.status })
     }
-    return new Response(JSON.stringify({ success: true, result: { messageId: this.messageId } }), { status: 200 })
+    const body = init.body ? JSON.parse(init.body) : {}
+    const result = { messageId: this.messageId }
+    if (this.echoCopies) {
+      result.cc = Array.isArray(body.cc) ? body.cc.length : 0
+      result.bcc = Array.isArray(body.bcc) ? body.bcc.length : 0
+    }
+    return new Response(JSON.stringify({ success: true, result }), { status: 200 })
   }
 }

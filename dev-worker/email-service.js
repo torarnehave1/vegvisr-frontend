@@ -65,6 +65,51 @@ function nowIso() {
 }
 
 /**
+ * Cloudflare Email Sending's own limit across to + cc + bcc. Beyond it the provider refuses, so we
+ * refuse first, before the send counts against anything.
+ */
+export const MAX_RECIPIENTS = 50
+
+/**
+ * The copies, made safe to deliver.
+ *
+ * Accepts a string or an array for each list. Every address must be valid — one bad address is a
+ * refusal, not a silent drop, because "Ingrid was copied" being false is exactly the failure a
+ * person cannot see. Duplicates are removed: an address already in To is dropped from cc and bcc,
+ * and one already in cc is dropped from bcc, so nobody receives the same mail twice.
+ */
+export function normalizeCopies({ toEmail, cc, bcc }) {
+  const list = (v) => (Array.isArray(v) ? v : v ? [v] : []).map((a) => String(a || '').trim()).filter(Boolean)
+  const rawCc = list(cc)
+  const rawBcc = list(bcc)
+  const bad = [...rawCc, ...rawBcc].filter((a) => !normalizeEmail(a))
+  if (bad.length) {
+    return fail(ERR.INVALID_INPUT, `Not a valid e-mail address in cc/bcc: ${bad.join(', ')}. Nothing was sent.`)
+  }
+  const seen = new Set()
+  const to = normalizeEmail(toEmail)
+  if (to) seen.add(to)
+  const take = (arr) => {
+    const out = []
+    for (const a of arr.map(normalizeEmail)) {
+      if (seen.has(a)) continue
+      seen.add(a)
+      out.push(a)
+    }
+    return out
+  }
+  const ccList = take(rawCc)
+  const bccList = take(rawBcc)
+  if (1 + ccList.length + bccList.length > MAX_RECIPIENTS) {
+    return fail(
+      ERR.INVALID_INPUT,
+      `At most ${MAX_RECIPIENTS} recipients across to, cc and bcc; this has ${1 + ccList.length + bccList.length}.`,
+    )
+  }
+  return { ok: true, cc: ccList, bcc: bccList }
+}
+
+/**
  * The single refusal for "you may not send as that address".
  *
  * It is a function returning one string so that every caller produces the same bytes. The message
@@ -711,9 +756,13 @@ export function composeHtml(templateHtml, signatureHtml) {
  * other end sees the text before it leaves — which is why `sendEmail` is written on top of it
  * rather than beside it, and why a test asserts the two produce byte-identical output.
  */
-export async function renderEmail(env, { fromEmail, toEmail, templatePurpose, language, signature, variables, subject, bodyHtml, actor }) {
+export async function renderEmail(env, { fromEmail, toEmail, cc, bcc, templatePurpose, language, signature, variables, subject, bodyHtml, actor }) {
   const access = await resolveSenderAccess(env, { fromEmail, actor })
   if (!access.ok) return access
+
+  // After the sender gate, so a refusal on the sender never reveals anything about the copies.
+  const copies = normalizeCopies({ toEmail, cc, bcc })
+  if (!copies.ok) return copies
 
   const senderEmail = access.senderEmail
   const domain = senderEmail.split('@')[1]
@@ -825,6 +874,8 @@ export async function renderEmail(env, { fromEmail, toEmail, templatePurpose, la
     account: access.account,
     fromName: brand.fromName || access.account.name || null,
     toEmail: normalizeEmail(toEmail),
+    cc: copies.cc,
+    bcc: copies.bcc,
     domain,
     subject: rendered.subject,
     html: rendered.body,
@@ -970,13 +1021,18 @@ export async function sendEmail(env, args) {
     )
   }
 
+  // Every recipient counts against the cap, copies included: the cap protects the platform's
+  // standing with mail providers, and a mail with ten copies is ten deliveries to them. The log
+  // writes one SENT row per recipient (below), so this count and that table agree.
+  const recipients = [draft.toEmail, ...draft.cc, ...draft.bcc]
   const cap = dailySendCap(env)
   const sentToday = await sendsToday(env, actor.email)
-  if (sentToday >= cap) {
+  if (sentToday + recipients.length > cap) {
     await logRefusal(ERR.RATE_LIMITED)
     return fail(
       ERR.RATE_LIMITED,
-      `You have sent ${sentToday} e-mails in the last 24 hours, which is the cap of ${cap}. Try again later.`,
+      `You have sent ${sentToday} e-mails in the last 24 hours, and this one has ${recipients.length} ` +
+        `recipient(s) against the cap of ${cap}. Try again later.`,
     )
   }
 
@@ -1007,10 +1063,28 @@ export async function sendEmail(env, args) {
       userEmail: holder,
       accountId: draft.account?.id || args.accountId,
       toEmail: draft.toEmail,
+      // Only present when used, so a plain send is byte-for-byte what it was before copies existed.
+      ...(draft.cc.length ? { cc: draft.cc } : {}),
+      ...(draft.bcc.length ? { bcc: draft.bcc } : {}),
       subject: draft.subject,
       html: draft.html,
     }),
   })
+
+  // One audit row per recipient — the table has one recipient column, and the cap above counts
+  // these rows. All rows of one send share its outcome and message id.
+  const logEach = (outcome, messageId = null) =>
+    Promise.all(
+      recipients.map((to) =>
+        logSend(env, {
+          actorEmail: actor.email, senderEmail: draft.senderEmail, holderEmail: holder,
+          basis: draft.basis, grantId: draft.grantId, toEmail: to,
+          subjectChars: draft.subject.length, bodyChars: draft.html.length,
+          templateSource: draft.templateSource, signatureName: draft.signatureName,
+          outcome, messageId, surface, clientId,
+        }),
+      ),
+    )
 
   const data = await res.json().catch(() => ({}))
   if (!res.ok || data.success === false) {
@@ -1022,19 +1096,29 @@ export async function sendEmail(env, args) {
           : res.status === 429 ? ERR.RATE_LIMITED
             : res.status === 400 ? ERR.INVALID_INPUT
               : ERR.INTERNAL_ERROR
-    await logSend(env, {
-      actorEmail: actor.email, senderEmail: draft.senderEmail, holderEmail: holder,
-      basis: draft.basis, grantId: draft.grantId, toEmail: draft.toEmail,
-      subjectChars: draft.subject.length, bodyChars: draft.html.length,
-      templateSource: draft.templateSource, signatureName: draft.signatureName,
-      outcome: code, surface, clientId,
-    })
+    await logEach(code)
     return fail(code, data.error || `The mail service refused the send (status ${res.status}).`, {
       senderEmail: draft.senderEmail,
     })
   }
 
   const messageId = data?.result?.messageId || null
+
+  // An email-worker from before copies existed accepts the request and drops cc/bcc without a
+  // word. The new one echoes how many it passed on. If copies were asked for and the echo does not
+  // match, the To mail has gone but the copies may not have — say so loudly rather than report a
+  // success the person would believe.
+  const warnings = []
+  if (draft.cc.length || draft.bcc.length) {
+    const echoed = data?.result || {}
+    if (echoed.cc !== draft.cc.length || echoed.bcc !== draft.bcc.length) {
+      warnings.push(
+        `The mail service did not confirm the copies (asked cc ${draft.cc.length}, bcc ${draft.bcc.length}; ` +
+          `confirmed cc ${echoed.cc ?? 'none'}, bcc ${echoed.bcc ?? 'none'}). The mail reached ${draft.toEmail}, ` +
+          'but the copies may not have been delivered — email-worker may be an older version.',
+      )
+    }
+  }
 
   // File a copy in the sender's own Sent folder. Cloudflare Email Sending delivers straight to the
   // recipient and never touches the sender's mailbox, so without this the mail exists nowhere the
@@ -1052,6 +1136,8 @@ export async function sendEmail(env, args) {
     sentCopy = await filer(env, {
       address: draft.senderEmail,
       toEmail: draft.toEmail,
+      cc: draft.cc,
+      bcc: draft.bcc,
       subject: draft.subject,
       html: draft.html,
       fromName: draft.fromName,
@@ -1061,13 +1147,7 @@ export async function sendEmail(env, args) {
     sentCopy = { filed: false, reason: `unexpected: ${e.message}` }
   }
 
-  await logSend(env, {
-    actorEmail: actor.email, senderEmail: draft.senderEmail, holderEmail: holder,
-    basis: draft.basis, grantId: draft.grantId, toEmail: draft.toEmail,
-    subjectChars: draft.subject.length, bodyChars: draft.html.length,
-    templateSource: draft.templateSource, signatureName: draft.signatureName,
-    outcome: 'SENT', messageId, surface, clientId,
-  })
+  await logEach('SENT', messageId)
 
   return {
     ok: true,
@@ -1075,6 +1155,9 @@ export async function sendEmail(env, args) {
     sentCopy: sentCopy.filed ? `filed in ${sentCopy.sentFolder}` : `not filed: ${sentCopy.reason}`,
     senderEmail: draft.senderEmail,
     toEmail: draft.toEmail,
+    cc: draft.cc,
+    bcc: draft.bcc,
+    warnings,
     subject: draft.subject,
     messageId,
     basis: draft.basis,
