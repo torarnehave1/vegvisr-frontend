@@ -175,3 +175,12 @@ test('garbage in gives nulls, not a crash', () => {
   assert.equal(parseKeyName('').hostname, null)
   assert.equal(parseKeyName(null).sentFolder, null)
 })
+
+test('cc and bcc appear in the Sent copy when given, and not at all otherwise', () => {
+  const msg = buildRfc822({ ...SAMPLE, cc: ['ingrid@example.com', 'giulia@example.com'], bcc: ['arkiv@example.com'] })
+  const headers = msg.split('\r\n\r\n')[0]
+  assert.match(headers, /\r\nCc: ingrid@example\.com, giulia@example\.com\r\n/)
+  assert.match(headers, /\r\nBcc: arkiv@example\.com\r\n/, "the sender's own copy keeps the Bcc line")
+  const plain = buildRfc822(SAMPLE)
+  assert.equal(/\r\n(Cc|Bcc):/.test(plain), false)
+})

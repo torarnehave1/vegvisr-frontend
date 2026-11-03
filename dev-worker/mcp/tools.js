@@ -1935,6 +1935,22 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
           .min(3)
           .optional()
           .describe('The recipient, if known. Optional for a preview, required to send. One address only.'),
+        cc: z
+          .array(z.string().min(3))
+          .max(49)
+          .optional()
+          .describe(
+            'Copy recipients (Cc), visible to everyone who gets the e-mail. Every address must be ' +
+              'valid or nothing is sent. Duplicates of To are dropped. At most 50 recipients in all.',
+          ),
+        bcc: z
+          .array(z.string().min(3))
+          .max(49)
+          .optional()
+          .describe(
+            'Blind copy recipients (Bcc). They receive the e-mail but nobody else sees them. Same ' +
+              'rules as cc. They are shown in this preview and kept in the Sent copy.',
+          ),
         templatePurpose: z
           .string()
           .optional()
@@ -1972,6 +1988,8 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         senderEmail: z.string(),
         fromName: z.string().nullable(),
         toEmail: z.string().nullable(),
+        cc: z.array(z.string()),
+        bcc: z.array(z.string()),
         domain: z.string(),
         subject: z.string(),
         html: z.string(),
@@ -2018,6 +2036,8 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         senderEmail: result.senderEmail,
         fromName: result.fromName,
         toEmail: result.toEmail,
+        cc: result.cc,
+        bcc: result.bcc,
         domain: result.domain,
         subject: result.subject,
         html: result.html,
@@ -2038,7 +2058,8 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
       ].filter(Boolean)
       return ok(
         { success: true, ...payload },
-        `NOT SENT — this is a preview.\nFrom: ${result.senderEmail}${result.toEmail ? `\nTo: ${result.toEmail}` : ''}\n` +
+        `NOT SENT — this is a preview.\nFrom: ${result.senderEmail}${result.toEmail ? `\nTo: ${result.toEmail}` : ''}` +
+          `${result.cc.length ? `\nCc: ${result.cc.join(', ')}` : ''}${result.bcc.length ? `\nBcc: ${result.bcc.join(', ')}` : ''}\n` +
           `Subject: ${result.subject}\n` +
           `Signature: ${result.signatureName || 'none'} · Template: ${result.templateSource}\n` +
           (notes.length ? `\n${notes.join('\n')}\n` : '') +
@@ -2063,8 +2084,9 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         "toEmail is required, and an unfilled {placeholder} is REFUSED rather than delivered " +
         "literally. You may only send as an address on the user's own profile or one somebody " +
         "explicitly granted them; platform Superadmin grants nothing here, so use " +
-        "list_email_senders rather than assuming. One recipient per call. Requires the chat:write " +
-        "scope.",
+        "list_email_senders rather than assuming. One To recipient per call, plus optional cc and " +
+        "bcc lists (at most 50 recipients in all, each counted against the daily cap). Requires " +
+        "the chat:write scope.",
       inputSchema: {
         fromEmail: z
           .string()
@@ -2072,7 +2094,23 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
           .describe(
             "The address the e-mail comes FROM. Must be one list_email_senders returned. Never invent one.",
           ),
-        toEmail: z.string().min(3).describe('The recipient. One address only, and it is required here.'),
+        toEmail: z.string().min(3).describe('The main recipient (To). One address, and it is required here.'),
+        cc: z
+          .array(z.string().min(3))
+          .max(49)
+          .optional()
+          .describe(
+            'Copy recipients (Cc), visible to everyone who gets the e-mail. Every address must be ' +
+              'valid or nothing is sent. Duplicates of To are dropped. At most 50 recipients in all.',
+          ),
+        bcc: z
+          .array(z.string().min(3))
+          .max(49)
+          .optional()
+          .describe(
+            'Blind copy recipients (Bcc). They receive the e-mail but nobody else sees them. Same ' +
+              'rules as cc. They are shown in this preview and kept in the Sent copy.',
+          ),
         templatePurpose: z
           .string()
           .optional()
@@ -2094,6 +2132,9 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         sent: z.boolean(),
         senderEmail: z.string(),
         toEmail: z.string(),
+        cc: z.array(z.string()),
+        bcc: z.array(z.string()),
+        warnings: z.array(z.string()),
         subject: z.string(),
         messageId: z.string().nullable(),
         basis: z.string(),
@@ -2120,7 +2161,10 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
       const { ok: _o, ...payload } = result
       return ok(
         { success: true, ...payload },
-        `SENT to ${result.toEmail} from ${result.senderEmail}.\nSubject: ${result.subject}\n` +
+        `SENT to ${result.toEmail} from ${result.senderEmail}.` +
+          `${result.cc.length ? `\nCc: ${result.cc.join(', ')}` : ''}${result.bcc.length ? `\nBcc: ${result.bcc.join(', ')}` : ''}` +
+          `\nSubject: ${result.subject}\n` +
+          (result.warnings.length ? `WARNING: ${result.warnings.join(' ')}\n` : '') +
           `Signature: ${result.signatureName || 'none'}${result.messageId ? ` · id ${result.messageId}` : ''}\n` +
           'This cannot be recalled.',
       )

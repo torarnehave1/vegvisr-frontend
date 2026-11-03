@@ -938,3 +938,130 @@ test('the audit row records the surface; it defaults to mcp', async () => {
   assert.deepEqual(rows.map((r) => r.surface).sort(), ['mcp', 'rest'])
   assert.equal(rows.find((r) => r.surface === 'rest').client_id, 'contacts.vegvisr.org')
 })
+
+// ── Copies: cc and bcc ──────────────────────────────────────────────────────
+//
+// The failure that matters is the invisible one: the person believes Ingrid was copied and she
+// was not. So a bad address refuses the whole send, a dropped copy is reported, and every
+// recipient is counted and logged.
+
+test('cc and bcc reach the mail service, and a plain send carries neither field', async () => {
+  const { env, worker } = sendWorld()
+  const r = await email.sendEmail(env, {
+    ...draft({ cc: ['Ingrid@Example.com'], bcc: ['arkiv@example.com'] }), actor: asHolder(),
+  })
+  assert.equal(r.ok, true)
+  assert.deepEqual(worker.calls[0].body.cc, ['ingrid@example.com'], 'normalised to lower case')
+  assert.deepEqual(worker.calls[0].body.bcc, ['arkiv@example.com'])
+  assert.deepEqual(r.cc, ['ingrid@example.com'])
+  assert.deepEqual(r.warnings, [])
+
+  const { env: e2, worker: w2 } = sendWorld()
+  await email.sendEmail(e2, { ...draft(), actor: asHolder() })
+  assert.equal('cc' in w2.calls[0].body, false, 'a send without copies is unchanged on the wire')
+  assert.equal('bcc' in w2.calls[0].body, false)
+})
+
+test('a single string is accepted as a one-address list', async () => {
+  const { env, worker } = sendWorld()
+  await email.sendEmail(env, { ...draft({ cc: 'ingrid@example.com' }), actor: asHolder() })
+  assert.deepEqual(worker.calls[0].body.cc, ['ingrid@example.com'])
+})
+
+test('one invalid copy address refuses the whole send, and the preview says so first', async () => {
+  const { env, worker } = sendWorld()
+  const args = draft({ cc: ['ingrid@example.com', 'ikke-en-adresse'] })
+  const p = await email.renderEmail(env, { ...args, actor: asHolder() })
+  assert.equal(p.ok, false)
+  assert.equal(p.code, gs.ERR.INVALID_INPUT)
+  assert.match(p.message, /ikke-en-adresse/)
+  const r = await email.sendEmail(env, { ...args, actor: asHolder() })
+  assert.equal(r.code, gs.ERR.INVALID_INPUT)
+  assert.equal(worker.calls.length, 0, 'nothing left: a half-copied mail is worse than none')
+})
+
+test('nobody receives the same mail twice', async () => {
+  const { env, worker } = sendWorld()
+  await email.sendEmail(env, {
+    ...draft({
+      cc: ['INGER@example.com', 'ingrid@example.com', 'ingrid@example.com'],
+      bcc: ['ingrid@example.com', 'arkiv@example.com'],
+    }),
+    actor: asHolder(),
+  })
+  assert.deepEqual(worker.calls[0].body.cc, ['ingrid@example.com'], 'To is not repeated in cc, nor cc in cc')
+  assert.deepEqual(worker.calls[0].body.bcc, ['arkiv@example.com'], 'cc is not repeated in bcc')
+})
+
+test('more than 50 recipients in all is refused before the send', async () => {
+  const { env, worker } = sendWorld()
+  const many = Array.from({ length: 50 }, (_, i) => `m${i}@example.com`)
+  const r = await email.sendEmail(env, { ...draft({ bcc: many }), actor: asHolder() })
+  assert.equal(r.code, gs.ERR.INVALID_INPUT)
+  assert.match(r.message, /50/)
+  assert.equal(worker.calls.length, 0)
+})
+
+test('the sender gate still comes first: a refused sender says nothing about the copies', async () => {
+  const { env, worker } = sendWorld()
+  const r = await email.sendEmail(env, {
+    ...draft({ cc: ['ikke-en-adresse'] }), actor: actorFor('boss@example.com', 'Superadmin'),
+  })
+  assert.equal(r.code, gs.ERR.FORBIDDEN_GRAPH)
+  assert.equal(worker.calls.length, 0)
+})
+
+test('the preview shows cc and bcc, and the send matches it', async () => {
+  const { env } = sendWorld()
+  const args = draft({ cc: ['ingrid@example.com'], bcc: ['arkiv@example.com'] })
+  const p = await email.renderEmail(env, { ...args, actor: asHolder() })
+  assert.deepEqual(p.cc, ['ingrid@example.com'])
+  assert.deepEqual(p.bcc, ['arkiv@example.com'])
+  const s = await email.sendEmail(env, { ...args, actor: asHolder() })
+  assert.deepEqual([s.cc, s.bcc], [p.cc, p.bcc])
+})
+
+test('every recipient gets its own log row, sharing the message id', async () => {
+  const { env, raw } = sendWorld()
+  await email.sendEmail(env, {
+    ...draft({ cc: ['ingrid@other.no'], bcc: ['arkiv@third.org'] }), actor: asHolder(),
+  })
+  const rows = raw.prepare("SELECT recipient_domain, message_id FROM email_send_log WHERE outcome = 'SENT'").all()
+  assert.deepEqual(rows.map((r) => r.recipient_domain).sort(), ['example.com', 'other.no', 'third.org'])
+  assert.equal(new Set(rows.map((r) => r.message_id)).size, 1)
+  assert.equal(JSON.stringify(rows).includes('ingrid@'), false, 'still no local parts in the log')
+})
+
+test('copies count against the daily cap', async () => {
+  const { env, raw, worker } = sendWorld()
+  env.MCP_DAILY_SEND_CAP = '3'
+  fillLog(raw, 1)
+  const r = await email.sendEmail(env, {
+    ...draft({ cc: ['a@example.com'], bcc: ['b@example.com'] }), actor: asHolder(),
+  })
+  assert.equal(r.code, gs.ERR.RATE_LIMITED, '1 sent + 3 recipients is over a cap of 3')
+  assert.equal(worker.calls.length, 0)
+})
+
+test('an email-worker that does not confirm the copies produces a warning, not a quiet success', async () => {
+  const { env } = sendWorld([], { echoCopies: false })
+  const r = await email.sendEmail(env, { ...draft({ cc: ['ingrid@example.com'] }), actor: asHolder() })
+  assert.equal(r.ok, true, 'the To mail did go out')
+  assert.equal(r.warnings.length, 1)
+  assert.match(r.warnings[0], /did not confirm the copies/)
+
+  const { env: e2 } = sendWorld([], { echoCopies: false })
+  const plain = await email.sendEmail(e2, { ...draft(), actor: asHolder() })
+  assert.deepEqual(plain.warnings, [], 'no copies asked for, nothing to confirm')
+})
+
+test('the Sent copy is given cc and bcc', async () => {
+  const { env } = sendWorld()
+  const calls = []
+  await email.sendEmail(env, {
+    ...draft({ cc: ['ingrid@example.com'], bcc: ['arkiv@example.com'] }), actor: asHolder(),
+    fileSentCopy: async (_e, a) => { calls.push(a); return { filed: true, sentFolder: 'INBOX.Sent' } },
+  })
+  assert.deepEqual(calls[0].cc, ['ingrid@example.com'])
+  assert.deepEqual(calls[0].bcc, ['arkiv@example.com'])
+})

@@ -45,15 +45,26 @@ export function chooseSentFolder(folders) {
  * because a flag beats a name guess: a Norwegian mailbox may call it "Sendt", and APPEND to a
  * folder that does not exist creates one nobody ever opens.
  */
-/** An RFC 5322 message for the Sent copy. Single part — the body is HTML. */
-export function buildRfc822({ fromEmail, fromName, toEmail, subject, html, messageId }) {
+/**
+ * An RFC 5322 message for the Sent copy. Single part — the body is HTML.
+ *
+ * Bcc IS written here, on purpose. This copy lives only in the sender's own Sent folder, which is
+ * where a mail client keeps the Bcc line too (RFC 5322 §3.6.3 allows it in the sender's copy);
+ * without it the sender could not see afterwards who got a blind copy. Recipients never see it:
+ * delivery goes through Cloudflare, which does not put Bcc in the delivered headers.
+ */
+export function buildRfc822({ fromEmail, fromName, toEmail, cc = [], bcc = [], subject, html, messageId }) {
   const b64 = (s) => btoa(String.fromCharCode(...new TextEncoder().encode(String(s || ''))))
   const enc = (s) => (/^[\x20-\x7E]*$/.test(String(s || '')) ? String(s || '') : `=?UTF-8?B?${b64(s)}?=`)
   const from = fromName ? `${enc(fromName)} <${fromEmail}>` : fromEmail
+  const ccList = Array.isArray(cc) ? cc.filter(Boolean) : []
+  const bccList = Array.isArray(bcc) ? bcc.filter(Boolean) : []
   return [
     `Date: ${new Date().toUTCString()}`,
     `From: ${from}`,
     `To: ${toEmail}`,
+    ...(ccList.length ? [`Cc: ${ccList.join(', ')}`] : []),
+    ...(bccList.length ? [`Bcc: ${bccList.join(', ')}`] : []),
     `Subject: ${enc(subject)}`,
     ...(messageId ? [`Message-ID: ${messageId}`] : []),
     'MIME-Version: 1.0',
