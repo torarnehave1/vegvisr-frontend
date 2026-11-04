@@ -234,7 +234,20 @@ async function liveGrant(env, senderEmail, granteeEmail) {
  *
  * `actor.isSuperadmin` is never consulted. If you are adding a case here, that stays true.
  */
-export async function resolveSenderAccess(env, { fromEmail, actor }) {
+/**
+ * Reading a mailbox is a different act from sending as it. Sending is cf-email-service only (see
+ * accountUsable). Reading goes over IMAP with a mailbox password held by user-keys-worker, so the
+ * account type does not matter — only that the address is on the profile. A Gmail address with an
+ * app password is the case this exists for. Without a stored `imap:` password the IMAP step fails
+ * on its own, so this check does not need to know about the credential.
+ */
+function accountReadable(account) {
+  if (!account) return { ok: false, message: 'no such account' }
+  return { ok: true }
+}
+
+export async function resolveSenderAccess(env, { fromEmail, actor, purpose = 'send' }) {
+  const check = purpose === 'read' ? accountReadable : accountUsable
   if (!actor || actor.anonymous) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   const callerEmail = normalizeEmail(actor.email)
   if (!callerEmail) {
@@ -248,7 +261,7 @@ export async function resolveSenderAccess(env, { fromEmail, actor }) {
   if (mine.ok) {
     const account = findAccount(mine.accounts, senderEmail)
     if (account) {
-      const usable = accountUsable(account)
+      const usable = check(account)
       if (!usable.ok) {
         return fail(
           ERR.INVALID_INPUT,
@@ -291,7 +304,7 @@ export async function resolveSenderAccess(env, { fromEmail, actor }) {
     )
   }
   const account = findAccount(holder.accounts, senderEmail)
-  const usable = accountUsable(account)
+  const usable = check(account)
   if (!usable.ok) {
     return fail(
       ERR.FORBIDDEN_GRAPH,
@@ -1193,7 +1206,7 @@ export function imapSearchDate(value) {
 
 // Same gate, and therefore the same refusal bytes as for sending, so probing cannot tell
 // "no such mailbox" from "not yours".
-const inboxAccess = (env, { address, actor }) => resolveSenderAccess(env, { fromEmail: address, actor })
+const inboxAccess = (env, { address, actor }) => resolveSenderAccess(env, { fromEmail: address, actor, purpose: 'read' })
 
 export async function listInbox(env, { address, folder, limit, unreadOnly, since, actor, imap }) {
   const access = await inboxAccess(env, { address, actor })
