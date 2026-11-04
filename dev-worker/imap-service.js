@@ -27,7 +27,10 @@
 
 import { connect } from 'cloudflare:sockets'
 import { ERR, statusForCode } from './graph-service.js'
-import { CRLF, parseListLine, chooseSentFolder, buildRfc822, parseKeyName, formatKeyName } from './imap-protocol.js'
+import {
+  CRLF, parseListLine, chooseSentFolder, buildRfc822, parseKeyName, formatKeyName,
+  concatBytes, takeResponse, parseFetchResponse, parseSearch, parseHeaders, parseAddressList, parseMessage,
+} from './imap-protocol.js'
 
 // Re-exported so callers have one import for the whole surface.
 export { parseListLine, chooseSentFolder, buildRfc822, parseKeyName, formatKeyName }
@@ -327,4 +330,185 @@ export async function fileSentCopy(env, { address, toEmail, cc = [], bcc = [], s
 
   if (measured) await rememberSentFolder(env, address, { hostname: cred.hostname, port: cred.port, sentFolder: folder })
   return { filed: true, sentFolder: folder, bytes: res.bytes }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reading the inbox — read-only by construction
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// READ-ONLY IS ENFORCED HERE, NOT PROMISED. The folder is opened with EXAMINE, never SELECT, so the
+// server itself refuses any change for the whole session, and every fetch uses BODY.PEEK, which
+// does not set \Seen. Reading mail through this tool therefore never marks it as read, moves it or
+// deletes it — the person still sees it as new in their own mail client.
+//
+// A separate session function rather than an extension of withImap: the Sent-copy path works on
+// lines and is proven in production; reading needs a byte-exact literal reader, and keeping the two
+// apart means a bug here cannot break the copy that follows every send.
+
+/** One read-only IMAP session that understands literals. */
+async function withImapReader({ hostname, port, user, password }, work) {
+  const socket = connect({ hostname, port }, { secureTransport: 'on', allowHalfOpen: false })
+  const reader = socket.readable.getReader()
+  const writer = socket.writable.getWriter()
+  const encoder = new TextEncoder()
+  let buf = new Uint8Array(0)
+  let tag = 0
+
+  // Read until a response matching `done` arrives; returns every response up to and including it.
+  const readUntil = async (done, { budgetMs = 15000, maxBytes = 6_000_000 } = {}) => {
+    const responses = []
+    const deadline = Date.now() + budgetMs
+    for (;;) {
+      let taken
+      while ((taken = takeResponse(buf))) {
+        buf = taken.rest
+        responses.push(taken.response)
+        if (done(taken.response)) return { responses, finished: true }
+      }
+      if (Date.now() >= deadline || buf.length > maxBytes) return { responses, finished: false }
+      const { value, done: closed } = await Promise.race([
+        reader.read(),
+        new Promise((resolve) => setTimeout(() => resolve({ value: undefined, done: true }), Math.max(0, deadline - Date.now()))),
+      ])
+      if (closed || !value) return { responses, finished: false }
+      buf = concatBytes(buf, value)
+    }
+  }
+  const command = async (text, opts) => {
+    const t = `r${++tag}`
+    await writer.write(encoder.encode(`${t} ${text}${CRLF}`))
+    const { responses, finished } = await readUntil((r) => r.text.startsWith(`${t} `), opts)
+    const final = finished ? responses[responses.length - 1].text : '(no answer in time)'
+    return { responses, ok: new RegExp(`^${t} OK`, 'i').test(final), final }
+  }
+
+  try {
+    const greet = await readUntil((r) => /^\*\s+(OK|PREAUTH)/i.test(r.text), { budgetMs: 8000 })
+    if (!greet.finished) return fail(ERR.INTERNAL_ERROR, `${hostname}:${port} gave no IMAP greeting.`)
+    const pwBytes = encoder.encode(password).length
+    const login = await command(`LOGIN "${user}" {${pwBytes}+}\r\n${password}`)
+    if (!login.ok) {
+      return fail(ERR.FORBIDDEN_GRAPH, `IMAP login failed for ${user}: ${login.final.replace(/^r\d+\s+/, '')}`)
+    }
+    const result = await work(command)
+    await command('LOGOUT', { budgetMs: 4000 }).catch(() => {})
+    return result
+  } catch (e) {
+    return fail(ERR.INTERNAL_ERROR, `IMAP error against ${hostname}:${port}: ${e.message}`)
+  } finally {
+    try { reader.releaseLock(); writer.releaseLock() } catch { /* already released */ }
+    try { await socket.close() } catch { /* the server may have closed first */ }
+  }
+}
+
+/** A folder name safe to put in a quoted IMAP string. */
+function folderArg(folder) {
+  const f = String(folder || 'INBOX').trim()
+  if (!f || f.length > 200 || /["\\\r\n]/.test(f)) return null
+  return f
+}
+
+const HEADER_FIELDS = 'FROM TO CC SUBJECT DATE MESSAGE-ID'
+
+/**
+ * The most recent messages in a folder, newest first, as headers only.
+ *
+ * `address` must already have passed the access gate — this function checks nothing about WHO is
+ * asking; email-service.listInbox does that before calling it.
+ */
+export async function imapListMessages(env, { address, folder = 'INBOX', limit = 20, unreadOnly = false, since = null }) {
+  const box = folderArg(folder)
+  if (!box) return fail(ERR.INVALID_INPUT, 'folder must be a plain folder name such as "INBOX".')
+  const n = Math.min(Math.max(Number(limit) || 20, 1), 50)
+  const cred = await mailboxCredential(env, address)
+  if (!cred.ok) return fail(ERR.FORBIDDEN_GRAPH, cred.reason, { address })
+
+  return withImapReader({ hostname: cred.hostname, port: cred.port, user: address, password: cred.password }, async (command) => {
+    const ex = await command(`EXAMINE "${box}"`)
+    if (!ex.ok) return fail(ERR.GRAPH_NOT_FOUND, `Could not open folder "${box}": ${ex.final.replace(/^r\d+\s+/, '')}`)
+    const total = ex.responses.map((r) => r.text.match(/^\*\s+(\d+)\s+EXISTS/i)).find(Boolean)
+
+    const criteria = [unreadOnly ? 'UNSEEN' : 'ALL']
+    if (since) criteria.push(`SINCE ${since}`)
+    const search = await command(`UID SEARCH ${criteria.join(' ')}`)
+    if (!search.ok) return fail(ERR.INTERNAL_ERROR, `SEARCH failed: ${search.final}`)
+    const uids = parseSearch(search.responses).sort((a, b) => b - a).slice(0, n)
+    if (!uids.length) return { ok: true, address, folder: box, total: total ? Number(total[1]) : 0, messages: [] }
+
+    const fetch = await command(
+      `UID FETCH ${uids.join(',')} (UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER.FIELDS (${HEADER_FIELDS})])`,
+      { budgetMs: 20000 },
+    )
+    if (!fetch.ok) return fail(ERR.INTERNAL_ERROR, `FETCH failed: ${fetch.final}`)
+
+    const messages = fetch.responses
+      .map(parseFetchResponse)
+      .filter((m) => m && m.uid)
+      .map((m) => {
+        const h = parseHeaders(new TextDecoder('latin1').decode(m.body || new Uint8Array(0)))
+        const from = parseAddressList(h.from)[0] || null
+        return {
+          uid: m.uid,
+          from: from ? from.address : null,
+          fromName: from ? from.name : null,
+          to: parseAddressList(h.to).map((a) => a.address),
+          cc: parseAddressList(h.cc).map((a) => a.address),
+          subject: h.subject || '(uten emne)',
+          date: h.date || m.internalDate,
+          seen: m.flags.some((f) => /^\\Seen$/i.test(f)),
+          sizeBytes: m.size,
+        }
+      })
+      .sort((a, b) => b.uid - a.uid)
+    return { ok: true, address, folder: box, total: total ? Number(total[1]) : messages.length, messages }
+  })
+}
+
+/** Largest message read in full. Bigger ones are read up to this size and said to be truncated. */
+export const MAX_READ_BYTES = 2_000_000
+/** Most text returned to the caller. A model's context is the limit, not the mailbox. */
+export const MAX_TEXT_CHARS = 20_000
+
+/** One message, read without marking it as read. */
+export async function imapReadMessage(env, { address, folder = 'INBOX', uid }) {
+  const box = folderArg(folder)
+  if (!box) return fail(ERR.INVALID_INPUT, 'folder must be a plain folder name such as "INBOX".')
+  const id = Number(uid)
+  if (!Number.isInteger(id) || id < 1) return fail(ERR.INVALID_INPUT, 'uid must be a positive whole number from list_inbox.')
+  const cred = await mailboxCredential(env, address)
+  if (!cred.ok) return fail(ERR.FORBIDDEN_GRAPH, cred.reason, { address })
+
+  return withImapReader({ hostname: cred.hostname, port: cred.port, user: address, password: cred.password }, async (command) => {
+    const ex = await command(`EXAMINE "${box}"`)
+    if (!ex.ok) return fail(ERR.GRAPH_NOT_FOUND, `Could not open folder "${box}": ${ex.final.replace(/^r\d+\s+/, '')}`)
+    const fetch = await command(`UID FETCH ${id} (UID FLAGS RFC822.SIZE BODY.PEEK[]<0.${MAX_READ_BYTES}>)`, { budgetMs: 25000 })
+    if (!fetch.ok) return fail(ERR.INTERNAL_ERROR, `FETCH failed: ${fetch.final}`)
+    const m = fetch.responses.map(parseFetchResponse).find((x) => x && x.uid === id)
+    if (!m || !m.body) return fail(ERR.GRAPH_NOT_FOUND, `No message with uid ${id} in "${box}".`)
+
+    const parsed = parseMessage(m.body)
+    const h = parsed.headers
+    const from = parseAddressList(h.from)[0] || null
+    const text = parsed.text || ''
+    return {
+      ok: true,
+      address,
+      folder: box,
+      uid: id,
+      from: from ? from.address : null,
+      fromName: from ? from.name : null,
+      to: parseAddressList(h.to).map((a) => a.address),
+      cc: parseAddressList(h.cc).map((a) => a.address),
+      replyTo: parseAddressList(h['reply-to']).map((a) => a.address),
+      subject: h.subject || '(uten emne)',
+      date: h.date || null,
+      messageId: h['message-id'] || null,
+      seen: m.flags.some((f) => /^\\Seen$/i.test(f)),
+      sizeBytes: m.size,
+      text: text.length > MAX_TEXT_CHARS ? text.slice(0, MAX_TEXT_CHARS) : text,
+      textTruncated: text.length > MAX_TEXT_CHARS || (m.size || 0) > MAX_READ_BYTES,
+      attachments: parsed.attachments,
+    }
+  })
 }
