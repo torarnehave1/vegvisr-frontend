@@ -15,6 +15,24 @@ export const CRLF = '\r\n'
 /** What a Dovecot install might call Sent, best first. */
 const SENT_CANDIDATES = ['Sent', 'INBOX.Sent', 'Sent Items', 'Sent Messages', 'Sendt', 'INBOX.Sendt']
 
+/**
+ * The IMAP LOGIN command line.
+ *
+ * A quoted string (RFC 3501 §4.3) with \\ and \" escaped, whenever the value is printable 7-bit
+ * ASCII — which is every app password and nearly every real one. The earlier form was a
+ * non-synchronizing literal `{n+}`, which needs the LITERAL+ extension: mail.uniweb.no has it,
+ * Gmail does NOT, and answers "BAD Failed to parse your command". Only a value a quoted string
+ * cannot carry (CR, LF, or 8-bit) still goes as a literal.
+ */
+export function loginCommand(user, password) {
+  const quote = (v) => `"${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+  const quotable = (v) => /^[\x20-\x7e]*$/.test(String(v))
+  const u = quote(user)
+  if (quotable(password)) return `LOGIN ${u} ${quote(password)}`
+  const bytes = new TextEncoder().encode(password).length
+  return `LOGIN ${u} {${bytes}+}\r\n${password}`
+}
+
 export function parseListLine(line) {
   // * LIST (\HasNoChildren \Sent) "." INBOX.Sent
   const m = line.match(/^\*\s+LIST\s+\(([^)]*)\)\s+("[^"]*"|NIL)\s+(.+)$/i)

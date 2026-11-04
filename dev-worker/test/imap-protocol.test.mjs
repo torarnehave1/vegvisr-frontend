@@ -184,3 +184,10 @@ test('cc and bcc appear in the Sent copy when given, and not at all otherwise', 
   const plain = buildRfc822(SAMPLE)
   assert.equal(/\r\n(Cc|Bcc):/.test(plain), false)
 })
+
+test('LOGIN is a quoted string for printable passwords, so servers without LITERAL+ (Gmail) accept it', async () => {
+  const { loginCommand } = await import('../imap-protocol.js')
+  assert.equal(loginCommand('me@gmail.com', 'abcdefghijklmnop'), 'LOGIN "me@gmail.com" "abcdefghijklmnop"')
+  assert.equal(loginCommand('a@b.no', 'p"w\\d'), 'LOGIN "a@b.no" "p\\"w\\\\d"')
+  assert.equal(loginCommand('a@b.no', 'pæss'), 'LOGIN "a@b.no" {5+}\r\npæss', '8-bit still goes as a literal')
+})
