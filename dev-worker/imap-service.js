@@ -30,6 +30,7 @@ import { ERR, statusForCode } from './graph-service.js'
 import {
   CRLF, parseListLine, chooseSentFolder, buildRfc822, parseKeyName, formatKeyName,
   concatBytes, takeResponse, parseFetchResponse, parseSearch, parseHeaders, parseAddressList, parseMessage,
+  loginCommand,
 } from './imap-protocol.js'
 
 // Re-exported so callers have one import for the whole surface.
@@ -211,10 +212,8 @@ async function withImap({ hostname, port, user, password }, work) {
     const greet = await readLines(reader, (l) => /^\*\s+(OK|PREAUTH)/i.test(l), { budgetMs: 8000 })
     if (!greet.lines.length) return fail(ERR.INTERNAL_ERROR, `${hostname}:${port} gave no IMAP greeting.`)
 
-    // A literal, not a quoted string: a password may contain characters that would need escaping,
-    // and getting that wrong presents as "wrong password" rather than as a syntax error.
-    const pwBytes = encoder.encode(password).length
-    const login = await command(`LOGIN "${user}" {${pwBytes}+}\r\n${password}`)
+    // Quoted when possible — Gmail has no LITERAL+ (see loginCommand).
+    const login = await command(loginCommand(user, password))
     if (!login.ok) {
       return fail(ERR.FORBIDDEN_GRAPH, `IMAP login failed for ${user}: ${login.final.replace(/^a\d+\s+/, '')}`)
     }
@@ -386,8 +385,7 @@ async function withImapReader({ hostname, port, user, password }, work) {
   try {
     const greet = await readUntil((r) => /^\*\s+(OK|PREAUTH)/i.test(r.text), { budgetMs: 8000 })
     if (!greet.finished) return fail(ERR.INTERNAL_ERROR, `${hostname}:${port} gave no IMAP greeting.`)
-    const pwBytes = encoder.encode(password).length
-    const login = await command(`LOGIN "${user}" {${pwBytes}+}\r\n${password}`)
+    const login = await command(loginCommand(user, password))
     if (!login.ok) {
       return fail(ERR.FORBIDDEN_GRAPH, `IMAP login failed for ${user}: ${login.final.replace(/^r\d+\s+/, '')}`)
     }
