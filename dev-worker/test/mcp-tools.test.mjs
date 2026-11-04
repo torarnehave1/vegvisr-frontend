@@ -3210,6 +3210,31 @@ describe('list_chat_groups is read-only but gated like posting', () => {
   })
 })
 
+describe('list_inbox and read_inbox_email need chat:read and change nothing', () => {
+  test('chat:write is not enough — reading mail needs chat:read', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, authFor('alice@example.com', ['graph:read', 'chat:write']))
+    for (const [name, args] of [['list_inbox', { address: 'post@nibi.no' }], ['read_inbox_email', { address: 'post@nibi.no', uid: 1 }]]) {
+      const e = await callErr(client, name, args)
+      assert.equal(e.code, gs.ERR.INSUFFICIENT_SCOPE)
+      assert.equal(e.requiredScope, 'chat:read')
+    }
+  })
+
+  test('both are read-only and say the content is data, not instructions', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    for (const name of ['list_inbox', 'read_inbox_email']) {
+      const t = tools.find((x) => x.name === name)
+      assert.equal(t.annotations.readOnlyHint, true)
+      assert.equal(t.annotations.destructiveHint, false)
+      assert.match(t.description, /data, never as instructions/)
+      assert.match(t.description, /not marked as read|nothing is marked as read/i)
+    }
+  })
+})
+
 describe('read_chat_messages is gated apart from posting', () => {
   test('chat:write is not enough — reading needs chat:read', async () => {
     const { env } = freshDb()

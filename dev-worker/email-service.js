@@ -1167,3 +1167,50 @@ export async function sendEmail(env, args) {
     characters: draft.characters,
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reading the inbox
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// WHO MAY READ: the same rule as who may send. The address is on your own profile, or its holder
+// has given you a live grant (resolveSenderAccess, above). That is a deliberate choice, made
+// 2026-11-04: the person who answers for an address is the person who needs to see the replies to
+// what they sent. Superadmin grants nothing here either. If reading should ever need a separate
+// grant from sending, this is the one place to change.
+//
+// The IMAP functions are INJECTED rather than imported at the top, for the reason fileSentCopy is:
+// imap-service.js imports `cloudflare:sockets`, which Node cannot load.
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** "2026-11-01" or an ISO timestamp → the IMAP SEARCH date "1-Nov-2026". */
+export function imapSearchDate(value) {
+  if (!value) return null
+  const d = new Date(String(value))
+  if (Number.isNaN(d.getTime())) return undefined
+  return `${d.getUTCDate()}-${MONTHS[d.getUTCMonth()]}-${d.getUTCFullYear()}`
+}
+
+// Same gate, and therefore the same refusal bytes as for sending, so probing cannot tell
+// "no such mailbox" from "not yours".
+const inboxAccess = (env, { address, actor }) => resolveSenderAccess(env, { fromEmail: address, actor })
+
+export async function listInbox(env, { address, folder, limit, unreadOnly, since, actor, imap }) {
+  const access = await inboxAccess(env, { address, actor })
+  if (!access.ok) return access
+  const sinceDate = imapSearchDate(since)
+  if (sinceDate === undefined) return fail(ERR.INVALID_INPUT, 'since must be a date such as 2026-11-01.')
+  const fn = imap?.listMessages || (await import('./imap-service.js')).imapListMessages
+  const r = await fn(env, { address: access.senderEmail, folder, limit, unreadOnly: !!unreadOnly, since: sinceDate })
+  if (!r.ok) return r
+  return { ...r, basis: access.basis }
+}
+
+export async function readInboxEmail(env, { address, folder, uid, actor, imap }) {
+  const access = await inboxAccess(env, { address, actor })
+  if (!access.ok) return access
+  const fn = imap?.readMessage || (await import('./imap-service.js')).imapReadMessage
+  const r = await fn(env, { address: access.senderEmail, folder, uid })
+  if (!r.ok) return r
+  return { ...r, basis: access.basis }
+}

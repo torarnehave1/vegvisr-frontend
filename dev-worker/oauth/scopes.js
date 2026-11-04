@@ -78,7 +78,7 @@ export const SCOPE_TEXT = {
   'graph:publish': 'Gjøre innhold synlig for folk som ikke er innlogget',
   'graph:delete': 'Slette innhold permanent',
   'chat:write': 'Sende meldinger som når andre mennesker, og styre hvem som er med i gruppene dine',
-  'chat:read': 'Lese meldinger andre har skrevet',
+  'chat:read': 'Lese meldinger andre har skrevet — i chatten og i E-POSTINNBOKSER du kan sende fra',
   'user:register': 'Opprette brukerkontoer og endre dem — rolle og gruppe',
   'user:read': 'Se andre registrerte personer: navn, e-post, rolle og gruppe',
   'contacts:read': 'Lese din egen kontaktliste (ContactHub): navn, e-post, telefon, adresse og etiketter — og din egen KALENDER og SMS du har sendt',
@@ -207,7 +207,10 @@ export const OPT_IN_SCOPE_DETAIL = {
   'chat:read':
     'Lar assistenten lese meldinger — også fra andre deltakere — i grupper du er medlem av og ' +
     'der assistentens bot er lagt til. Den ser bare det du selv allerede ser i chatten, og får ' +
-    'visningsnavn, aldri e-postadresser. Gi dette hvis du vil be den oppsummere en samtale.',
+    'visningsnavn, aldri e-postadresser. Gi dette hvis du vil be den oppsummere en samtale. ' +
+    'Den lar den også lese E-POST i innboksen til en adresse du selv har eller har fått lov til ' +
+    'å sende fra (for eksempel en felles postkasse): avsender, emne, tekst og navn på vedlegg. ' +
+    'Den kan ikke slette, flytte eller merke e-post som lest.',
 }
 
 /** Validate a user's opt-in picks: only real opt-in scopes, never anything else. */

@@ -1065,3 +1065,60 @@ test('the Sent copy is given cc and bcc', async () => {
   assert.deepEqual(calls[0].cc, ['ingrid@example.com'])
   assert.deepEqual(calls[0].bcc, ['arkiv@example.com'])
 })
+
+// ── Reading the inbox ───────────────────────────────────────────────────────
+//
+// Same gate as sending: own profile or a live grant, and Superadmin grants nothing. The IMAP layer
+// is injected, so `calls.length === 0` proves a refusal happened before any mail server was asked.
+
+function fakeImap() {
+  const calls = []
+  return {
+    calls,
+    listMessages: async (_e, a) => { calls.push(['list', a]); return { ok: true, address: a.address, folder: 'INBOX', total: 1, messages: [] } },
+    readMessage: async (_e, a) => { calls.push(['read', a]); return { ok: true, address: a.address, folder: 'INBOX', uid: a.uid, text: 'Hei' } },
+  }
+}
+
+test('the holder may list the inbox, and the mail server is asked for the holder address', async () => {
+  const { env } = worldWithGraph()
+  const imap = fakeImap()
+  const r = await email.listInbox(env, { address: 'POST@nibi.no', actor: asHolder(), imap })
+  assert.equal(r.ok, true)
+  assert.equal(r.basis, 'own-profile')
+  assert.equal(imap.calls[0][1].address, NIBI, 'normalised before it reaches IMAP')
+})
+
+test('a grantee may read, and a revoked grant stops it', async () => {
+  const { env } = worldWithGraph([liveGrantRow()])
+  const imap = fakeImap()
+  const ok1 = await email.readInboxEmail(env, { address: NIBI, uid: 5, actor: actorFor('torarne@example.com'), imap })
+  assert.equal(ok1.ok, true)
+  assert.equal(ok1.basis, 'grant')
+  await email.revokeSenderGrant(env, { grantId: 'g-live', actor: asHolder() })
+  const after = await email.readInboxEmail(env, { address: NIBI, uid: 5, actor: actorFor('torarne@example.com'), imap })
+  assert.equal(after.code, gs.ERR.FORBIDDEN_GRAPH)
+  assert.equal(imap.calls.length, 1, 'only the first read ever reached the mail server')
+})
+
+test('a Superadmin with no grant reads nothing, with the same refusal as for sending', async () => {
+  const { env } = worldWithGraph()
+  const imap = fakeImap()
+  const r = await email.listInbox(env, { address: NIBI, actor: actorFor('boss@example.com', 'Superadmin'), imap })
+  const s = await email.renderEmail(env, { fromEmail: NIBI, subject: 'x', bodyHtml: 'y', actor: actorFor('boss@example.com', 'Superadmin') })
+  assert.equal(r.code, gs.ERR.FORBIDDEN_GRAPH)
+  assert.equal(r.message, s.message, 'probing the inbox must not reveal more than probing a send')
+  assert.equal(imap.calls.length, 0)
+})
+
+test('since is turned into an IMAP date, and nonsense is refused before connecting', async () => {
+  assert.equal(email.imapSearchDate('2026-11-01'), '1-Nov-2026')
+  assert.equal(email.imapSearchDate(null), null)
+  const { env } = worldWithGraph()
+  const imap = fakeImap()
+  await email.listInbox(env, { address: NIBI, since: '2026-11-03', actor: asHolder(), imap })
+  assert.equal(imap.calls[0][1].since, '3-Nov-2026')
+  const bad = await email.listInbox(env, { address: NIBI, since: 'i går', actor: asHolder(), imap })
+  assert.equal(bad.code, gs.ERR.INVALID_INPUT)
+  assert.equal(imap.calls.length, 1)
+})
