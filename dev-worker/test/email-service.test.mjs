@@ -1122,3 +1122,26 @@ test('since is turned into an IMAP date, and nonsense is refused before connecti
   assert.equal(bad.code, gs.ERR.INVALID_INPUT)
   assert.equal(imap.calls.length, 1)
 })
+
+// Reading is not sending: a Gmail address on your own profile may be READ over IMAP (with an app
+// password held by user-keys-worker), while sending as it stays refused.
+test('a gmail address on your own profile may be read, but still not sent from', async () => {
+  const { env, raw } = world()
+  seedSenders(raw, 'torarne@example.com', [{ email: 'me@gmail.com', accountType: 'gmail' }])
+  const imap = fakeImap()
+  const me = actorFor('torarne@example.com')
+  const r = await email.listInbox(env, { address: 'me@gmail.com', actor: me, imap })
+  assert.equal(r.ok, true)
+  assert.equal(r.basis, 'own-profile')
+  assert.equal(imap.calls[0][1].address, 'me@gmail.com')
+  const send = await email.resolveSenderAccess(env, { fromEmail: 'me@gmail.com', actor: me })
+  assert.equal(send.ok, false, 'the send gate is unchanged')
+})
+
+test('reading an address that is not on your profile is still refused before connecting', async () => {
+  const { env } = world()
+  const imap = fakeImap()
+  const r = await email.listInbox(env, { address: 'someone@gmail.com', actor: actorFor('torarne@example.com'), imap })
+  assert.equal(r.ok, false)
+  assert.equal(imap.calls.length, 0)
+})
