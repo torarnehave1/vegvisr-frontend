@@ -4890,12 +4890,16 @@ ${result.warnings.join('\n')}` : ''),
   const waitingText = (run, steps) => {
     const w = [...steps].reverse().find((x) => x.kind === 'approval' && ['waiting', 'deciding'].includes(x.status))
     const payload = w?.detail?.payload
-    const shown = payload == null ? '' : typeof payload === 'string' ? payload : Object.values(payload).filter((v) => typeof v === 'string').join('\n\n') || JSON.stringify(payload, null, 2)
+    // An e-mail preview (a preview_email result in the payload) is shown as the e-mail itself.
+    const pv = payload && typeof payload === 'object' ? Object.values(payload).find((v) => v && typeof v === 'object' && typeof v.subject === 'string' && typeof v.textPreview === 'string') : null
+    const shown = pv
+      ? [`Fra: ${pv.fromName ? `${pv.fromName} <${pv.senderEmail}>` : pv.senderEmail}`, `Til: ${pv.toEmail || '—'}`, ...(pv.cc?.length ? [`Kopi: ${pv.cc.join(', ')}`] : []), `Emne: ${pv.subject}`, '', pv.textPreview].join('\n')
+      : payload == null ? '' : typeof payload === 'string' ? payload : Object.values(payload).filter((v) => typeof v === 'string').join('\n\n') || JSON.stringify(payload, null, 2)
     return [
       `Run ${run.id} of "${run.flow}" is WAITING for your approval at "${w?.nodeId || '?'}"${w?.detail?.timeout ? ` (times out after ${w.detail.timeout})` : ''}.`,
       ...flowStepLines(steps),
       '',
-      'Waiting for approval:',
+      pv ? 'The e-mail that waits for approval (preview — nothing is sent yet):' : 'Waiting for approval:',
       shown,
       '',
       `Answer with decide_flow_approval (runId ${run.id}, approve true/false${w?.detail?.allowEdit ? ', optional edited text' : ''}).`,

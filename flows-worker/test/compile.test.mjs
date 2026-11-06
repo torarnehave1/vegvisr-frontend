@@ -123,3 +123,10 @@ test('the dry run stops at limits.maxSteps', () => {
 test('templateRefs finds nested references', () => {
   assert.deepEqual(templateRefs({ a: ['{{x.result.y}}', { b: 'hi {{inputs.name}}' }] }), [['x', 'result.y'], ['inputs', 'name']])
 })
+
+import { render } from '../compile.js'
+test('a value that is one template keeps its type; a template inside text becomes text', () => {
+  const state = { inputs: { n: 3 }, trigger: {}, owner: { email: 'o@x.no' }, results: { p: { result: { subject: 'S', textPreview: 'T' } } } }
+  assert.deepEqual(render({ preview: '{{p.result}}', n: '{{inputs.n}}', line: 'Til {{owner.email}}' }, state), { preview: { subject: 'S', textPreview: 'T' }, n: 3, line: 'Til o@x.no' })
+  assert.equal(render('{{nope.result}}', state), '{{nope.result}}', 'an unknown reference stays visible')
+})

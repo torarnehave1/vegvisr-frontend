@@ -349,3 +349,33 @@ describe('decide_flow_approval', () => {
     assert.match(JSON.stringify(r), /not waiting/)
   })
 })
+
+describe('the owner approves the real e-mail: preview_email in a flow', () => {
+  test('a flow may run preview_email (read-only; chat:write is lent for that one call), but still not send_email', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const r = await callToolForFlow(env, { email: 'alice@example.com', toolName: 'preview_email', args: { fromEmail: 'alice@example.com', toEmail: 'alice@example.com', subject: 'x', bodyHtml: '<p>x</p>' } })
+    assert.equal(r.ok, true, JSON.stringify(r))
+    assert.doesNotMatch(r.text || '', /requires the chat:write scope/, 'the scope was lent')
+    const s = await callToolForFlow(env, { email: 'alice@example.com', toolName: 'send_email', args: { fromEmail: 'alice@example.com', toEmail: 'alice@example.com', subject: 'x', bodyHtml: '<p>x</p>' } })
+    assert.equal(s.status, 403, 'lending a scope to the preview does not open sending')
+  })
+
+  test('a run waiting on an approval with a preview shows the e-mail itself', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const preview = { senderEmail: 'post@vegr.ai', fromName: 'VEGR.AI', toEmail: 'alice@example.com', cc: [], subject: 'Mine siste grafer', textPreview: 'Hei Alice\n\nDette er sammendraget.' }
+    env.FLOWS_WORKER = {
+      fetch: async () => new Response(JSON.stringify({
+        ok: true,
+        run: { id: RUN_ID, flowGraphId: FLOW_ID, flowVersion: 1, flow: 'Hei, flow', status: 'waiting', workflowStatus: 'waiting', dryRun: false, digest: null, error: null, createdAt: 'x', finishedAt: null },
+        steps: [{ seq: 4, nodeId: 'godkjenn', kind: 'approval', status: 'waiting', summary: 'waiting', edge: null, detail: { allowEdit: true, timeout: '24 hours', payload: { tekst: 'Dette er sammendraget.', epost: preview } }, at: 'x' }],
+      }), { status: 200 }),
+    }
+    const r = await (await connect(env, ALICE)).callTool({ name: 'get_flow_run', arguments: { runId: RUN_ID } })
+    const text = r.content[0].text
+    assert.match(text, /WAITING for your approval/)
+    assert.match(text, /Fra: VEGR\.AI <post@vegr\.ai>\nTil: alice@example\.com\nEmne: Mine siste grafer\n\nHei Alice/)
+    assert.match(text, /decide_flow_approval/)
+  })
+})

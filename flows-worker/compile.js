@@ -224,12 +224,29 @@ export function compileFlow(graph, aliases = []) {
   }
 }
 
+const WHOLE_TEMPLATE = /^\{\{\s*([a-zA-Z0-9_-]+)((?:\.[a-zA-Z0-9_-]+)*)\s*\}\}$/
+
+function lookup(root, path, state) {
+  const keys = path.replace(/^\./, '').split('.').filter(Boolean)
+  let v = root === 'inputs' ? state.inputs : root === 'trigger' ? state.trigger : root === 'owner' ? state.owner : state.results[root]
+  for (const k of keys) v = v == null ? undefined : v[k]
+  return v
+}
+
+/**
+ * Fill {{step.result.x}} / {{inputs.x}} / {{owner.email}} in a value. A string that is ONE template
+ * and nothing else becomes the value itself (an object stays an object — e.g. a preview_email
+ * result handed to an approval); a template inside other text becomes text.
+ */
 export function render(value, state) {
   if (typeof value === 'string') {
+    const whole = value.match(WHOLE_TEMPLATE)
+    if (whole) {
+      const v = lookup(whole[1], whole[2], state)
+      return v === undefined ? value : v
+    }
     return value.replace(TEMPLATE, (_m, root, path) => {
-      const keys = path.replace(/^\./, '').split('.').filter(Boolean)
-      let v = root === 'inputs' ? state.inputs : root === 'trigger' ? state.trigger : root === 'owner' ? state.owner : state.results[root]
-      for (const k of keys) v = v == null ? undefined : v[k]
+      const v = lookup(root, path, state)
       return v === undefined ? `{{${root}${path}}}` : (typeof v === 'string' ? v : JSON.stringify(v))
     })
   }

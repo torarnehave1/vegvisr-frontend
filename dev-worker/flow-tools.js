@@ -32,6 +32,14 @@ import { registerTools } from './mcp/tools.js'
 
 export const FLOW_SCOPES = ['graph:read', 'contacts:read']
 
+/**
+ * Read-only tools that sit behind a non-read scope in chat, with the scope a flow is lent for
+ * that one call. preview_email renders an e-mail and sends nothing (READ_ONLY), but needs
+ * chat:write because it shows what may be sent — a flow uses it so the owner approves the
+ * real e-mail, not a description of it (Tor Arne, 6 Nov 2026).
+ */
+export const FLOW_READ_TOOL_SCOPES = { preview_email: 'chat:write' }
+
 /** Tools a flow may run after an approval, with the one scope each needs. */
 export const FLOW_SEND_TOOLS = { send_email: 'chat:write' }
 
@@ -99,7 +107,8 @@ export async function callToolForFlow(env, { email, toolName, args = {}, approva
 
   // An approved send gets the one extra scope its tool needs — checked and consumed below, before it runs.
   const sendScope = approval && FLOW_SEND_TOOLS[toolName] ? FLOW_SEND_TOOLS[toolName] : null
-  const auth = { token: 'flow-principal', audience: 'flows-worker', scope: [...FLOW_SCOPES, ...(sendScope ? [sendScope] : [])], userId: owner.userId, clientId: 'flows-worker' }
+  const lentScope = sendScope || FLOW_READ_TOOL_SCOPES[toolName] || null
+  const auth = { token: 'flow-principal', audience: 'flows-worker', scope: [...FLOW_SCOPES, ...(lentScope ? [lentScope] : [])], userId: owner.userId, clientId: 'flows-worker' }
   const props = { userId: owner.userId, email: owner.email, role: owner.role, authMethod: 'flow' }
 
   const server = new McpServer({ name: 'vegr-flows', version: '1.0.0' })
