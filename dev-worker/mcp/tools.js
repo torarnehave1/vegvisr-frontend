@@ -40,6 +40,7 @@ import * as nts from '../node-type-service.js'
 import * as users from '../users-service.js'
 import * as sms from '../sms-service.js'
 import * as myDay from '../my-day-service.js'
+import * as flows from '../flows-service.js'
 import * as social from '../social-service.js'
 import * as mediaUpload from '../media-upload-service.js'
 import * as vemotion from '../vemotion-service.js'
@@ -4879,6 +4880,129 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── run_flow / get_flow_run (2026-11-06, VEGR Flows phase 0/1) ──
+  // The engine is flows-worker (service binding FLOWS_WORKER). This side authenticates, checks
+  // the caller owns the flow graph, and sends the graph + model aliases with the verified e-mail.
+  // Dry runs only for now: every step says what it would do and nothing is called. graph:read
+  // is the scope because a dry run reads the graph and changes nothing — so no new consent.
+  const FLOW_STEP_SHAPE = z.object({
+    seq: z.number(),
+    nodeId: z.string(),
+    kind: z.string(),
+    status: z.string(),
+    summary: z.string().nullable(),
+    edge: z.string().nullable(),
+    detail: z.any().nullable(),
+    at: z.string(),
+  })
+  server.registerTool(
+    'run_flow',
+    {
+      title: 'Run a VEGR Flow (dry run)',
+      description:
+        'Run one of YOUR VEGR Flows — a #FLOWS graph with one `flow` node and `flow-step` nodes ' +
+        'joined by edges. The graph is compiled first (structure, model aliases, and the safety ' +
+        'rule that nothing reaching other people runs without an approval step); if it does not ' +
+        'compile, the reasons come back and nothing starts. For now every run is a DRY RUN: each ' +
+        'step records what it WOULD do — which tool with which parameters, which model — and ' +
+        'nothing is called or sent. Returns a runId; pass waitSeconds to also get the finished ' +
+        'run, or read it later with get_flow_run. Only the graph\'s owner can run it. Requires ' +
+        'the graph:read scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The flow graph.'),
+        inputs: z.record(z.any()).optional().describe('Values the steps can use as {{inputs.name}}.'),
+        waitSeconds: z.number().int().optional().describe('Wait up to this many seconds (max 20) for the run to finish and return it. Default 10.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        runId: z.string(),
+        graphId: z.string(),
+        flow: z.string().nullable(),
+        dryRun: z.boolean(),
+        status: z.string(),
+        warnings: z.array(z.string()),
+        digest: z.string().nullable(),
+        steps: z.array(FLOW_STEP_SHAPE),
+      },
+      annotations: ADDITIVE_WRITE,
+    },
+    async ({ graphId, inputs, waitSeconds }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const started = await flows.runFlow(env, { actor, graphId, inputs })
+      if (!started.ok) return fromService(started)
+      const read = await flows.getFlowRun(env, { actor, runId: started.runId, waitSeconds: waitSeconds ?? 10 })
+      const run = read.ok ? read.run : null
+      const steps = read.ok ? read.steps : []
+      const payload = {
+        success: true,
+        runId: started.runId,
+        graphId,
+        flow: started.flow || null,
+        dryRun: true,
+        status: run?.status || started.status,
+        warnings: started.warnings,
+        digest: run?.digest || null,
+        steps,
+      }
+      const head = run?.status === 'succeeded'
+        ? (run.digest || `Dry run finished: ${steps.length} steps.`)
+        : run?.status === 'failed'
+          ? `The run failed: ${run.error || 'unknown error'}`
+          : `Started dry run ${started.runId} of "${started.flow}" (${started.steps} steps); it is still ${run?.status || started.status}. Read it with get_flow_run.`
+      const warn = started.warnings.length ? `\nWarnings:\n- ${started.warnings.join('\n- ')}` : ''
+      return ok(payload, `${head}${warn}\nrunId ${started.runId}`)
+    },
+  )
+
+  server.registerTool(
+    'get_flow_run',
+    {
+      title: 'Read a VEGR Flow run',
+      description:
+        'Read one of YOUR flow runs by the runId run_flow returned: its status (queued, running, ' +
+        'succeeded, failed), the readable digest, and every step with what it did (or, in a dry ' +
+        'run, would do) and which edge it took. Requires the graph:read scope.',
+      inputSchema: {
+        runId: z.string().min(1).describe('From run_flow, exactly as returned.'),
+        waitSeconds: z.number().int().optional().describe('Wait up to this many seconds (max 20) for an unfinished run. Default 0.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        run: z.object({
+          id: z.string(),
+          flowGraphId: z.string(),
+          flowVersion: z.number().nullable(),
+          flow: z.string().nullable(),
+          status: z.string(),
+          workflowStatus: z.string().nullable(),
+          dryRun: z.boolean(),
+          digest: z.string().nullable(),
+          error: z.string().nullable(),
+          createdAt: z.string(),
+          finishedAt: z.string().nullable(),
+        }),
+        steps: z.array(FLOW_STEP_SHAPE),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ runId, waitSeconds }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await flows.getFlowRun(env, { actor, runId, waitSeconds })
+      if (!r.ok) return fromService(r)
+      const lines = r.steps.map((x) => `${x.seq}. ${x.nodeId} (${x.kind}) — ${x.summary}${x.edge ? ` → ${x.edge}` : ''}`)
+      const head = `Run ${r.run.id} of "${r.run.flow}": ${r.run.status}${r.run.dryRun ? ' (dry run)' : ''}${r.run.error ? ` — ${r.run.error}` : ''}`
+      return ok({ success: true, run: r.run, steps: r.steps }, [head, ...lines].join('\n'))
+    },
+  )
+
   server.registerTool(
     'list_sent_sms',
     {
@@ -6172,6 +6296,8 @@ export const TOOL_NAMES = [
   'search_contacts',
   'create_contact',
   'get_my_day',
+  'run_flow',
+  'get_flow_run',
   'list_sent_sms',
   'set_meeting_report',
   'preview_meeting_report',

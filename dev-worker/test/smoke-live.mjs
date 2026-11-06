@@ -12,6 +12,7 @@ import { execFileSync } from 'node:child_process'
 const MCP = 'https://knowledge.vegvisr.org'
 const AGENT = 'https://agent.vegvisr.org'
 const KEYS = 'https://user-keys-worker.torarnehave.workers.dev'
+const FLOWS = 'https://flows-worker.torarnehave.workers.dev'
 
 let failures = 0
 const check = (name, cond, detail = '') => {
@@ -72,6 +73,18 @@ console.log('— live smoke —')
     body: JSON.stringify({ userId: 'smoke-probe', provider: 'openai', apiKey: 'not-a-key' }),
   })
   check('user-api-keys PUT refuses no token', putStatus === 401, `HTTP ${putStatus}`)
+}
+
+// 2c. flows-worker (VEGR Flows engine, 2026-11-06) is up, and runs only over the binding: from the
+//     internet /flows/run is refused before anything is read. Read-only probes.
+{
+  const { status: h } = await json(`${FLOWS}/health`)
+  check('flows-worker health', h === 200, `HTTP ${h}`)
+  const { status: run } = await json(`${FLOWS}/flows/run`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ graph: { id: 'smoke', nodes: [] }, actor: { email: 'smoke@example.com' } }),
+  })
+  check('flows-worker /flows/run refuses the internet', run === 403, `HTTP ${run}`)
 }
 
 // 3. Sender grants refuse an unauthenticated caller.

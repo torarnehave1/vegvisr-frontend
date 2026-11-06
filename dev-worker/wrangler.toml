@@ -168,6 +168,12 @@ service = "vegvisr-photos-worker"
 binding = "AGENT_WORKER"
 service = "agent-worker"
 
+# flows-worker — the VEGR Flows engine (2026-11-06). MCP run_flow / get_flow_run send it the flow
+# graph, the model aliases and the VERIFIED user's e-mail; it is reachable only over this binding.
+[[services]]
+binding = "FLOWS_WORKER"
+service = "flows-worker"
+
 # gpt-image-2.5 for reference-image composition, through openai-worker's /images/edits.
 # Added 2026-10-01: Workers AI has nothing that preserves a specific subject across a new scene.
 [[services]]
