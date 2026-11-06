@@ -130,3 +130,16 @@ test('a value that is one template keeps its type; a template inside text become
   assert.deepEqual(render({ preview: '{{p.result}}', n: '{{inputs.n}}', line: 'Til {{owner.email}}' }, state), { preview: { subject: 'S', textPreview: 'T' }, n: 3, line: 'Til o@x.no' })
   assert.equal(render('{{nope.result}}', state), '{{nope.result}}', 'an unknown reference stays visible')
 })
+
+test('an approval preview may not use a tool that reaches other people', () => {
+  const g = {
+    id: 'g', nodes: [
+      { id: 'f', type: 'flow', metadata: { kind: 'vegr-flow' } },
+      { id: 'a', type: 'flow-step', label: 'Godkjenn', metadata: { kind: 'approval', preview: { toolName: 'send_email', params: {} } } },
+      { id: 'n', type: 'flow-step', label: 'Ferdig', metadata: { kind: 'note' } },
+    ], edges: [{ source: 'f', target: 'a' }, { source: 'a', target: 'n', label: 'approved' }],
+  }
+  const c = compileFlow(g)
+  assert.equal(c.ok, false)
+  assert.match(c.errors.join('\n'), /preview may not use send_email/)
+})

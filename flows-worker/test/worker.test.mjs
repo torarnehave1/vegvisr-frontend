@@ -126,6 +126,9 @@ function fakeKG() {
         if (!body.approval) return new Response(JSON.stringify({ ok: false, status: 403, error: 'needs an approval' }), { status: 403 })
         return new Response(JSON.stringify({ ok: true, isError: false, structured: { success: true, sent: true, toEmail: body.args.toEmail }, text: 'sent' }), { status: 200 })
       }
+      if (body.toolName === 'preview_email') {
+        return new Response(JSON.stringify({ ok: true, isError: false, structured: { success: true, sent: false, senderEmail: body.args.fromEmail, fromName: 'VEGR.AI', toEmail: body.args.toEmail, cc: [], subject: body.args.subject, textPreview: `Hei\n\n${body.args.variables?.tekst}` }, text: 'NOT SENT' }), { status: 200 })
+      }
       if (body.toolName === 'list_my_graphs') {
         return new Response(JSON.stringify({ ok: true, isError: false, structured: { success: true, results: [{ graphId: 'g1', title: 'Min graf' }] }, text: '1 graph' }), { status: 200 })
       }
@@ -243,7 +246,7 @@ const HEI = {
   nodes: [
     GRAPH.nodes[0], GRAPH.nodes[1],
     { id: 'oppsummer', type: 'flow-step', label: 'Oppsummer', metadata: { kind: 'agent', model: 'fast', instructions: 'Skriv ett avsnitt', input: { grafer: '{{les.result.results}}' } } },
-    { id: 'godkjenn', type: 'flow-step', label: 'Godkjenn', metadata: { kind: 'approval', approver: 'owner', allowEdit: true, timeout: '24h', payload: { tekst: '{{oppsummer.result.text}}' } } },
+    { id: 'godkjenn', type: 'flow-step', label: 'Godkjenn', metadata: { kind: 'approval', approver: 'owner', allowEdit: true, timeout: '24h', payload: { tekst: '{{oppsummer.result.text}}' }, preview: { toolName: 'preview_email', params: { fromEmail: 'post@vegr.ai', toEmail: '{{owner.email}}', subject: 'Mine siste grafer', bodyHtml: '<p>{tekst}</p>', variables: { tekst: '{{oppsummer.result.text}}' } } } } },
     { id: 'send', type: 'flow-step', label: 'Send', metadata: { kind: 'action', toolName: 'send_email', params: { fromEmail: 'post@vegr.ai', toEmail: '{{owner.email}}', subject: 'Mine siste grafer', bodyHtml: '<p>{tekst}</p>', variables: { tekst: '{{godkjenn.result.text}}' } } } },
     { id: 'stopp', type: 'flow-step', label: 'Ikke sendt', metadata: { kind: 'note' } }],
   edges: [...GRAPH.edges, { source: 'oppsummer', target: 'godkjenn' }, { source: 'godkjenn', target: 'send', label: 'approved' }, { source: 'godkjenn', target: 'stopp', label: 'rejected' }],
@@ -260,6 +263,13 @@ test('the full Hei, flow: reads, summarises with the model, waits for the owner,
   const waiting = env.DB.steps.find((s) => s.node_id === 'godkjenn')
   assert.equal(waiting.status, 'waiting')
   assert.match(waiting.detail_json, /Grafene handler om Min graf/, 'the owner sees the model\'s real text')
+  const shown = JSON.parse(waiting.detail_json).payload.epost
+  assert.equal(shown.subject, 'Mine siste grafer', 'the owner sees the real e-mail preview')
+  assert.equal(shown.toEmail, 'tor@example.no')
+  assert.match(shown.textPreview, /Grafene handler om Min graf/)
+  const previews = env.KG_WORKER.calls.filter((c) => c.toolName === 'preview_email')
+  assert.equal(previews.length, 1)
+  assert.equal(previews[0].approval, undefined, 'a preview carries no send claim')
   assert.ok(!env.KG_WORKER.calls.some((c) => c.toolName === 'send_email'), 'nothing is sent before the decision')
 
   assert.equal((await decideReq(env, runId, { email: 'someone@else.no', approved: true })).status, 404, 'only the owner decides')

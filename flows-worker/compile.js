@@ -101,6 +101,14 @@ export function compileFlow(graph, aliases = []) {
     if (kind === 'loop' && !(Number(m.maxItems) > 0 && Number(m.maxItems) <= 1000)) {
       errors.push(`Loop step "${step.label}": metadata.maxItems (1–1000) is required.`)
     }
+    if (kind === 'approval' && m.preview) {
+      // A preview the owner sees before deciding: a read-only tool (preview_email) run just before
+      // the run waits. Its result is shown with the approval (payload.epost). The MCP server
+      // refuses anything that is not read-only; the compiler refuses the senders up front.
+      if (!m.preview.toolName || typeof m.preview.toolName !== 'string') errors.push(`Approval step "${step.label}": metadata.preview.toolName is required when preview is set.`)
+      else if (EXTERNAL_TOOLS.has(m.preview.toolName)) errors.push(`Approval step "${step.label}": the preview may not use ${m.preview.toolName}, which reaches other people. Use preview_email.`)
+      step.preview = { toolName: m.preview.toolName, params: m.preview.params && typeof m.preview.params === 'object' ? m.preview.params : {} }
+    }
     if (kind === 'wait' && !m.duration) errors.push(`Wait step "${step.label}": metadata.duration is required (e.g. "10 minutes").`)
     if (kind === 'subflow') errors.push(`Step "${step.label}": subflows come in phase 4 and cannot run yet.`)
     steps[step.id] = step
@@ -148,7 +156,7 @@ export function compileFlow(graph, aliases = []) {
 
   // ── template references point at real steps ──
   for (const s of Object.values(steps)) {
-    for (const [root] of templateRefs({ params: s.params, input: s.input, instructions: s.instructions, payload: s.payload })) {
+    for (const [root] of templateRefs({ params: s.params, input: s.input, instructions: s.instructions, payload: s.payload, preview: s.preview?.params })) {
       if (root !== 'inputs' && root !== 'trigger' && root !== 'owner' && !steps[root]) {
         errors.push(`Step "${s.label}" refers to {{${root}…}}, but there is no step with id "${root}".`)
       }
@@ -291,8 +299,8 @@ export function dryRunStep(spec, stepId, state) {
       edge = result.route ? pick(result.route, 'next') : pick('next')
       break
     case 'approval':
-      detail = { approver: s.approver || 'owner', timeout: s.timeout || '24h', payload: render(s.payload || null, state) }
-      summary = `would wait for ${detail.approver}'s approval (dry run continues as approved)`
+      detail = { approver: s.approver || 'owner', timeout: s.timeout || '24h', payload: render(s.payload || null, state), preview: s.preview ? { toolName: s.preview.toolName, params: render(s.preview.params, state) } : null }
+      summary = `${s.preview ? `would show a preview (${s.preview.toolName}) and ` : 'would '}wait for ${detail.approver}'s approval (dry run continues as approved)`
       edge = pick('approved')
       break
     case 'route':
@@ -472,8 +480,18 @@ export async function liveStep(spec, stepId, state, hooks = {}) {
   }
 
   if (s.kind === 'approval') {
-    const payload = render(s.payload || null, state)
+    let payload = render(s.payload || null, state)
     const timeout = workflowDuration(s.timeout || '24h')
+    if (s.preview) {
+      const args = render(s.preview.params || {}, state)
+      const r = await hooks.callTool(s.preview.toolName, args, {})
+      if (!r.ok || r.isError) {
+        const why = [r.error, r.details].filter(Boolean).join(': ') || r.text || 'the tool reported an error'
+        return failed(`the preview (${s.preview.toolName}) failed: ${why}`, { toolName: s.preview.toolName, args })
+      }
+      const preview = r.structured ?? { text: r.text }
+      payload = { ...(payload && typeof payload === 'object' ? payload : payload == null ? {} : { tekst: payload }), epost: preview }
+    }
     return {
       record: { nodeId: s.id, label: s.label, kind: s.kind, status: 'waiting', summary: `waiting for ${s.approver || 'owner'}'s approval (times out after ${timeout})`, detail: { approver: s.approver || 'owner', allowEdit: s.allowEdit === true, timeout, payload }, edge: null },
       result: null, nextId: null, stop: null,
