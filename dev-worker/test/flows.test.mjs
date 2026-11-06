@@ -207,3 +207,26 @@ describe('callToolForFlow — a flow runs MCP tools as its owner, read-only', ()
     assert.deepEqual([...FLOW_SCOPES].sort(), ['contacts:read', 'graph:read'])
   })
 })
+
+// ── The Workers runtime refuses code generated from strings (eval, new Function). The first live
+//    flow failed on exactly that (Ajv inside the MCP client, 2026-11-06), while every test here
+//    was green under plain Node. This runs callToolForFlow in a child Node with the same rule.
+import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+
+describe('callToolForFlow under the Workers rule: no code generation from strings', () => {
+  test('a read-only tool runs with --disallow-code-generation-from-strings', () => {
+    const dir = fileURLToPath(new URL('.', import.meta.url))
+    const script = `
+      import { freshDb, seedUsers } from ${JSON.stringify(dir + 'd1-adapter.mjs')}
+      import { callToolForFlow } from ${JSON.stringify(dir + '../flow-tools.js')}
+      const { env, raw } = freshDb()
+      seedUsers(raw)
+      const r = await callToolForFlow(env, { email: 'alice@example.com', toolName: 'list_my_graphs', args: { limit: 3 } })
+      process.stdout.write(JSON.stringify({ ok: r.ok, isError: r.isError, error: r.error || null }))
+    `
+    const out = execFileSync(process.execPath, ['--disallow-code-generation-from-strings', '--input-type=module', '-e', script], { encoding: 'utf8' })
+    const r = JSON.parse(out.trim().split('\n').pop())
+    assert.deepEqual(r, { ok: true, isError: false, error: null })
+  })
+})

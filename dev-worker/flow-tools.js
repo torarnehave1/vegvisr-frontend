@@ -25,6 +25,9 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { registerTools } from './mcp/tools.js'
 
 export const FLOW_SCOPES = ['graph:read', 'contacts:read']
+
+/** A jsonSchemaValidator that never generates code: it accepts every value (see callToolForFlow). */
+const ACCEPT_OUTPUT = { getValidator: () => (input) => ({ valid: true, data: input, errorMessage: undefined }) }
 const MAX_RESULT_CHARS = 200_000
 
 async function loadOwner(env, email) {
@@ -54,7 +57,11 @@ export async function callToolForFlow(env, { email, toolName, args = {} }) {
 
   const server = new McpServer({ name: 'vegr-flows', version: '1.0.0' })
   registerTools(server, () => ({ auth, env, props }))
-  const client = new Client({ name: 'flows-worker', version: '1.0.0' })
+  // The client's default output validator is Ajv, which compiles schemas with `new Function` —
+  // refused by the Workers runtime ("Code generation from strings disallowed", seen live
+  // 2026-11-06). Here the client only checks what our own server, in this same process, just
+  // produced from zod-validated code, so that check adds nothing: accept the output as given.
+  const client = new Client({ name: 'flows-worker', version: '1.0.0' }, { jsonSchemaValidator: ACCEPT_OUTPUT })
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair()
   try {
     await Promise.all([server.connect(serverSide), client.connect(clientSide)])

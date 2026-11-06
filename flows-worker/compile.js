@@ -343,7 +343,8 @@ export async function liveStep(spec, stepId, state, callTool) {
     }
     const r = await callTool(s.toolName, args)
     if (!r.ok || r.isError) {
-      const why = r.error || r.text || 'the tool reported an error'
+      // details: the MCP server's catch-all answers { error: 'Server error', details } — keep both.
+      const why = [r.error, r.details].filter(Boolean).join(': ') || r.text || 'the tool reported an error'
       const err = byLabel('error')
       return {
         record: { nodeId: s.id, label: s.label, kind: s.kind, status: 'error', summary: `${s.toolName} failed: ${String(why).slice(0, 300)}`, detail: { toolName: s.toolName, args }, edge: err ? 'error' : null },
