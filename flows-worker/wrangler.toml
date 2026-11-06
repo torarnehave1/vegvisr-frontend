@@ -24,3 +24,8 @@ class_name = "FlowRunner"
 [[services]]
 binding = "KG_WORKER"
 service = "knowledge-graph-worker"
+
+# Agent steps ask a model through anthropic-worker (binding only, platform key; 2026-11-06).
+[[services]]
+binding = "ANTHROPIC"
+service = "anthropic-worker"

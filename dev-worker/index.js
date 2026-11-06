@@ -2129,7 +2129,8 @@ const restHandler = {
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
       }
 
-      // VEGR Flows (2026-11-06): flows-worker runs one READ-ONLY MCP tool as the flow's owner.
+      // VEGR Flows (2026-11-06): flows-worker runs one MCP tool as the flow's owner — read-only,
+      // or an approved send (flow-tools.js checks the approval in D1 before it runs).
       // Binding only — the hostname 'knowledge-graph-worker' cannot be reached from the internet
       // (see validateAuth). Everything about who and what is decided in flow-tools.js.
       if (pathname === '/internal/flows/call-tool' && request.method === 'POST') {
@@ -2139,7 +2140,7 @@ const restHandler = {
           })
         }
         const body = await request.json().catch(() => ({}))
-        const r = await flowTools.callToolForFlow(env, { email: body.email, toolName: body.toolName, args: body.args })
+        const r = await flowTools.callToolForFlow(env, { email: body.email, toolName: body.toolName, args: body.args, approval: body.approval || null })
         return new Response(JSON.stringify(r), {
           status: r.ok ? 200 : r.status || 400, headers: { 'Content-Type': 'application/json' },
         })

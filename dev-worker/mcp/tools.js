@@ -4885,6 +4885,22 @@ ${result.warnings.join('\n')}` : ''),
   // the caller owns the flow graph, and sends the graph + model aliases with the verified e-mail.
   // Dry runs only for now: every step says what it would do and nothing is called. graph:read
   // is the scope because a dry run reads the graph and changes nothing — so no new consent.
+  const flowStepLines = (steps) => steps.map((x) => `${x.seq}. ${x.nodeId} (${x.kind}) — ${x.summary}${x.edge ? ` → ${x.edge}` : ''}`)
+  // A run paused at an approval: what waits for the owner's yes, and how to answer.
+  const waitingText = (run, steps) => {
+    const w = [...steps].reverse().find((x) => x.kind === 'approval' && ['waiting', 'deciding'].includes(x.status))
+    const payload = w?.detail?.payload
+    const shown = payload == null ? '' : typeof payload === 'string' ? payload : Object.values(payload).filter((v) => typeof v === 'string').join('\n\n') || JSON.stringify(payload, null, 2)
+    return [
+      `Run ${run.id} of "${run.flow}" is WAITING for your approval at "${w?.nodeId || '?'}"${w?.detail?.timeout ? ` (times out after ${w.detail.timeout})` : ''}.`,
+      ...flowStepLines(steps),
+      '',
+      'Waiting for approval:',
+      shown,
+      '',
+      `Answer with decide_flow_approval (runId ${run.id}, approve true/false${w?.detail?.allowEdit ? ', optional edited text' : ''}).`,
+    ].join('\n')
+  }
   const FLOW_STEP_SHAPE = z.object({
     seq: z.number(),
     nodeId: z.string(),
@@ -4905,16 +4921,19 @@ ${result.warnings.join('\n')}` : ''),
         'rule that nothing reaching other people runs without an approval step); if it does not ' +
         'compile, the reasons come back and nothing starts. By default a run is a DRY RUN: each ' +
         'step records what it WOULD do — which tool with which parameters, which model — and ' +
-        'nothing is called or sent. With live: true, steps that only READ (tools such as ' +
-        'list_my_graphs, get_graph, search_contacts) really run, as you, with the same tools and ' +
-        'access as this chat; agent, approval and wait steps are still simulated, and a step that ' +
-        'would write or send stops the run. Returns a runId; pass waitSeconds to also get the finished ' +
-        'run, or read it later with get_flow_run. Only the graph\'s owner can run it. Requires ' +
-        'the graph:read scope.',
+        'nothing is called or sent. With live: true the flow really runs, as you: read-only tool ' +
+        'steps (list_my_graphs, get_graph, search_contacts …) run with the same tools and access as ' +
+        'this chat; agent steps ask their model; an approval step PAUSES the run (status ' +
+        '"waiting") and shows what waits for your yes — show it to the user, and pass their answer ' +
+        'to decide_flow_approval. Only after a yes does a send step run (send_email, to the owner ' +
+        'only), exactly once; no, or 24 hours without an answer, takes the "rejected" edge. Route, ' +
+        'wait and loop steps are still simulated. Returns a runId; pass waitSeconds to also get the ' +
+        'run as far as it got, or read it later with get_flow_run. Only the graph\'s owner can run ' +
+        'it. Requires the graph:read scope.',
       inputSchema: {
         graphId: z.string().min(1).describe('The flow graph.'),
         inputs: z.record(z.any()).optional().describe('Values the steps can use as {{inputs.name}}.'),
-        live: z.boolean().optional().describe('true: read-only steps really run (as you). Default false: a dry run, nothing is called.'),
+        live: z.boolean().optional().describe('true: the flow really runs (as you), pausing at approvals. Default false: a dry run, nothing is called.'),
         waitSeconds: z.number().int().optional().describe('Wait up to this many seconds (max 20) for the run to finish and return it. Default 10.'),
       },
       outputSchema: {
@@ -4955,8 +4974,10 @@ ${result.warnings.join('\n')}` : ''),
       const head = run?.status === 'succeeded'
         ? (run.digest || `Run finished: ${steps.length} steps.`)
         : run?.status === 'failed'
-          ? `The run failed: ${run.error || 'unknown error'}`
-          : `Started ${started.dryRun ? 'dry' : 'live'} run ${started.runId} of "${started.flow}" (${started.steps} steps); it is still ${run?.status || started.status}. Read it with get_flow_run.`
+          ? `The run failed: ${run.error || 'unknown error'}\n${flowStepLines(steps).join('\n')}`
+          : run?.status === 'waiting'
+            ? waitingText(run, steps)
+            : `Started ${started.dryRun ? 'dry' : 'live'} run ${started.runId} of "${started.flow}" (${started.steps} steps); it is still ${run?.status || started.status}. Read it with get_flow_run.`
       const warn = started.warnings.length ? `\nWarnings:\n- ${started.warnings.join('\n- ')}` : ''
       return ok(payload, `${head}${warn}\nrunId ${started.runId}`)
     },
@@ -5001,9 +5022,63 @@ ${result.warnings.join('\n')}` : ''),
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
       const r = await flows.getFlowRun(env, { actor, runId, waitSeconds })
       if (!r.ok) return fromService(r)
-      const lines = r.steps.map((x) => `${x.seq}. ${x.nodeId} (${x.kind}) — ${x.summary}${x.edge ? ` → ${x.edge}` : ''}`)
-      const head = `Run ${r.run.id} of "${r.run.flow}": ${r.run.status}${r.run.dryRun ? ' (dry run)' : ''}${r.run.error ? ` — ${r.run.error}` : ''}`
-      return ok({ success: true, run: r.run, steps: r.steps }, [head, ...lines].join('\n'))
+      const lines = flowStepLines(r.steps)
+      const head = r.run.status === 'waiting'
+        ? waitingText(r.run, r.steps)
+        : `Run ${r.run.id} of "${r.run.flow}": ${r.run.status}${r.run.dryRun ? ' (dry run)' : ''}${r.run.error ? ` — ${r.run.error}` : ''}`
+      return ok({ success: true, run: r.run, steps: r.steps }, r.run.status === 'waiting' ? head : [head, ...lines].join('\n'))
+    },
+  )
+
+  server.registerTool(
+    'decide_flow_approval',
+    {
+      title: 'Approve or reject a waiting VEGR Flow step',
+      description:
+        'Give YOUR decision on the approval step a live flow run is waiting for (run_flow or ' +
+        'get_flow_run shows status "waiting" and the text that waits). approve: true lets the run ' +
+        'continue on its "approved" edge — a send step after it (send_email to you) then runs, ' +
+        'exactly once; approve: false takes the "rejected" edge and nothing is sent. Pass text to ' +
+        'replace the waiting text with the user\'s own version (only when the step allows ' +
+        'editing). Only call this with the user\'s explicit answer — never decide for them. ' +
+        'Returns the run as far as it got. Requires the chat:write scope, because a yes can send.',
+      inputSchema: {
+        runId: z.string().min(1).describe('From run_flow, exactly as returned.'),
+        approve: z.boolean().describe('true = yes, continue (and send); false = no.'),
+        text: z.string().optional().describe('The user\'s edited text, to be used instead of the waiting one.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        approved: z.boolean(),
+        edited: z.boolean(),
+        status: z.string().nullable(),
+        digest: z.string().nullable(),
+        steps: z.array(FLOW_STEP_SHAPE),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ runId, approve, text }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'chat:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await flows.decideFlowApproval(env, { actor, runId, approve, text })
+      if (!r.ok) return fromService(r)
+      const run = r.run
+      const head = !run
+        ? `Decision delivered (${approve ? 'approved' : 'rejected'}).`
+        : run.status === 'succeeded'
+          ? run.digest || 'The run finished.'
+          : run.status === 'failed'
+            ? `The run failed: ${run.error || 'unknown error'}\n${flowStepLines(r.steps).join('\n')}`
+            : run.status === 'waiting'
+              ? waitingText(run, r.steps)
+              : `Decision delivered (${approve ? 'approved' : 'rejected'}); the run is ${run.status}. Read it with get_flow_run.`
+      return ok({
+        success: true, approved: r.decided.approved, edited: r.decided.edited,
+        status: run?.status || null, digest: run?.digest || null, steps: r.steps,
+      }, head)
     },
   )
 
@@ -6302,6 +6377,7 @@ export const TOOL_NAMES = [
   'get_my_day',
   'run_flow',
   'get_flow_run',
+  'decide_flow_approval',
   'list_sent_sms',
   'set_meeting_report',
   'preview_meeting_report',

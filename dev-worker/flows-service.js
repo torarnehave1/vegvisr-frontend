@@ -79,7 +79,7 @@ export async function runFlow(env, { actor, graphId, inputs = {}, live = false }
  * One run with its steps. With waitSeconds, polls until the run has finished (a dry run takes a
  * second or two) so "run it and tell me what happened" is one call.
  */
-export async function getFlowRun(env, { actor, runId, waitSeconds = 0 }) {
+export async function getFlowRun(env, { actor, runId, waitSeconds = 0, until = null }) {
   if (!actor?.email) return fail(gs.ERR.UNAUTHENTICATED, 'Authentication required.')
   if (!RUN_ID.test(String(runId || ''))) return fail(gs.ERR.INVALID_INPUT, 'runId must be the id run_flow returned.')
   const deadline = Date.now() + Math.min(Math.max(Number(waitSeconds) || 0, 0), 20) * 1000
@@ -88,8 +88,37 @@ export async function getFlowRun(env, { actor, runId, waitSeconds = 0 }) {
     if (error) return error
     if (res.status === 404) return fail(gs.ERR.GRAPH_NOT_FOUND, 'Run not found.')
     if (!res.ok) return fail(gs.ERR.INTERNAL_ERROR, data.error || `Flow engine answered HTTP ${res.status}.`)
-    const done = ['succeeded', 'failed'].includes(data.run?.status)
+    // A run that waits for an approval has stopped too, as far as the caller is concerned.
+    const done = until ? until(data) : ['succeeded', 'failed', 'waiting'].includes(data.run?.status)
     if (done || Date.now() >= deadline) return { ok: true, run: data.run, steps: data.steps || [] }
     await new Promise((r) => setTimeout(r, 1000))
   }
+}
+
+/**
+ * The owner's decision on the approval a live run is waiting for. flows-worker checks that the
+ * run is the caller's and is waiting, delivers the decision once, and the run goes on: approved →
+ * the "approved" edge (a send after it runs, once); rejected → the "rejected" edge.
+ */
+export async function decideFlowApproval(env, { actor, runId, approve, text = null, waitSeconds = 10 }) {
+  if (!actor?.email) return fail(gs.ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!RUN_ID.test(String(runId || ''))) return fail(gs.ERR.INVALID_INPUT, 'runId must be the id run_flow returned.')
+  if (typeof approve !== 'boolean') return fail(gs.ERR.INVALID_INPUT, 'approve must be true or false.')
+  const { res, data, error } = await callFlows(env, `/flows/runs/${runId}/decide`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: actor.email, approved: approve, text: typeof text === 'string' ? text : null }),
+  })
+  if (error) return error
+  if (res.status === 404) return fail(gs.ERR.GRAPH_NOT_FOUND, 'Run not found.')
+  if (res.status === 409) return fail(gs.ERR.INVALID_INPUT, data.error || 'This run is not waiting for an approval.')
+  if (!res.ok) return fail(gs.ERR.INTERNAL_ERROR, data.error || `Flow engine answered HTTP ${res.status}.`)
+  // Read it back once it has moved past THIS approval: finished, or waiting at a later one.
+  const seq = Number(data.seq)
+  const read = await getFlowRun(env, {
+    actor, runId, waitSeconds,
+    until: (d) => ['succeeded', 'failed'].includes(d.run?.status) ||
+      (d.run?.status === 'waiting' && (d.steps || []).some((x) => x.status === 'waiting' && x.seq > seq)),
+  })
+  return { ok: true, decided: { approved: data.approved, edited: data.edited === true, nodeId: data.nodeId }, run: read.ok ? read.run : null, steps: read.ok ? read.steps : [] }
 }

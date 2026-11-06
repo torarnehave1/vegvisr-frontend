@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS flow_runs (
   owner_email   TEXT NOT NULL,             -- who ran it; only they can read the run
   trigger_id    TEXT NOT NULL DEFAULT 'manual',
   dry_run       INTEGER NOT NULL DEFAULT 1,
-  status        TEXT NOT NULL,             -- queued | running | succeeded | failed
+  status        TEXT NOT NULL,             -- queued | running | waiting (for an approval) | succeeded | failed
   spec_json     TEXT NOT NULL,             -- the pinned, compiled spec this run executes
   inputs_json   TEXT,
   digest        TEXT,                      -- readable summary, written at the end
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS flow_run_steps (
   seq         INTEGER NOT NULL,            -- order the steps ran in
   node_id     TEXT NOT NULL,               -- the flow-step node
   kind        TEXT NOT NULL,
-  status      TEXT NOT NULL,               -- ok | skipped | error
+  status      TEXT NOT NULL,               -- ok | simulated | error | refused | waiting | deciding | approved | rejected | sending | calling | sent
   summary     TEXT,                        -- one line for people
   detail_json TEXT,                        -- what was (or in a dry run: would be) done
   edge        TEXT,                        -- the edge label taken out of this step

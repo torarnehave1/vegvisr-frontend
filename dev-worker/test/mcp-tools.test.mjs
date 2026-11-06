@@ -914,6 +914,7 @@ describe('annotations tell the client the truth about each tool', () => {
       // Added 2026-10-13. The source is committed to a PUBLIC repository the moment it returns,
       // before any approval — and after approval it is code answering on a public address.
       'create_worker',
+      'decide_flow_approval',
       // Added 2026-10-21. Writes a report into a customer's kontaktlogg in the outside Enkel
       // endring CMS, not recallable. preview_meeting_report is deliberately NOT here — it
       // transmits nothing, like preview_sms.
@@ -1390,6 +1391,7 @@ describe('publish_html_node is the one tool that reaches the public internet', (
       'compose_node_image',
       'create_group_invite',
       'create_worker',
+      'decide_flow_approval',
       'generate_image_openai',
       'post_chat_message',
       'post_to_instagram',
@@ -3152,6 +3154,7 @@ describe('post_chat_message is gated harder than everything else', () => {
       'compose_node_image',
       'create_group_invite',
       'create_worker',
+      'decide_flow_approval',
       'generate_image_openai',
       'post_chat_message',
       'post_to_instagram',
@@ -3271,6 +3274,7 @@ describe('read_chat_messages is gated apart from posting', () => {
       'compose_node_image',
       'create_group_invite',
       'create_worker',
+      'decide_flow_approval',
       'generate_image_openai',
       'post_chat_message',
       'post_to_instagram',

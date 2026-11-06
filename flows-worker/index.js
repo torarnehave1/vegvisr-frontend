@@ -8,18 +8,20 @@
  * from outside (same rule as user-keys-worker's /mailbox-password).
  *
  *   POST /flows/run          compile the graph, pin the spec in D1, start a FlowRunner instance
+ *   POST /flows/runs/:id/decide   the owner's decision on the approval the run waits for
  *   GET  /flows/runs/:id     one run with its steps (owner only)
  *   GET  /flows/runs         the owner's recent runs, optionally for one graph
  *   GET  /health             public
  *
  * Dry runs: every step says what it WOULD do; nothing is called.
- * Live runs (2026-11-06): read-only action steps really run — the same MCP tool Claude uses,
- * called back on knowledge-graph-worker (KG_WORKER binding, /internal/flows/call-tool) as the
- * flow's owner. Agent/approval/wait steps are not live yet (see liveStep in compile.js); real
- * waits and approvals come in phases 2–3 (the "VEGR Flows" graph, node "plan").
+ * Live runs (2026-11-06): action steps call the same MCP tool Claude uses, back on
+ * knowledge-graph-worker (KG_WORKER binding, /internal/flows/call-tool) as the flow's owner;
+ * agent steps ask a model through anthropic-worker (ANTHROPIC binding); approval steps pause the
+ * run (step.waitForEvent) until the owner decides through MCP decide_flow_approval; a tool that
+ * reaches other people runs only after a yes, once. Route/wait/loop are still simulated.
  */
 import { WorkflowEntrypoint } from 'cloudflare:workers'
-import { compileFlow, dryRunStep, liveStep } from './compile.js'
+import { compileFlow, dryRunStep, liveStep, decideApproval } from './compile.js'
 
 const BINDING_HOST = 'flows-worker'
 
@@ -33,13 +35,16 @@ export default {
     const url = new URL(request.url)
     const path = url.pathname
 
-    if (path === '/health') return json({ status: 'ok', worker: 'flows-worker', phase: '0/1 dry runs' })
+    if (path === '/health') return json({ status: 'ok', worker: 'flows-worker', phase: '1/3 live runs, agents, approvals' })
     if (url.hostname !== BINDING_HOST) {
       return json({ error: 'flows-worker is reachable only over a service binding.' }, 403)
     }
 
     try {
       if (path === '/flows/run' && request.method === 'POST') return await startRun(request, env)
+
+      const dec = path.match(/^\/flows\/runs\/([0-9a-f-]{36})\/decide$/)
+      if (dec && request.method === 'POST') return await decide(request, env, dec[1])
 
       const one = path.match(/^\/flows\/runs\/([0-9a-f-]{36})$/)
       if (one && request.method === 'GET') return await readRun(env, one[1], url.searchParams.get('email'))
@@ -126,9 +131,51 @@ async function listRuns(env, email, graphId) {
 }
 
 /**
+ * The owner's decision on the approval a run is waiting for (MCP decide_flow_approval). The step
+ * row is moved from "waiting" to "deciding" with a conditional UPDATE first, so a decision can be
+ * delivered once only; then the Workflow instance gets the event its waitForEvent is listening for.
+ */
+async function decide(request, env, runId) {
+  const body = await request.json().catch(() => ({}))
+  const email = String(body?.email || '').trim().toLowerCase()
+  if (!email) return json({ error: 'email is required (set by the binding caller).' }, 400)
+  const run = await env.DB.prepare('SELECT id, owner_email, status FROM flow_runs WHERE id = ?1').bind(runId).first()
+  if (!run || run.owner_email !== email) return json({ error: 'Run not found.' }, 404)
+  if (run.status !== 'waiting') return json({ error: `This run is not waiting for an approval (it is ${run.status}).` }, 409)
+  const st = await env.DB.prepare(
+    "SELECT seq, node_id, detail_json FROM flow_run_steps WHERE run_id = ?1 AND status = 'waiting' AND kind = 'approval' ORDER BY seq DESC LIMIT 1",
+  ).bind(runId).first()
+  if (!st) return json({ error: 'No approval is waiting in this run.' }, 409)
+  const claimed = await env.DB.prepare(
+    "UPDATE flow_run_steps SET status = 'deciding' WHERE run_id = ?1 AND seq = ?2 AND status = 'waiting'",
+  ).bind(runId, st.seq).run()
+  if (!(claimed?.meta?.changes > 0)) return json({ error: 'This approval has already been decided.' }, 409)
+  const approved = body.approved === true
+  const text = typeof body.text === 'string' ? body.text.slice(0, 20000) : null
+  try {
+    const inst = await env.FLOW_RUNNER.get(runId)
+    await inst.sendEvent({ type: `approval-${st.seq}`, payload: { approved, text } })
+  } catch (e) {
+    await env.DB.prepare("UPDATE flow_run_steps SET status = 'waiting' WHERE run_id = ?1 AND seq = ?2").bind(runId, st.seq).run()
+    return json({ error: `Could not deliver the decision to the run: ${e.message}` }, 500)
+  }
+  return json({ ok: true, runId, seq: st.seq, nodeId: st.node_id, approved, edited: text != null })
+}
+
+/**
  * One run of one flow. The spec is read from D1 (pinned when the run was started), so editing
  * the graph never changes a run that is already going. Each flow-step is its own durable step,
  * named after its node id and position, so a retry resumes where it stopped.
+ *
+ * Workflows replays run() from the top after every pause (an approval can wait 24 hours): a step
+ * that already finished returns its cached result and its callback does NOT run again. So nothing
+ * a later step depends on may be changed inside a callback — the run state (results, approved,
+ * sends, cost) is folded from each step's returned outcome, outside the callbacks.
+ *
+ * Sending (an action that reaches other people) runs in two durable steps: a claim that records
+ * the send as "sending", then the call itself with NO retries. knowledge-graph-worker only runs
+ * the tool when that claim row exists and an approval in the same run said yes, so a message goes
+ * out at most once even if the engine restarts mid-call.
  */
 export class FlowRunner extends WorkflowEntrypoint {
   async run(event, step) {
@@ -144,12 +191,12 @@ export class FlowRunner extends WorkflowEntrypoint {
 
     // A live action step calls the MCP tool back on knowledge-graph-worker, as the owner.
     const kg = this.env.KG_WORKER
-    const callTool = async (toolName, args) => {
+    const callTool = async (toolName, args, approval) => {
       try {
         const res = await kg.fetch('https://knowledge-graph-worker/internal/flows/call-tool', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: owner, toolName, args }),
+          body: JSON.stringify({ email: owner, toolName, args, ...(approval ? { approval } : {}) }),
         })
         return await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }))
       } catch (e) {
@@ -157,7 +204,34 @@ export class FlowRunner extends WorkflowEntrypoint {
       }
     }
 
-    const state = { inputs, trigger: { type: 'manual' }, results: {} }
+    // An agent step asks a model through anthropic-worker (binding: no token, the platform key).
+    const ai = this.env.ANTHROPIC
+    const callModel = ai?.fetch
+      ? async ({ model, system, user, maxTokens }) => {
+        try {
+          const res = await ai.fetch('https://anthropic-worker/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model, system, max_tokens: maxTokens, messages: [{ role: 'user', content: user }] }),
+          })
+          const data = await res.json().catch(() => ({}))
+          if (!res.ok) return { ok: false, error: `HTTP ${res.status}: ${JSON.stringify(data.error || data).slice(0, 300)}` }
+          const text = (data.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n').trim()
+          if (!text) return { ok: false, error: 'the model returned no text' }
+          return { ok: true, text, usage: data.usage || null }
+        } catch (e) {
+          return { ok: false, error: `could not reach the model: ${e.message}` }
+        }
+      }
+      : null
+
+    const writeStep = async (seqNo, r) => db.prepare(
+      `INSERT OR REPLACE INTO flow_run_steps (run_id, seq, node_id, kind, status, summary, detail_json, edge, at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+    ).bind(runId, seqNo, r.record.nodeId, r.record.kind, r.record.status, r.record.summary,
+      r.record.detail ? JSON.stringify(r.record.detail) : null, r.record.edge, new Date().toISOString()).run()
+
+    const state = { inputs, trigger: { type: 'manual' }, owner: { email: owner }, results: {}, approved: false, sends: 0, costUsd: 0 }
     const lines = []
     let id = spec.entry
     let seq = 0
@@ -166,16 +240,54 @@ export class FlowRunner extends WorkflowEntrypoint {
         if (seq >= spec.limits.maxSteps) throw new Error(`stopped after ${spec.limits.maxSteps} steps (limits.maxSteps)`)
         seq += 1
         const mySeq = seq
-        const outcome = await step.do(`${id}#${mySeq}`, { retries: { limit: 1, delay: '2 seconds' } }, async () => {
-          const r = dryRun ? dryRunStep(spec, id, state) : await liveStep(spec, id, state, callTool)
-          await db.prepare(
-            `INSERT OR REPLACE INTO flow_run_steps (run_id, seq, node_id, kind, status, summary, detail_json, edge, at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
-          ).bind(runId, mySeq, r.record.nodeId, r.record.kind, r.record.status, r.record.summary,
-            r.record.detail ? JSON.stringify(r.record.detail) : null, r.record.edge, new Date().toISOString()).run()
-          return r
-        })
-        state.results[id] = { result: outcome.result }
+        const stepId = id
+        const s = spec.steps[stepId]
+        const sending = !dryRun && s.kind === 'action' && s.external && state.approved
+
+        if (sending) {
+          await step.do(`${stepId}#${mySeq} claim`, async () => {
+            await writeStep(mySeq, { record: { nodeId: s.id, kind: s.kind, status: 'sending', summary: `sending with ${s.toolName}`, detail: { toolName: s.toolName }, edge: null } })
+            return true
+          })
+        }
+
+        let outcome = await step.do(
+          `${stepId}#${mySeq}`,
+          sending ? { retries: { limit: 0, delay: '1 second' } } : { retries: { limit: 1, delay: '2 seconds' } },
+          async () => {
+            const r = dryRun
+              ? dryRunStep(spec, stepId, state)
+              : await liveStep(spec, stepId, state, {
+                callTool: (t, a, extra) => callTool(t, a, extra?.send ? { runId, seq: mySeq } : null),
+                callModel,
+              })
+            await writeStep(mySeq, r)
+            if (r.wait) await db.prepare("UPDATE flow_runs SET status = 'waiting' WHERE id = ?1").bind(runId).run()
+            return r
+          },
+        )
+
+        if (outcome.wait) {
+          let decision = null
+          try {
+            const ev = await step.waitForEvent(`${stepId}#${mySeq} decision`, { type: `approval-${mySeq}`, timeout: outcome.wait.timeout })
+            decision = ev?.payload || null
+          } catch {
+            decision = null // timed out: counts as rejected
+          }
+          outcome = await step.do(`${stepId}#${mySeq} decided`, async () => {
+            const d = decideApproval(spec, stepId, state, decision)
+            await writeStep(mySeq, d)
+            await db.prepare("UPDATE flow_runs SET status = 'running' WHERE id = ?1").bind(runId).run()
+            return d
+          })
+        }
+
+        // Fold the finished step into the run state — outside the callbacks (see above).
+        if (outcome.record.status === 'approved') state.approved = true
+        if (outcome.record.status === 'sent') state.sends += 1
+        state.costUsd += Number(outcome.record.detail?.costUsd || 0)
+        state.results[stepId] = { result: outcome.result }
         lines.push(`${mySeq}. ${outcome.record.label} — ${outcome.record.summary}`)
         if (outcome.stop) throw new Error(outcome.stop)
         id = outcome.nextId
@@ -184,7 +296,7 @@ export class FlowRunner extends WorkflowEntrypoint {
       await step.do('finish', async () => {
         const head = dryRun
           ? `Dry run of "${spec.name}": ${seq} step${seq === 1 ? '' : 's'}, nothing was called.`
-          : `Live run of "${spec.name}": ${seq} step${seq === 1 ? '' : 's'}; read-only steps ran, the rest were simulated or skipped.`
+          : `Live run of "${spec.name}": ${seq} step${seq === 1 ? '' : 's'}${state.sends ? `, ${state.sends} sent` : ''}${state.costUsd ? `, model cost ~$${state.costUsd.toFixed(4)}` : ''}.`
         const digest = `${head}\n${lines.join('\n')}`
         await db.prepare("UPDATE flow_runs SET status = 'succeeded', digest = ?2, finished_at = ?3 WHERE id = ?1")
           .bind(runId, digest, new Date().toISOString()).run()

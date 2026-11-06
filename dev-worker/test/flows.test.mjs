@@ -230,3 +230,122 @@ describe('callToolForFlow under the Workers rule: no code generation from string
     assert.deepEqual(r, { ok: true, isError: false, error: null })
   })
 })
+
+// ── An approved send (2026-11-06): send_email runs for a flow only with a claim + an approval ──
+import { readFileSync } from 'node:fs'
+
+describe('callToolForFlow — an approved send', () => {
+  const SEND_RUN = '1c2d3e4f-5a6b-4c7d-8e9f-a0b1c2d3e4f5'
+  const ARGS = { fromEmail: 'alice@example.com', toEmail: 'alice@example.com', subject: 'Mine siste grafer', bodyHtml: '<p>{tekst}</p>', variables: { tekst: 'hei' } }
+
+  function withRun({ runStatus = 'running', dry = 0, owner = 'alice@example.com', claim = 'sending', approval = 'approved', claimTool = 'send_email' } = {}) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    raw.exec(readFileSync(new URL('../../flows-worker/schema.sql', import.meta.url), 'utf8'))
+    raw.prepare("INSERT INTO flow_runs (id, flow_graph_id, owner_email, dry_run, status, spec_json, created_at) VALUES (?,?,?,?,?,'{}','2026-11-06')")
+      .run(SEND_RUN, FLOW_ID, owner, dry, runStatus)
+    const step = raw.prepare('INSERT INTO flow_run_steps (run_id, seq, node_id, kind, status, detail_json, at) VALUES (?,?,?,?,?,?,?)')
+    if (approval) step.run(SEND_RUN, 3, 'godkjenn', 'approval', approval, null, 'x')
+    if (claim) step.run(SEND_RUN, 4, 'send', 'action', claim, JSON.stringify({ toolName: claimTool }), 'x')
+    return { env, raw }
+  }
+  const send = (env, extra = {}) => callToolForFlow(env, { email: 'alice@example.com', toolName: 'send_email', args: ARGS, approval: { runId: SEND_RUN, seq: 4 }, ...extra })
+  const claimStatus = (raw) => raw.prepare('SELECT status FROM flow_run_steps WHERE run_id = ? AND seq = 4').get(SEND_RUN)?.status
+
+  test('with a claim and an approval the gate opens once, and the claim is consumed', async () => {
+    const { env, raw } = withRun()
+    const r = await send(env)
+    assert.notEqual(r.status, 403, JSON.stringify(r))
+    assert.equal(claimStatus(raw), 'calling', 'the claim was consumed before the tool ran')
+    const again = await send(env)
+    assert.equal(again.status, 403, 'the same claim cannot send twice')
+  })
+
+  test('no approval, a rejected approval, no claim, a wrong tool, a dry or finished run, or another owner: refused', async () => {
+    for (const [why, opts] of [
+      ['no approval', { approval: null }],
+      ['rejected', { approval: 'rejected' }],
+      ['no claim', { claim: null }],
+      ['claim already used', { claim: 'calling' }],
+      ['claim for another tool', { claimTool: 'send_sms' }],
+      ['dry run', { dry: 1 }],
+      ['finished run', { runStatus: 'succeeded' }],
+      ['someone else\'s run', { owner: 'bob@example.com' }],
+    ]) {
+      const { env } = withRun(opts)
+      const r = await send(env)
+      assert.equal(r.ok, false, why)
+      assert.equal(r.status, 403, why)
+    }
+  })
+
+  test('a flow e-mail goes to the owner only, without cc or bcc', async () => {
+    for (const args of [{ ...ARGS, toEmail: 'bob@example.com' }, { ...ARGS, cc: ['bob@example.com'] }, { ...ARGS, bcc: ['bob@example.com'] }]) {
+      const { env, raw } = withRun()
+      const r = await send(env, { args })
+      assert.equal(r.status, 403)
+      assert.match(r.error, /owner only/)
+      assert.equal(claimStatus(raw), 'sending', 'a refused send leaves the claim unused')
+    }
+  })
+
+  test('without an approval object every sending tool is still refused', async () => {
+    const { env } = withRun()
+    for (const toolName of ['send_email', 'send_sms', 'create_graph']) {
+      const r = await callToolForFlow(env, { email: 'alice@example.com', toolName, args: ARGS })
+      assert.equal(r.status, 403, toolName)
+    }
+    const sms = await callToolForFlow(env, { email: 'alice@example.com', toolName: 'send_sms', args: {}, approval: { runId: SEND_RUN, seq: 4 } })
+    assert.equal(sms.status, 403, 'send_sms is not a flow send tool yet')
+  })
+})
+
+describe('decide_flow_approval', () => {
+  function fakeDecide({ status = 200, body = { ok: true, runId: RUN_ID, seq: 3, nodeId: 'godkjenn', approved: true, edited: false } } = {}) {
+    const calls = []
+    return {
+      calls,
+      fetch: async (url, init = {}) => {
+        const u = new URL(url)
+        calls.push({ host: u.hostname, path: u.pathname, body: init.body ? JSON.parse(init.body) : null })
+        if (u.pathname === `/flows/runs/${RUN_ID}/decide`) return new Response(JSON.stringify(status === 200 ? body : { error: 'This run is not waiting for an approval (it is succeeded).' }), { status })
+        if (u.pathname === `/flows/runs/${RUN_ID}`) {
+          return new Response(JSON.stringify({ ok: true, run: { id: RUN_ID, flowGraphId: FLOW_ID, flowVersion: 1, flow: 'Hei, flow', status: 'succeeded', workflowStatus: 'complete', dryRun: false, digest: 'Live run of "Hei, flow": 4 steps, 1 sent.', error: null, createdAt: 'x', finishedAt: 'y' }, steps: [] }), { status: 200 })
+        }
+        return new Response('{}', { status: 404 })
+      },
+    }
+  }
+  const ALICE_CHAT = authFor('alice@example.com', ['graph:read', 'chat:write'])
+
+  test('the owner\'s yes crosses the binding with the verified e-mail, and the finished run comes back', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.FLOWS_WORKER = fakeDecide()
+    const r = await (await connect(env, ALICE_CHAT)).callTool({ name: 'decide_flow_approval', arguments: { runId: RUN_ID, approve: true, text: 'Min tekst' } })
+    assert.notEqual(r.isError, true, JSON.stringify(r.structuredContent))
+    assert.equal(r.structuredContent.status, 'succeeded')
+    assert.match(r.content[0].text, /1 sent/)
+    const d = env.FLOWS_WORKER.calls[0]
+    assert.equal(d.host, 'flows-worker')
+    assert.deepEqual(d.body, { email: 'alice@example.com', approved: true, text: 'Min tekst' })
+  })
+
+  test('without chat:write it is refused and nothing reaches the engine', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.FLOWS_WORKER = fakeDecide()
+    const r = await (await connect(env, ALICE)).callTool({ name: 'decide_flow_approval', arguments: { runId: RUN_ID, approve: true } })
+    assert.equal(r.isError, true)
+    assert.equal(env.FLOWS_WORKER.calls.length, 0)
+  })
+
+  test('a run that is not waiting answers with the engine\'s reason', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.FLOWS_WORKER = fakeDecide({ status: 409 })
+    const r = await (await connect(env, ALICE_CHAT)).callTool({ name: 'decide_flow_approval', arguments: { runId: RUN_ID, approve: false } })
+    assert.equal(r.isError, true)
+    assert.match(JSON.stringify(r), /not waiting/)
+  })
+})
