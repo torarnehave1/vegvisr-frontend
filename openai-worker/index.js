@@ -362,8 +362,6 @@ async function handleImages(request, env, corsHeaders) {
     const {
       prompt,
       model = 'dall-e-3',
-      size = '1024x1024',
-      quality = 'standard',
       n = 1,
       userId
     } = body;
@@ -376,6 +374,15 @@ async function handleImages(request, env, corsHeaders) {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
+
+    // The gpt-image-2.5 family follows other rules than the older models: any size that passes
+    // validateEditSize (both edges multiples of 16, ratio and pixel limits), qualities from
+    // low to max, and a bill that has to be computed from the token usage.
+    if (EDIT_MODELS.includes(model)) {
+      return await handleImagesV2(body, env, corsHeaders);
+    }
+
+    const { size = '1024x1024', quality = 'standard' } = body;
 
     const userKey = await getUserApiKey(env, userId, 'openai')
     const openaiKey = userKey || env.OPENAI_API_KEY;
@@ -449,6 +456,66 @@ async function handleImages(request, env, corsHeaders) {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
+}
+
+// Text-to-image on the gpt-image-2.5 family — POST /images with a model from EDIT_MODELS.
+// Same size, quality and cost rules as /images/edits below, without reference images.
+async function handleImagesV2(body, env, corsHeaders) {
+  const { prompt, model, size = 'auto', quality = 'low', background, output_format, userId } = body;
+
+  if (!EDIT_QUALITIES.includes(quality)) {
+    return jsonError(`quality must be one of: ${EDIT_QUALITIES.join(', ')}`, 400, corsHeaders);
+  }
+  const sizeCheck = validateEditSize(size);
+  if (!sizeCheck.ok) {
+    return jsonError(sizeCheck.reason, 400, corsHeaders);
+  }
+
+  const userKey = await getUserApiKey(env, userId, 'openai');
+  const openaiKey = userKey || env.OPENAI_API_KEY;
+  if (!openaiKey) {
+    return jsonError('OpenAI API key not configured', 500, corsHeaders);
+  }
+
+  const requestBody = { model, prompt, n: 1 };
+  if (sizeCheck.size !== 'auto') requestBody.size = sizeCheck.size;
+  if (quality !== 'auto') requestBody.quality = quality;
+  if (background) requestBody.background = background;
+  if (output_format) requestBody.output_format = output_format;
+
+  const started = Date.now();
+  const openaiResponse = await fetch('https://api.openai.com/v1/images/generations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${openaiKey}` },
+    body: JSON.stringify(requestBody)
+  });
+
+  if (!openaiResponse.ok) {
+    const error = await openaiResponse.text();
+    return new Response(error, {
+      status: openaiResponse.status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+
+  const result = await openaiResponse.json();
+  const usage = result.usage || {};
+  const details = usage.input_tokens_details || {};
+  const costUsd =
+    ((details.image_tokens || 0) / 1e6) * IMAGE_TOKEN_RATES.imageInput +
+    ((details.text_tokens || 0) / 1e6) * IMAGE_TOKEN_RATES.textInput +
+    ((usage.output_tokens || 0) / 1e6) * IMAGE_TOKEN_RATES.output;
+
+  return new Response(JSON.stringify({
+    ...result,
+    model,
+    quality,
+    size: sizeCheck.size,
+    duration_ms: Date.now() - started,
+    cost_usd: Number(costUsd.toFixed(4))
+  }), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

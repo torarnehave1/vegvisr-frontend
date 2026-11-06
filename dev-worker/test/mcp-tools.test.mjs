@@ -908,6 +908,8 @@ describe('annotations tell the client the truth about each tool', () => {
       // compose_node_image fetches reference images and hands them to OpenAI. Nothing else here
       // leaves Cloudflare with content attached.
       'compose_node_image',
+      // Added 2026-11-06. Sends the user's prompt to OpenAI (gpt-image-2.5) and spends money.
+      'generate_image_openai',
       'set_group_member_role',
       // Added 2026-10-13. The source is committed to a PUBLIC repository the moment it returns,
       // before any approval — and after approval it is code answering on a public address.
@@ -1388,6 +1390,7 @@ describe('publish_html_node is the one tool that reaches the public internet', (
       'compose_node_image',
       'create_group_invite',
       'create_worker',
+      'generate_image_openai',
       'post_chat_message',
       'post_to_instagram',
       'publish_html_node',
@@ -3149,6 +3152,7 @@ describe('post_chat_message is gated harder than everything else', () => {
       'compose_node_image',
       'create_group_invite',
       'create_worker',
+      'generate_image_openai',
       'post_chat_message',
       'post_to_instagram',
       'publish_html_node',
@@ -3267,6 +3271,7 @@ describe('read_chat_messages is gated apart from posting', () => {
       'compose_node_image',
       'create_group_invite',
       'create_worker',
+      'generate_image_openai',
       'post_chat_message',
       'post_to_instagram',
       'publish_html_node',

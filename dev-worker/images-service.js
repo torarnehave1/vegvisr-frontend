@@ -833,6 +833,78 @@ export async function composeImageForNode(
 }
 
 /**
+ * Text-to-image on OpenAI's gpt-image-2.5 (ChatGPT's image model), stored in the caller's album.
+ *
+ * The OpenAI counterpart of generate_image: a prompt in, a permanent vegvisr URL out. It goes
+ * through openai-worker's /images, which routes the gpt-image-2.5 family to
+ * /v1/images/generations and reports the cost. Verified 2026-11-06: 1024x1024 at low quality
+ * answered in 17 seconds for $0.006. Same two qualities and the same named formats as
+ * compose_node_image, for the same reason — max outlasts an MCP client's patience.
+ */
+export const OPENAI_IMAGE_MODEL = 'gpt-image-2.5-sunburst'
+
+export async function generateImageWithOpenAI(env, { prompt, format = null, quality = 'low', actor }) {
+  if (!env.OPENAI_WORKER?.fetch) {
+    return fail(ERR.INTERNAL_ERROR, 'The OPENAI_WORKER service binding is not configured on this worker.')
+  }
+  if (!prompt || !String(prompt).trim()) return fail(ERR.INVALID_INPUT, 'prompt is required.')
+  if (!COMPOSE_QUALITIES.includes(quality)) {
+    return fail(
+      ERR.INVALID_INPUT,
+      `quality must be ${COMPOSE_QUALITIES.join(' or ')} here. Higher settings take longer than this connection will wait.`,
+    )
+  }
+  if (format && !COMPOSE_FORMATS[format]) {
+    return fail(ERR.INVALID_INPUT, `format must be one of: ${Object.keys(COMPOSE_FORMATS).join(', ')}.`)
+  }
+
+  const preset = format ? COMPOSE_FORMATS[format] : null
+  const size = preset ? `${preset.width}x${preset.height}` : 'auto'
+
+  let res
+  try {
+    res = await env.OPENAI_WORKER.fetch('https://openai-worker/images', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: String(prompt).trim(), model: OPENAI_IMAGE_MODEL, size, quality }),
+    })
+  } catch (e) {
+    console.error('[images] openai-worker unreachable:', e.message)
+    return fail(ERR.INTERNAL_ERROR, `Could not reach the image service: ${e.message}`)
+  }
+
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const message = typeof data.error === 'string' ? data.error : data.error?.message
+    return fail(ERR.INVALID_INPUT, message || `The image service refused the request (status ${res.status}).`)
+  }
+
+  const b64 = data?.data?.[0]?.b64_json
+  if (!b64) return fail(ERR.INTERNAL_ERROR, 'The image service returned no image.')
+
+  const binary = atob(b64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+
+  const type = sniffImageType(bytes)
+  if (!type) return fail(ERR.INTERNAL_ERROR, 'The image service returned data that is not an image.')
+
+  const stored = await uploadImage(env, { bytes, type, actor })
+  if (!stored.ok) return stored
+
+  return {
+    ok: true,
+    url: stored.url,
+    album: albumForActor(actor),
+    model: data.model || OPENAI_IMAGE_MODEL,
+    quality,
+    size: data.size || size,
+    costUsd: data.cost_usd ?? null,
+    durationMs: data.duration_ms ?? null,
+  }
+}
+
+/**
  * Generate an image from a prompt and swap it into a node that already carries a placeholder.
  */
 export async function generateImageForNode(

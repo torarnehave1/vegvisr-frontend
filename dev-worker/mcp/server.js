@@ -68,9 +68,10 @@ Three things on this system cannot be inferred from general knowledge, so ask ra
   that shape (which of label, info, path, bibl it uses) instead of guessing it.
 - Fulltext syntax: call get_fulltext_elements before writing a node's "info" and copy the format
   verbatim. A wrong parameter renders as literal text instead of failing, so mistakes are silent.
-- Images: call get_image_guide before generating one. Five image models are available and they
-  accept genuinely different parameters — one has no seed, another no negative prompt, a third no
-  size at all — so a setting you assume exists is dropped rather than refused.
+- Images: call get_image_guide before generating one. Four Workers AI image models are available
+  and they accept genuinely different parameters — lucid-origin, the default, has no negative
+  prompt — so a setting you assume exists is dropped rather than refused. For ChatGPT's image
+  model (OpenAI gpt-image-2.5) use generate_image_openai; it costs money per call.
 
 Always show the user the viewerUrl or editorUrl that a write returns — that is how they see
 what you made.`

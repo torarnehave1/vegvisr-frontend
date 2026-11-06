@@ -3747,7 +3747,7 @@ ${result.warnings.join('\n')}` : ''),
     {
       title: 'How to ask for an image on this system',
       description:
-        'Return everything generate_node_image can be told: the five image models and which ' +
+        'Return everything generate_node_image can be told: the four Workers AI image models and which ' +
         'parameters each one actually accepts, plus the style, lighting, format, render-trait, ' +
         'text-treatment and quality vocabularies with the exact wording each choice adds to the ' +
         'prompt. CALL THIS when the user asks what their image options are, wants to control ' +
@@ -3760,7 +3760,7 @@ ${result.warnings.join('\n')}` : ''),
         model: z
           .enum(images.IMAGE_MODELS)
           .optional()
-          .describe('Limit the model table to one model. Omit to compare all five.'),
+          .describe('Limit the model table to one model. Omit to compare all four.'),
       },
       outputSchema: {
         success: z.boolean(),
@@ -3899,7 +3899,7 @@ ${result.warnings.join('\n')}` : ''),
         'look, rather than writing those words into the prompt yourself: they map to wording this ' +
         'image model responds to, and the reply shows the exact text that was sent. Call ' +
         'get_image_guide when the user asks about quality, size, style or reproducibility — the ' +
-        'five models accept different parameters and an unsupported one is dropped. Requires the ' +
+        'four models accept different parameters and an unsupported one is dropped. Requires the ' +
         'graph:write scope.',
       inputSchema: {
         graphId: z.string().min(1).describe('The graph containing the node.'),
@@ -4245,6 +4245,73 @@ ${result.warnings.join('\n')}` : ''),
           `at ${result.quality} quality and placed in node ${nodeId}.\n${result.imageUrl}\n` +
           (result.costUsd !== null ? `Cost: $${result.costUsd} · ${Math.round((result.durationMs || 0) / 1000)}s\n` : '') +
           `Version ${result.currentVersion} → ${result.newVersion}.\nViewer: ${result.viewerUrl}`,
+      )
+    },
+  )
+
+  // ── generate_image_openai ─────────────────────────────────────────────────
+  //
+  // Text-to-image on OpenAI's gpt-image-2.5 — ChatGPT's image model — as its own tool, so the
+  // paid provider is a deliberate choice and never a silent swap inside generate_image.
+  server.registerTool(
+    'generate_image_openai',
+    {
+      title: "Generate an image with ChatGPT's image model",
+      description:
+        "Generate an image from a text prompt with OpenAI's gpt-image-2.5 (ChatGPT's image model) " +
+        "and store it in the user's album; returns its permanent public url, usable as an image " +
+        'layer or pasted into a node. Use this when the user asks for ChatGPT / OpenAI / GPT image, ' +
+        'or needs what diffusion models do badly: legible text in the picture, precise instructions, ' +
+        'many named elements. generate_image (Workers AI) is free and faster; this one costs real ' +
+        'money per call (about $0.006 at low, roughly four times that at high) and takes 15-35 ' +
+        'seconds. Write the prompt as plain, complete sentences. Requires the graph:write scope.',
+      inputSchema: {
+        prompt: z.string().min(1).describe('What to draw, in full sentences. Quote any text that must appear in the image.'),
+        format: z
+          .enum(Object.keys(images.COMPOSE_FORMATS))
+          .optional()
+          .describe('Aspect ratio and size, named — the same names generate_node_image uses. Omit to let the model choose.'),
+        quality: z
+          .enum(images.COMPOSE_QUALITIES)
+          .optional()
+          .describe('Default "low" (about 17 seconds). "high" takes about 35 and costs roughly four times as much — ask the user before choosing it.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        url: z.string(),
+        album: z.string(),
+        model: z.string(),
+        quality: z.string(),
+        size: z.string(),
+        costUsd: z.number().nullable(),
+        durationMs: z.number().nullable(),
+      },
+      // openWorld: the prompt is sent to a third party (OpenAI). Not idempotent: each call is a
+      // new picture and a new charge.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ prompt, format, quality }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const result = await images.generateImageWithOpenAI(env, {
+        prompt,
+        format: format ?? null,
+        quality: quality || 'low',
+        actor,
+      })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `Generated with ${result.model} at ${result.quality} quality (${result.size}), stored in album ${result.album}.\n` +
+          `${result.url}\n` +
+          (result.costUsd !== null ? `Cost: $${result.costUsd} · ${Math.round((result.durationMs || 0) / 1000)}s` : ''),
       )
     },
   )
@@ -6095,6 +6162,7 @@ export const TOOL_NAMES = [
   'get_image_guide',
   'generate_node_image',
   'compose_node_image',
+  'generate_image_openai',
   'update_graph_metadata',
   'set_graph_password',
   'publish_html_node',
