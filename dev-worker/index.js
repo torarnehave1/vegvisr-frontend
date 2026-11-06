@@ -1,3 +1,4 @@
+import * as flowTools from './flow-tools.js'
 import { createWorkersAI } from 'workers-ai-provider'
 import { generateText } from 'ai'
 import {
@@ -2126,6 +2127,22 @@ const restHandler = {
           worker: 'knowledge-graph-worker',
           timestamp: new Date().toISOString()
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+      }
+
+      // VEGR Flows (2026-11-06): flows-worker runs one READ-ONLY MCP tool as the flow's owner.
+      // Binding only — the hostname 'knowledge-graph-worker' cannot be reached from the internet
+      // (see validateAuth). Everything about who and what is decided in flow-tools.js.
+      if (pathname === '/internal/flows/call-tool' && request.method === 'POST') {
+        if (url.hostname !== 'knowledge-graph-worker') {
+          return new Response(JSON.stringify({ error: 'Reachable only over a service binding.' }), {
+            status: 403, headers: { 'Content-Type': 'application/json' },
+          })
+        }
+        const body = await request.json().catch(() => ({}))
+        const r = await flowTools.callToolForFlow(env, { email: body.email, toolName: body.toolName, args: body.args })
+        return new Response(JSON.stringify(r), {
+          status: r.ok ? 200 : r.status || 400, headers: { 'Content-Type': 'application/json' },
+        })
       }
 
       // Compatibility route for cached NIBI member pages. The chat worker is the

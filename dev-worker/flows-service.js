@@ -8,7 +8,10 @@
  * read the graph and the model aliases, and send them across with the VERIFIED user's e-mail.
  * flows-worker never sees a token and never decides who someone is.
  *
- * Phase 0/1: dry runs only — every step says what it would do; nothing is called.
+ * Dry run (default): every step says what it would do; nothing is called.
+ * Live (2026-11-06): read-only action steps really run — flows-worker calls the same MCP tool
+ * back on this worker (POST /internal/flows/call-tool, binding only) as the flow's owner. Agent,
+ * approval and wait steps are still simulated; anything that writes or sends is refused.
  */
 import * as gs from './graph-service.js'
 
@@ -42,7 +45,7 @@ export async function loadModelAliases(env) {
     .map((n) => ({ alias: n.metadata.alias, model: n.metadata.model, fallbackAlias: n.metadata.fallbackAlias || null }))
 }
 
-export async function runFlow(env, { actor, graphId, inputs = {} }) {
+export async function runFlow(env, { actor, graphId, inputs = {}, live = false }) {
   if (!actor?.email) return fail(gs.ERR.UNAUTHENTICATED, 'Authentication required.')
   if (!graphId) return fail(gs.ERR.INVALID_INPUT, 'graphId is required.')
 
@@ -60,7 +63,7 @@ export async function runFlow(env, { actor, graphId, inputs = {} }) {
       graph: { id: graphId, version: g.metadata?.version ?? null, title: g.metadata?.title || null, nodes: g.nodes, edges: g.edges },
       aliases,
       actor: { email: actor.email },
-      dryRun: true,
+      dryRun: !live,
       inputs: inputs && typeof inputs === 'object' ? inputs : {},
     }),
   })
@@ -69,7 +72,7 @@ export async function runFlow(env, { actor, graphId, inputs = {} }) {
     return fail(gs.ERR.INVALID_INPUT, `The flow does not compile:\n- ${(data.errors || []).join('\n- ')}`, { errors: data.errors || [], warnings: data.warnings || [] })
   }
   if (!res.ok) return fail(res.status === 409 ? gs.ERR.INVALID_INPUT : gs.ERR.INTERNAL_ERROR, data.error || (data.errors || []).join('; ') || `Flow engine answered HTTP ${res.status}.`)
-  return { ok: true, runId: data.runId, status: data.status, dryRun: true, flow: data.flow, steps: data.steps, warnings: data.warnings || [], graphId }
+  return { ok: true, runId: data.runId, status: data.status, dryRun: data.dryRun !== false, flow: data.flow, steps: data.steps, warnings: data.warnings || [], graphId }
 }
 
 /**

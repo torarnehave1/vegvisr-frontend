@@ -12,11 +12,14 @@
  *   GET  /flows/runs         the owner's recent runs, optionally for one graph
  *   GET  /health             public
  *
- * Phase 0/1: dry runs only. A step says what it WOULD do; nothing is called. Live runs, real
- * waits and approvals come in phases 1–3 (see the "VEGR Flows" graph, node "plan").
+ * Dry runs: every step says what it WOULD do; nothing is called.
+ * Live runs (2026-11-06): read-only action steps really run — the same MCP tool Claude uses,
+ * called back on knowledge-graph-worker (KG_WORKER binding, /internal/flows/call-tool) as the
+ * flow's owner. Agent/approval/wait steps are not live yet (see liveStep in compile.js); real
+ * waits and approvals come in phases 2–3 (the "VEGR Flows" graph, node "plan").
  */
 import { WorkflowEntrypoint } from 'cloudflare:workers'
-import { compileFlow, dryRunStep } from './compile.js'
+import { compileFlow, dryRunStep, liveStep } from './compile.js'
 
 const BINDING_HOST = 'flows-worker'
 
@@ -58,9 +61,8 @@ async function startRun(request, env) {
   const email = String(body?.actor?.email || '').trim().toLowerCase()
   if (!email) return json({ error: 'actor.email is required (set by the binding caller).' }, 400)
   if (!graph?.id || !Array.isArray(graph.nodes)) return json({ error: 'graph with id and nodes is required.' }, 400)
-  if (body.dryRun === false) {
-    return json({ error: 'Only dry runs are possible yet. Live runs come in VEGR Flows phase 1.' }, 400)
-  }
+  const dryRun = body.dryRun !== false
+  if (!dryRun && !env.KG_WORKER?.fetch) return json({ error: 'Live runs need the KG_WORKER binding.' }, 500)
 
   const compiled = compileFlow(graph, body.aliases || [])
   if (!compiled.ok) return json({ ok: false, errors: compiled.errors, warnings: compiled.warnings }, 422)
@@ -71,8 +73,8 @@ async function startRun(request, env) {
   const inputs = body.inputs && typeof body.inputs === 'object' ? body.inputs : {}
   await env.DB.prepare(
     `INSERT INTO flow_runs (id, flow_graph_id, flow_version, owner_email, trigger_id, dry_run, status, spec_json, inputs_json, created_at)
-     VALUES (?1, ?2, ?3, ?4, 'manual', 1, 'queued', ?5, ?6, ?7)`,
-  ).bind(runId, String(graph.id), spec.version, email, JSON.stringify(spec), JSON.stringify(inputs), now()).run()
+     VALUES (?1, ?2, ?3, ?4, 'manual', ?8, 'queued', ?5, ?6, ?7)`,
+  ).bind(runId, String(graph.id), spec.version, email, JSON.stringify(spec), JSON.stringify(inputs), now(), dryRun ? 1 : 0).run()
 
   await env.FLOW_RUNNER.create({ id: runId, params: { runId } })
 
@@ -80,7 +82,7 @@ async function startRun(request, env) {
     ok: true,
     runId,
     status: 'queued',
-    dryRun: true,
+    dryRun,
     flow: spec.name,
     steps: Object.keys(spec.steps).length,
     warnings: compiled.warnings,
@@ -133,12 +135,27 @@ export class FlowRunner extends WorkflowEntrypoint {
     const { runId } = event.payload
     const db = this.env.DB
 
-    const { spec, inputs } = await step.do('load-spec', async () => {
-      const row = await db.prepare('SELECT spec_json, inputs_json FROM flow_runs WHERE id = ?1').bind(runId).first()
+    const { spec, inputs, dryRun, owner } = await step.do('load-spec', async () => {
+      const row = await db.prepare('SELECT spec_json, inputs_json, dry_run, owner_email FROM flow_runs WHERE id = ?1').bind(runId).first()
       if (!row) throw new Error(`run ${runId} not found`)
       await db.prepare("UPDATE flow_runs SET status = 'running' WHERE id = ?1").bind(runId).run()
-      return { spec: JSON.parse(row.spec_json), inputs: JSON.parse(row.inputs_json || '{}') }
+      return { spec: JSON.parse(row.spec_json), inputs: JSON.parse(row.inputs_json || '{}'), dryRun: row.dry_run !== 0, owner: row.owner_email }
     })
+
+    // A live action step calls the MCP tool back on knowledge-graph-worker, as the owner.
+    const kg = this.env.KG_WORKER
+    const callTool = async (toolName, args) => {
+      try {
+        const res = await kg.fetch('https://knowledge-graph-worker/internal/flows/call-tool', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: owner, toolName, args }),
+        })
+        return await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }))
+      } catch (e) {
+        return { ok: false, error: `could not reach the MCP server: ${e.message}` }
+      }
+    }
 
     const state = { inputs, trigger: { type: 'manual' }, results: {} }
     const lines = []
@@ -149,8 +166,8 @@ export class FlowRunner extends WorkflowEntrypoint {
         if (seq >= spec.limits.maxSteps) throw new Error(`stopped after ${spec.limits.maxSteps} steps (limits.maxSteps)`)
         seq += 1
         const mySeq = seq
-        const outcome = await step.do(`${id}#${mySeq}`, async () => {
-          const r = dryRunStep(spec, id, state)
+        const outcome = await step.do(`${id}#${mySeq}`, { retries: { limit: 1, delay: '2 seconds' } }, async () => {
+          const r = dryRun ? dryRunStep(spec, id, state) : await liveStep(spec, id, state, callTool)
           await db.prepare(
             `INSERT OR REPLACE INTO flow_run_steps (run_id, seq, node_id, kind, status, summary, detail_json, edge, at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
@@ -160,11 +177,15 @@ export class FlowRunner extends WorkflowEntrypoint {
         })
         state.results[id] = { result: outcome.result }
         lines.push(`${mySeq}. ${outcome.record.label} — ${outcome.record.summary}`)
+        if (outcome.stop) throw new Error(outcome.stop)
         id = outcome.nextId
       }
 
       await step.do('finish', async () => {
-        const digest = `Dry run of "${spec.name}": ${seq} step${seq === 1 ? '' : 's'}, nothing was called.\n${lines.join('\n')}`
+        const head = dryRun
+          ? `Dry run of "${spec.name}": ${seq} step${seq === 1 ? '' : 's'}, nothing was called.`
+          : `Live run of "${spec.name}": ${seq} step${seq === 1 ? '' : 's'}; read-only steps ran, the rest were simulated or skipped.`
+        const digest = `${head}\n${lines.join('\n')}`
         await db.prepare("UPDATE flow_runs SET status = 'succeeded', digest = ?2, finished_at = ?3 WHERE id = ?1")
           .bind(runId, digest, new Date().toISOString()).run()
       })

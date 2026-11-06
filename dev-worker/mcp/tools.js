@@ -4898,19 +4898,23 @@ ${result.warnings.join('\n')}` : ''),
   server.registerTool(
     'run_flow',
     {
-      title: 'Run a VEGR Flow (dry run)',
+      title: 'Run a VEGR Flow (dry run, or live for read-only steps)',
       description:
         'Run one of YOUR VEGR Flows — a #FLOWS graph with one `flow` node and `flow-step` nodes ' +
         'joined by edges. The graph is compiled first (structure, model aliases, and the safety ' +
         'rule that nothing reaching other people runs without an approval step); if it does not ' +
-        'compile, the reasons come back and nothing starts. For now every run is a DRY RUN: each ' +
+        'compile, the reasons come back and nothing starts. By default a run is a DRY RUN: each ' +
         'step records what it WOULD do — which tool with which parameters, which model — and ' +
-        'nothing is called or sent. Returns a runId; pass waitSeconds to also get the finished ' +
+        'nothing is called or sent. With live: true, steps that only READ (tools such as ' +
+        'list_my_graphs, get_graph, search_contacts) really run, as you, with the same tools and ' +
+        'access as this chat; agent, approval and wait steps are still simulated, and a step that ' +
+        'would write or send stops the run. Returns a runId; pass waitSeconds to also get the finished ' +
         'run, or read it later with get_flow_run. Only the graph\'s owner can run it. Requires ' +
         'the graph:read scope.',
       inputSchema: {
         graphId: z.string().min(1).describe('The flow graph.'),
         inputs: z.record(z.any()).optional().describe('Values the steps can use as {{inputs.name}}.'),
+        live: z.boolean().optional().describe('true: read-only steps really run (as you). Default false: a dry run, nothing is called.'),
         waitSeconds: z.number().int().optional().describe('Wait up to this many seconds (max 20) for the run to finish and return it. Default 10.'),
       },
       outputSchema: {
@@ -4926,13 +4930,13 @@ ${result.warnings.join('\n')}` : ''),
       },
       annotations: ADDITIVE_WRITE,
     },
-    async ({ graphId, inputs, waitSeconds }) => {
+    async ({ graphId, inputs, live, waitSeconds }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:read')
       if (scopeErr) return scopeErr
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
-      const started = await flows.runFlow(env, { actor, graphId, inputs })
+      const started = await flows.runFlow(env, { actor, graphId, inputs, live: live === true })
       if (!started.ok) return fromService(started)
       const read = await flows.getFlowRun(env, { actor, runId: started.runId, waitSeconds: waitSeconds ?? 10 })
       const run = read.ok ? read.run : null
@@ -4942,17 +4946,17 @@ ${result.warnings.join('\n')}` : ''),
         runId: started.runId,
         graphId,
         flow: started.flow || null,
-        dryRun: true,
+        dryRun: run ? run.dryRun : started.dryRun,
         status: run?.status || started.status,
         warnings: started.warnings,
         digest: run?.digest || null,
         steps,
       }
       const head = run?.status === 'succeeded'
-        ? (run.digest || `Dry run finished: ${steps.length} steps.`)
+        ? (run.digest || `Run finished: ${steps.length} steps.`)
         : run?.status === 'failed'
           ? `The run failed: ${run.error || 'unknown error'}`
-          : `Started dry run ${started.runId} of "${started.flow}" (${started.steps} steps); it is still ${run?.status || started.status}. Read it with get_flow_run.`
+          : `Started ${started.dryRun ? 'dry' : 'live'} run ${started.runId} of "${started.flow}" (${started.steps} steps); it is still ${run?.status || started.status}. Read it with get_flow_run.`
       const warn = started.warnings.length ? `\nWarnings:\n- ${started.warnings.join('\n- ')}` : ''
       return ok(payload, `${head}${warn}\nrunId ${started.runId}`)
     },

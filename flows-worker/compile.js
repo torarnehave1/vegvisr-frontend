@@ -316,3 +316,57 @@ export function dryRun(spec, { inputs = {}, trigger = { type: 'manual' } } = {})
   }
   return { records, stoppedByLimit: Boolean(id) }
 }
+
+/**
+ * One step of a LIVE run (2026-11-06). Read-only action steps really run: callTool(toolName,
+ * args) asks the MCP server to run that tool as the flow's owner, and refuses anything that
+ * writes or sends. Everything else is not live yet and says so:
+ *   - agent, route, wait, loop, note: simulated exactly as in a dry run;
+ *   - approval: there is no way to approve yet (phase 3), so it is treated as REJECTED and the
+ *     run follows the "rejected" edge — nothing after an approval can run;
+ *   - an action that reaches other people is refused outright (the compiler already put an
+ *     approval before it, so a live run normally never gets here).
+ * A failed tool follows the step's "error" edge when it has one; otherwise the run stops there.
+ */
+export async function liveStep(spec, stepId, state, callTool) {
+  const s = spec.steps[stepId]
+  const edges = spec.edges[stepId] || []
+  const byLabel = (l) => edges.find((x) => x.label === l) || null
+
+  if (s.kind === 'action') {
+    const args = render(s.params || {}, state)
+    if (s.external) {
+      return {
+        record: { nodeId: s.id, label: s.label, kind: s.kind, status: 'refused', summary: `refused: ${s.toolName} reaches other people and cannot run live yet`, detail: { toolName: s.toolName }, edge: null },
+        result: null, nextId: null, stop: `Step "${s.label}" would send with ${s.toolName}; sending is not possible in live runs yet.`,
+      }
+    }
+    const r = await callTool(s.toolName, args)
+    if (!r.ok || r.isError) {
+      const why = r.error || r.text || 'the tool reported an error'
+      const err = byLabel('error')
+      return {
+        record: { nodeId: s.id, label: s.label, kind: s.kind, status: 'error', summary: `${s.toolName} failed: ${String(why).slice(0, 300)}`, detail: { toolName: s.toolName, args }, edge: err ? 'error' : null },
+        result: { error: why }, nextId: err?.target || null, stop: err ? null : `Step "${s.label}" failed: ${String(why).slice(0, 300)}`,
+      }
+    }
+    const result = r.structured ?? { text: r.text }
+    const next = byLabel('next') || edges[0] || null
+    const size = JSON.stringify(result).length
+    return {
+      record: { nodeId: s.id, label: s.label, kind: s.kind, status: 'ok', summary: `ran ${s.toolName} (${size} chars of result)`, detail: { toolName: s.toolName, args, result: size > 8000 ? `${JSON.stringify(result).slice(0, 8000)}…` : result }, edge: next?.label || null },
+      result, nextId: next?.target || null, stop: null,
+    }
+  }
+
+  if (s.kind === 'approval') {
+    const rej = byLabel('rejected')
+    return {
+      record: { nodeId: s.id, label: s.label, kind: s.kind, status: 'skipped', summary: 'approvals are not possible yet — treated as rejected, nothing after it runs', detail: { approver: s.approver || 'owner' }, edge: rej ? 'rejected' : null },
+      result: { approved: false }, nextId: rej?.target || null, stop: null,
+    }
+  }
+
+  const sim = dryRunStep(spec, stepId, state)
+  return { ...sim, record: { ...sim.record, status: 'simulated', summary: `simulated — ${sim.record.summary}` }, stop: null }
+}

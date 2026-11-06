@@ -18,3 +18,9 @@ database_id = "507d1efd-1dda-45ef-971f-52d2c8e8afe8"
 name = "flow-runner"
 binding = "FLOW_RUNNER"
 class_name = "FlowRunner"
+
+# Live runs call MCP tools back on knowledge-graph-worker as the flow's owner
+# (POST /internal/flows/call-tool, binding only; read-only tools only).
+[[services]]
+binding = "KG_WORKER"
+service = "knowledge-graph-worker"

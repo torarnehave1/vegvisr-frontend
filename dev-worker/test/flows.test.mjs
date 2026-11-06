@@ -165,3 +165,45 @@ describe('run_flow / get_flow_run', () => {
     assert.equal(env.FLOWS_WORKER.calls.length, 0)
   })
 })
+
+// ── flow-tools: one read-only tool, run as the flow's owner (2026-11-06) ──
+import { callToolForFlow, FLOW_SCOPES } from '../flow-tools.js'
+
+describe('callToolForFlow — a flow runs MCP tools as its owner, read-only', () => {
+  test('a read-only tool runs as the owner and sees only the owner\'s graphs', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    seed(raw) // alice owns the flow graph
+    const r = await callToolForFlow(env, { email: 'Alice@Example.com', toolName: 'list_my_graphs', args: { limit: 5 } })
+    assert.equal(r.ok, true, JSON.stringify(r))
+    assert.equal(r.isError, false, r.text)
+    assert.ok(r.structured.results.some((g) => g.graphId === FLOW_ID), 'alice sees her flow graph')
+    const bob = await callToolForFlow(env, { email: 'bob@example.com', toolName: 'list_my_graphs', args: {} })
+    assert.equal(bob.ok, true)
+    assert.ok(!bob.structured.results.some((g) => g.graphId === FLOW_ID), 'bob does not')
+  })
+
+  test('a tool that writes or sends is refused before it runs', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    for (const toolName of ['create_graph', 'send_email', 'send_sms', 'add_node', 'run_flow']) {
+      const r = await callToolForFlow(env, { email: 'alice@example.com', toolName, args: { title: 'x', metaArea: '#X' } })
+      assert.equal(r.ok, false, toolName)
+      assert.equal(r.status, 403, toolName)
+    }
+    const graphs = raw.prepare('SELECT COUNT(*) n FROM knowledge_graphs').get().n
+    assert.equal(graphs, 0, 'nothing was created')
+  })
+
+  test('an unknown owner, an unknown tool and a missing tool name are refused', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    assert.equal((await callToolForFlow(env, { email: 'nobody@example.com', toolName: 'list_my_graphs' })).status, 403)
+    assert.equal((await callToolForFlow(env, { email: 'alice@example.com', toolName: 'no_such_tool' })).status, 404)
+    assert.equal((await callToolForFlow(env, { email: 'alice@example.com' })).status, 400)
+  })
+
+  test('the flow principal holds read scopes only', () => {
+    assert.deepEqual([...FLOW_SCOPES].sort(), ['contacts:read', 'graph:read'])
+  })
+})

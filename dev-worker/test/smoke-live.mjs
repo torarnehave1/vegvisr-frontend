@@ -85,6 +85,12 @@ console.log('— live smoke —')
     body: JSON.stringify({ graph: { id: 'smoke', nodes: [] }, actor: { email: 'smoke@example.com' } }),
   })
   check('flows-worker /flows/run refuses the internet', run === 403, `HTTP ${run}`)
+  // The way back: a flow runs an MCP tool here as its owner — binding only.
+  const { status: ct } = await json(`${MCP}/internal/flows/call-tool`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'smoke@example.com', toolName: 'list_my_graphs', args: {} }),
+  })
+  check('MCP /internal/flows/call-tool refuses the internet', ct === 403, `HTTP ${ct}`)
 }
 
 // 3. Sender grants refuse an unauthenticated caller.

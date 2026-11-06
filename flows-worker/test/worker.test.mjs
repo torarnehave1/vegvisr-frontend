@@ -23,7 +23,7 @@ function fakeD1() {
       const st = {
         bind: (...x) => { a = x; return st },
         async run() {
-          if (sql.startsWith('INSERT INTO flow_runs')) runs.set(a[0], { id: a[0], flow_graph_id: a[1], flow_version: a[2], owner_email: a[3], dry_run: 1, status: 'queued', spec_json: a[4], inputs_json: a[5], created_at: a[6] })
+          if (sql.startsWith('INSERT INTO flow_runs')) runs.set(a[0], { id: a[0], flow_graph_id: a[1], flow_version: a[2], owner_email: a[3], dry_run: a[7], status: 'queued', spec_json: a[4], inputs_json: a[5], created_at: a[6] })
           else if (sql.includes("SET status = 'running'")) runs.get(a[0]).status = 'running'
           else if (sql.includes("SET status = 'succeeded'")) Object.assign(runs.get(a[0]), { status: 'succeeded', digest: a[1], finished_at: a[2] })
           else if (sql.includes("SET status = 'failed'")) Object.assign(runs.get(a[0]), { status: 'failed', error: a[1], finished_at: a[2] })
@@ -54,7 +54,7 @@ function fakeRunner(env) {
     instances,
     async create({ id, params }) {
       const wf = new FlowRunner({}, env)
-      const step = { do: async (_name, fn) => fn() }
+      const step = { do: async (_name, a, b) => (typeof a === 'function' ? a() : b()) }
       let status = 'running'
       instances.set(id, { status: async () => ({ status }) })
       try { await wf.run({ payload: params }, step); status = 'complete' } catch { status = 'errored' }
@@ -64,8 +64,25 @@ function fakeRunner(env) {
   }
 }
 
+/** knowledge-graph-worker's /internal/flows/call-tool: read-only tools answer, the rest are refused. */
+function fakeKG() {
+  const calls = []
+  return {
+    calls,
+    fetch: async (url, init) => {
+      const u = new URL(url)
+      const body = JSON.parse(init.body)
+      calls.push({ host: u.hostname, path: u.pathname, ...body })
+      if (body.toolName === 'list_my_graphs') {
+        return new Response(JSON.stringify({ ok: true, isError: false, structured: { success: true, results: [{ graphId: 'g1', title: 'Min graf' }] }, text: '1 graph' }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ ok: false, status: 403, error: `"${body.toolName}" changes or sends something` }), { status: 403 })
+    },
+  }
+}
+
 function makeEnv() {
-  const env = { DB: fakeD1() }
+  const env = { DB: fakeD1(), KG_WORKER: fakeKG() }
   env.FLOW_RUNNER = fakeRunner(env)
   return env
 }
@@ -127,11 +144,61 @@ test('a flow that does not compile is answered 422 with the reasons and never st
   assert.equal(env.DB.runs.size, 0)
 })
 
-test('live runs and missing actors are refused', async () => {
+test('a missing actor is refused', async () => {
   const env = makeEnv()
-  assert.equal((await post(env, { graph: GRAPH, aliases: ALIASES, actor: { email: 'a@b.no' }, dryRun: false })).status, 400)
   assert.equal((await post(env, { graph: GRAPH, aliases: ALIASES })).status, 400)
   assert.equal(env.DB.runs.size, 0)
+})
+
+test('a live run calls the read-only tool as the owner and feeds its result to the next step', async () => {
+  const env = makeEnv()
+  const r = await post(env, { graph: GRAPH, aliases: ALIASES, actor: { email: 'Tor@Example.no' }, dryRun: false })
+  assert.equal(r.status, 200, JSON.stringify(r.body))
+  assert.equal(r.body.dryRun, false)
+  const run = env.DB.runs.get(r.body.runId)
+  assert.equal(run.dry_run, 0)
+  assert.equal(run.status, 'succeeded', run.error)
+  assert.match(run.digest, /Live run of "Hei, flow"/)
+  assert.deepEqual(env.KG_WORKER.calls.map((c) => [c.host, c.path, c.email, c.toolName]), [['knowledge-graph-worker', '/internal/flows/call-tool', 'tor@example.no', 'list_my_graphs']])
+  const steps = env.DB.steps.filter((s) => s.run_id === r.body.runId)
+  assert.equal(steps[0].status, 'ok')
+  assert.equal(steps[1].status, 'simulated')
+  assert.match(steps[1].detail_json, /Min graf/, 'the agent step saw the real result of the read step')
+})
+
+test('a live run of the full Hei, flow never reaches send_email: the approval is treated as rejected', async () => {
+  const env = makeEnv()
+  const hei = {
+    ...GRAPH,
+    nodes: [...GRAPH.nodes,
+      { id: 'godkjenn', type: 'flow-step', label: 'Godkjenn', metadata: { kind: 'approval' } },
+      { id: 'send', type: 'flow-step', label: 'Send', metadata: { kind: 'action', toolName: 'send_email', params: { to: 'owner' } } },
+      { id: 'stopp', type: 'flow-step', label: 'Ikke sendt', metadata: { kind: 'note' } }],
+    edges: [...GRAPH.edges, { source: 'oppsummer', target: 'godkjenn' }, { source: 'godkjenn', target: 'send', label: 'approved' }, { source: 'godkjenn', target: 'stopp', label: 'rejected' }],
+  }
+  const r = await post(env, { graph: hei, aliases: ALIASES, actor: { email: 'a@b.no' }, dryRun: false })
+  assert.equal(r.status, 200, JSON.stringify(r.body))
+  const run = env.DB.runs.get(r.body.runId)
+  assert.equal(run.status, 'succeeded', run.error)
+  const path = env.DB.steps.filter((s) => s.run_id === r.body.runId).map((s) => [s.node_id, s.status])
+  assert.deepEqual(path, [['les', 'ok'], ['oppsummer', 'simulated'], ['godkjenn', 'skipped'], ['stopp', 'simulated']])
+  assert.ok(!env.KG_WORKER.calls.some((c) => c.toolName === 'send_email'), 'send_email was never asked for')
+})
+
+test('a live tool that fails stops the run, or follows its "error" edge when it has one', async () => {
+  const env = makeEnv()
+  const failing = { ...GRAPH, nodes: [GRAPH.nodes[0], { id: 'les', type: 'flow-step', label: 'Les', metadata: { kind: 'action', toolName: 'create_graph', params: {} } }], edges: [{ source: 'f', target: 'les' }] }
+  const r = await post(env, { graph: failing, aliases: ALIASES, actor: { email: 'a@b.no' }, dryRun: false })
+  const run = env.DB.runs.get(r.body.runId)
+  assert.equal(run.status, 'failed')
+  assert.match(run.error, /create_graph/)
+
+  const env2 = makeEnv()
+  const withErr = { ...failing, nodes: [...failing.nodes, { id: 'oops', type: 'flow-step', label: 'Feil', metadata: { kind: 'note' } }], edges: [...failing.edges, { source: 'les', target: 'oops', label: 'error' }] }
+  const r2 = await post(env2, { graph: withErr, aliases: ALIASES, actor: { email: 'a@b.no' }, dryRun: false })
+  const run2 = env2.DB.runs.get(r2.body.runId)
+  assert.equal(run2.status, 'succeeded', run2.error)
+  assert.deepEqual(env2.DB.steps.map((s) => [s.node_id, s.status, s.edge]), [['les', 'error', 'error'], ['oops', 'simulated', null]])
 })
 
 test('a paused flow is not started', async () => {
