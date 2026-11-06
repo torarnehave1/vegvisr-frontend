@@ -2054,6 +2054,7 @@ export default {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
+              'X-API-Token': this.userStore.emailVerificationToken || '',
             },
           },
         )
@@ -2083,6 +2084,7 @@ export default {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
+            'X-API-Token': this.userStore.emailVerificationToken || '',
           },
           body: JSON.stringify({
             userId: userId,
@@ -2151,6 +2153,7 @@ export default {
             method: 'DELETE',
             headers: {
               'Content-Type': 'application/json',
+              'X-API-Token': this.userStore.emailVerificationToken || '',
             },
           },
         )

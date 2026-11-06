@@ -16,6 +16,10 @@
  * - GET /user-api-keys - List user's API keys metadata
  * - DELETE /user-api-keys/:provider - Delete specific key
  * - GET /health - Health check
+ *
+ * Auth (since 2026-11-06): the /user-api-keys routes need either a service binding (userId in the
+ * request is trusted) or the user's session token in X-API-Token (userId comes from the token).
+ * See resolveCaller().
  */
 
 import { storeUserApiKey, getUserApiKey, deleteUserApiKey, listUserApiKeys } from './src/utils/secretsManager.js'
@@ -26,6 +30,46 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-id, x-user-email, x-user-role, X-API-Token',
   'Access-Control-Max-Age': '86400'
+}
+
+/**
+ * Who is calling, and for which user may they act?
+ *
+ * Added 2026-11-06. Until then PUT, GET and DELETE on /user-api-keys trusted the `userId` in the
+ * body or query string, so anyone on the internet could write, list or delete keys for any user.
+ *
+ * Two callers are legitimate:
+ *   1. A worker on this account over a service binding (agent-worker's env.USER_KEYS_WORKER).
+ *      It addresses this worker by its BINDING NAME, a hostname that is not routable from the
+ *      internet, so the signal cannot be forged (same reasoning as /mailbox-password below and
+ *      dev-worker's validateAuth). That caller has already authenticated and authorized its own
+ *      user — including Superadmin acting on behalf of someone — so its `userId` is trusted.
+ *   2. A browser (UserDashboard) with the user's session token in X-API-Token. The user is looked
+ *      up from the token (config.emailVerificationToken → config.user_id).
+ *
+ * Returns { ok: true, userId, viaBinding } or { ok: false, response }.
+ */
+async function resolveCaller(request, env, claimedUserId) {
+  if (new URL(request.url).hostname === 'user-keys-worker') {
+    if (!claimedUserId) return { ok: false, response: jsonResponse({ error: 'Missing userId' }, 400) }
+    return { ok: true, userId: claimedUserId, viaBinding: true }
+  }
+
+  const token = (request.headers.get('X-API-Token') || '').trim()
+  if (!token) {
+    return { ok: false, response: jsonResponse({ error: 'Not logged in: X-API-Token header is required' }, 401) }
+  }
+  const row = await env.DB
+    .prepare('SELECT user_id FROM config WHERE emailVerificationToken = ?1 LIMIT 1')
+    .bind(token)
+    .first()
+  if (!row || !row.user_id) {
+    return { ok: false, response: jsonResponse({ error: 'Invalid or expired session token' }, 401) }
+  }
+  // A `userId` the browser sends is ignored: the token decides whose keys these are. Ignoring it
+  // rather than refusing a mismatch keeps the dashboard working for a user whose stored id is
+  // their OAuth id, while still giving nobody access to anyone else's keys.
+  return { ok: true, userId: row.user_id, viaBinding: false }
 }
 
 /**
@@ -58,12 +102,13 @@ export default {
       // PUT /user-api-keys - Store new API key
       if (path === '/user-api-keys' && request.method === 'PUT') {
         const body = await request.json()
-        const { userId, provider, apiKey, metadata } = body
+        const { provider, apiKey, metadata } = body
+
+        const caller = await resolveCaller(request, env, body.userId)
+        if (!caller.ok) return caller.response
+        const userId = caller.userId
 
         // Validation
-        if (!userId) {
-          return jsonResponse({ error: 'Missing userId' }, 400)
-        }
         if (!provider) {
           return jsonResponse({ error: 'Missing provider' }, 400)
         }
@@ -92,6 +137,14 @@ export default {
           }, 400)
         }
 
+        // Mailbox passwords are written only by agent-worker's set_mailbox_password, over the
+        // binding. From the internet they are refused: /mailbox-password answers 409 when two
+        // users hold a password for the same address, so a stray row for someone else's mailbox
+        // (post@nibi.no, say) would stop that World's sent copies.
+        if (isMailbox && !caller.viaBinding) {
+          return jsonResponse({ error: 'Mailbox passwords can only be set through the agent (set_mailbox_password).' }, 403)
+        }
+
         // Store encrypted key in D1 (includes metadata)
         await storeUserApiKey(env, userId, provider, apiKey, metadata || {})
 
@@ -104,11 +157,9 @@ export default {
 
       // GET /user-api-keys - List user's API keys (metadata only)
       if (path === '/user-api-keys' && request.method === 'GET') {
-        const userId = url.searchParams.get('userId')
-
-        if (!userId) {
-          return jsonResponse({ error: 'Missing userId parameter' }, 400)
-        }
+        const caller = await resolveCaller(request, env, url.searchParams.get('userId'))
+        if (!caller.ok) return caller.response
+        const userId = caller.userId
 
         // Get keys from D1
         const keys = await listUserApiKeys(env, userId)
@@ -170,12 +221,11 @@ export default {
 
       // DELETE /user-api-keys/:provider - Delete specific API key
       if (path.startsWith('/user-api-keys/') && request.method === 'DELETE') {
-        const provider = path.split('/')[2]
-        const userId = url.searchParams.get('userId')
+        const provider = decodeURIComponent(path.split('/')[2] || '')
 
-        if (!userId) {
-          return jsonResponse({ error: 'Missing userId parameter' }, 400)
-        }
+        const caller = await resolveCaller(request, env, url.searchParams.get('userId'))
+        if (!caller.ok) return caller.response
+        const userId = caller.userId
 
         if (!provider) {
           return jsonResponse({ error: 'Missing provider' }, 400)

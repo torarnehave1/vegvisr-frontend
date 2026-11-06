@@ -61,6 +61,19 @@ console.log('— live smoke —')
   check('  and returns no password with the refusal', !body.password, JSON.stringify(body).slice(0, 120))
 }
 
+// 2b. The key routes refuse a caller with no session token. Until 2026-11-06 anyone could write,
+//     list or delete any user's API keys by naming their userId. Read-only probes: the PUT carries
+//     no valid token, so nothing can be written even if this check ever goes red.
+{
+  const { status: getStatus } = await json(`${KEYS}/user-api-keys?userId=smoke-probe`)
+  check('user-api-keys GET refuses no token', getStatus === 401, `HTTP ${getStatus}`)
+  const { status: putStatus } = await json(`${KEYS}/user-api-keys`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId: 'smoke-probe', provider: 'openai', apiKey: 'not-a-key' }),
+  })
+  check('user-api-keys PUT refuses no token', putStatus === 401, `HTTP ${putStatus}`)
+}
+
 // 3. Sender grants refuse an unauthenticated caller.
 {
   const { status } = await json(`${MCP}/email/sender-grants`)
