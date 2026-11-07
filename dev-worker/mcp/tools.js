@@ -5034,6 +5034,97 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  const TRIGGER_SHAPE = z.object({
+    flowGraphId: z.string(), triggerId: z.string(), type: z.string(), cron: z.string().nullable(),
+    timezone: z.string(), enabled: z.boolean(), nextRunAt: z.string().nullable(), nextRunLocal: z.string().nullable(),
+    lastFiredAt: z.string().nullable(), lastRunId: z.string().nullable(), lastResult: z.string().nullable(),
+  })
+  const triggerLine = (t) => `- ${t.triggerId}: "${t.cron}" (${t.timezone}) — ${t.enabled ? `next: ${t.nextRunLocal || t.nextRunAt}` : 'off'}${t.lastResult ? ` · last: ${t.lastResult}` : ''}`
+
+  server.registerTool(
+    'activate_flow',
+    {
+      title: 'Turn a VEGR Flow\'s schedule on or off',
+      description:
+        'Switch the schedule of one of YOUR flows on (active: true, the default) or off (active: ' +
+        'false). The schedule lives in the flow node of the graph, as triggers like ' +
+        '{ "id": "t_morgen", "type": "schedule", "cron": "0 7 * * *", "timezone": "Europe/Oslo" } ' +
+        '(minute hour day month weekday, in that time zone). Turning it on needs a flow that ' +
+        'compiles and has run once before (a dry run is enough); after a change to the schedule in ' +
+        'the graph, call this again. Steps can be edited in the graph without it — each scheduled ' +
+        'run reads the graph fresh. A scheduled run that reaches an approval e-mails the owner from ' +
+        'the flow node\'s notify.fromEmail and waits up to its timeout for decide_flow_approval. ' +
+        'Returns each trigger with its next run in local time. Requires the graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The flow graph.'),
+        active: z.boolean().optional().describe('true (default) = on, false = off.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        active: z.boolean(),
+        flow: z.string().nullable(),
+        triggers: z.array(TRIGGER_SHAPE),
+        warnings: z.array(z.string()),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ graphId, active }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await flows.activateFlow(env, { actor, graphId, active })
+      if (!r.ok) return fromService(r)
+      const head = r.active
+        ? `The schedule of "${r.flow}" is ON:`
+        : `The schedule of "${r.flow}" is OFF.`
+      return ok(
+        { success: true, active: r.active, flow: r.flow, triggers: r.triggers, warnings: r.warnings },
+        [head, ...r.triggers.map(triggerLine), ...r.warnings.map((w) => `Note: ${w}`)].join('\n'),
+      )
+    },
+  )
+
+  server.registerTool(
+    'list_flows',
+    {
+      title: 'List your scheduled VEGR Flows and recent runs',
+      description:
+        'YOUR flows that have a schedule (on or off) with the next run in local time and how the ' +
+        'last one went, plus your most recent runs of any flow (manual or scheduled). A run with ' +
+        'status "waiting" is waiting for your approval — read it with get_flow_run and answer with ' +
+        'decide_flow_approval. Requires the graph:read scope.',
+      inputSchema: {},
+      outputSchema: {
+        success: z.boolean(),
+        triggers: z.array(TRIGGER_SHAPE),
+        recentRuns: z.array(z.object({
+          id: z.string(), flow_graph_id: z.string(), trigger_id: z.string().nullable(), status: z.string(),
+          dry_run: z.number(), created_at: z.string(), finished_at: z.string().nullable(),
+        })),
+      },
+      annotations: READ_ONLY,
+    },
+    async () => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await flows.listFlows(env, { actor })
+      if (!r.ok) return fromService(r)
+      const waiting = r.recentRuns.filter((x) => x.status === 'waiting')
+      const lines = [
+        r.triggers.length ? 'Scheduled flows:' : 'No flow has a schedule yet.',
+        ...r.triggers.map(triggerLine),
+        waiting.length ? `\nWaiting for your approval: ${waiting.map((x) => x.id).join(', ')}` : '',
+        `\nRecent runs: ${r.recentRuns.length}`,
+      ].filter(Boolean)
+      return ok({ success: true, triggers: r.triggers, recentRuns: r.recentRuns }, lines.join('\n'))
+    },
+  )
+
   server.registerTool(
     'decide_flow_approval',
     {
@@ -6382,6 +6473,8 @@ export const TOOL_NAMES = [
   'run_flow',
   'get_flow_run',
   'decide_flow_approval',
+  'activate_flow',
+  'list_flows',
   'list_sent_sms',
   'set_meeting_report',
   'preview_meeting_report',

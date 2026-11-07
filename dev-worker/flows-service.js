@@ -122,3 +122,40 @@ export async function decideFlowApproval(env, { actor, runId, approve, text = nu
   })
   return { ok: true, decided: { approved: data.approved, edited: data.edited === true, nodeId: data.nodeId }, run: read.ok ? read.run : null, steps: read.ok ? read.steps : [] }
 }
+
+/**
+ * Turn a flow's schedule on or off (phase 2). On: flows-worker compiles the graph, reads the
+ * schedule triggers in the flow node, requires that the flow has run once before, and works out
+ * the next run in the trigger's time zone. Off: the schedule stops; the graph is untouched.
+ */
+export async function activateFlow(env, { actor, graphId, active = true }) {
+  if (!actor?.email) return fail(gs.ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!graphId) return fail(gs.ERR.INVALID_INPUT, 'graphId is required.')
+  const access = await gs.checkAccess(env, actor, graphId, 'run')
+  if (!access.ok) return access
+  const read = await gs.getGraph(env, graphId, { caller: actor })
+  if (!read.ok) return read
+  const g = read.graph
+  const { res, data, error } = await callFlows(env, '/flows/activate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      graph: { id: graphId, version: g.metadata?.version ?? null, title: g.metadata?.title || null, nodes: g.nodes, edges: g.edges },
+      aliases: await loadModelAliases(env),
+      actor: { email: actor.email },
+      active: active !== false,
+    }),
+  })
+  if (error) return error
+  if (!res.ok) return fail(res.status === 500 ? gs.ERR.INTERNAL_ERROR : gs.ERR.INVALID_INPUT, (data.errors || []).join('\n') || data.error || `Flow engine answered HTTP ${res.status}.`, { errors: data.errors || [] })
+  return { ok: true, active: data.active, flow: data.flow || g.metadata?.title || null, triggers: data.triggers || [], warnings: data.warnings || [] }
+}
+
+/** The caller's scheduled flows (next and last run) and their recent runs. */
+export async function listFlows(env, { actor }) {
+  if (!actor?.email) return fail(gs.ERR.UNAUTHENTICATED, 'Authentication required.')
+  const { res, data, error } = await callFlows(env, `/flows/list?email=${encodeURIComponent(actor.email)}`)
+  if (error) return error
+  if (!res.ok) return fail(gs.ERR.INTERNAL_ERROR, data.error || `Flow engine answered HTTP ${res.status}.`)
+  return { ok: true, triggers: data.triggers || [], recentRuns: data.recentRuns || [] }
+}

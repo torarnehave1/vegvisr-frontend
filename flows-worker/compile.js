@@ -225,6 +225,7 @@ export function compileFlow(graph, aliases = []) {
       triggers,
       limits,
       inputs: hm.inputs || {},
+      notify: hm.notify && typeof hm.notify === 'object' && hm.notify.fromEmail ? { fromEmail: String(hm.notify.fromEmail) } : null,
       entry,
       steps,
       edges: out,

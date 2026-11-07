@@ -2140,7 +2140,22 @@ const restHandler = {
           })
         }
         const body = await request.json().catch(() => ({}))
-        const r = await flowTools.callToolForFlow(env, { email: body.email, toolName: body.toolName, args: body.args, approval: body.approval || null })
+        const r = await flowTools.callToolForFlow(env, { email: body.email, toolName: body.toolName, args: body.args, approval: body.approval || null, notify: body.notify || null })
+        return new Response(JSON.stringify(r), {
+          status: r.ok ? 200 : r.status || 400, headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      // VEGR Flows phase 2: flows-worker reads a flow graph for a SCHEDULED run, as its owner,
+      // with the same access check run_flow makes. Binding only, like call-tool above.
+      if (pathname === '/internal/flows/load' && request.method === 'POST') {
+        if (url.hostname !== 'knowledge-graph-worker') {
+          return new Response(JSON.stringify({ error: 'Reachable only over a service binding.' }), {
+            status: 403, headers: { 'Content-Type': 'application/json' },
+          })
+        }
+        const body = await request.json().catch(() => ({}))
+        const r = await flowTools.loadFlowForOwner(env, { email: body.email, graphId: body.graphId })
         return new Response(JSON.stringify(r), {
           status: r.ok ? 200 : r.status || 400, headers: { 'Content-Type': 'application/json' },
         })

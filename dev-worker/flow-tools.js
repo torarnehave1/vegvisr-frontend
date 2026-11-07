@@ -29,6 +29,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { registerTools } from './mcp/tools.js'
+import * as gs from './graph-service.js'
+import { loadModelAliases } from './flows-service.js'
 
 export const FLOW_SCOPES = ['graph:read', 'contacts:read']
 
@@ -100,13 +102,63 @@ async function loadOwner(env, email) {
  *   { ok: true, isError, structured, text }           the tool ran (it may still report an error)
  *   { ok: false, status, error }                       refused before running
  */
-export async function callToolForFlow(env, { email, toolName, args = {}, approval = null }) {
+/**
+ * May the engine e-mail the owner that a scheduled run waits for them? (Phase 2.) Only
+ * send_email, only to the owner, only while THIS run is live and waiting at an approval at that
+ * seq, and only once per approval (flow_notifications, INSERT OR IGNORE). This is the one send a
+ * flow makes without an approval: to its owner, about itself (VEGR Flows safety rule 2).
+ */
+async function checkOwnerNotice(env, owner, toolName, args, notify) {
+  const deny = (error) => ({ ok: false, status: 403, error })
+  if (toolName !== 'send_email') return deny('Only send_email can notify the owner.')
+  const runId = String(notify?.runId || '')
+  const seq = Number(notify?.seq)
+  if (!/^[0-9a-f-]{36}$/.test(runId) || !Number.isInteger(seq) || seq < 1) return deny('A notice names its run and step.')
+  const to = String(args?.toEmail || '').trim().toLowerCase()
+  if (to !== owner.email || (Array.isArray(args?.cc) && args.cc.length) || (Array.isArray(args?.bcc) && args.bcc.length)) {
+    return deny('A notice goes to the flow\'s owner only.')
+  }
+  const db = env.vegvisr_org
+  const run = await db.prepare('SELECT owner_email, dry_run, status FROM flow_runs WHERE id = ?').bind(runId).first().catch(() => null)
+  if (!run || String(run.owner_email).toLowerCase() !== owner.email || run.dry_run !== 0 || run.status !== 'waiting') {
+    return deny('That run is not a live run of yours waiting for an approval.')
+  }
+  const step = await db.prepare('SELECT kind, status FROM flow_run_steps WHERE run_id = ? AND seq = ?').bind(runId, seq).first().catch(() => null)
+  if (!step || step.kind !== 'approval' || step.status !== 'waiting') return deny('That step is not an approval waiting for you.')
+  const once = await db.prepare('INSERT OR IGNORE INTO flow_notifications (run_id, seq, at) VALUES (?, ?, ?)')
+    .bind(runId, seq, new Date().toISOString()).run().catch(() => null)
+  if (!(once?.meta?.changes > 0)) return deny('You have already been told about this approval.')
+  return null
+}
+
+/**
+ * The flow graph and model aliases for a SCHEDULED run (phase 2), read as the owner with the same
+ * access check run_flow makes — so a flow whose graph the owner can no longer act on stops running.
+ */
+export async function loadFlowForOwner(env, { email, graphId }) {
+  const owner = await loadOwner(env, email)
+  if (!owner) return { ok: false, status: 403, error: 'The flow owner is not a registered user.' }
+  if (!graphId || typeof graphId !== 'string') return { ok: false, status: 400, error: 'graphId is required.' }
+  const actor = gs.normalizeActor({ valid: true, userId: owner.userId, userEmail: owner.email, userRole: owner.role, scopes: FLOW_SCOPES, authMethod: 'flow' })
+  const access = await gs.checkAccess(env, actor, graphId, 'run')
+  if (!access.ok) return { ok: false, status: access.status || 403, error: access.message || 'No access to the flow graph.' }
+  const read = await gs.getGraph(env, graphId, { caller: actor })
+  if (!read.ok) return { ok: false, status: read.status || 404, error: read.message || 'Flow graph not found.' }
+  const g = read.graph
+  return {
+    ok: true,
+    graph: { id: graphId, version: g.metadata?.version ?? null, title: g.metadata?.title || null, nodes: g.nodes, edges: g.edges },
+    aliases: await loadModelAliases(env),
+  }
+}
+
+export async function callToolForFlow(env, { email, toolName, args = {}, approval = null, notify = null }) {
   if (!toolName || typeof toolName !== 'string') return { ok: false, status: 400, error: 'toolName is required.' }
   const owner = await loadOwner(env, email)
   if (!owner) return { ok: false, status: 403, error: 'The flow owner is not a registered user.' }
 
   // An approved send gets the one extra scope its tool needs — checked and consumed below, before it runs.
-  const sendScope = approval && FLOW_SEND_TOOLS[toolName] ? FLOW_SEND_TOOLS[toolName] : null
+  const sendScope = (approval || notify) && FLOW_SEND_TOOLS[toolName] ? FLOW_SEND_TOOLS[toolName] : null
   const lentScope = sendScope || FLOW_READ_TOOL_SCOPES[toolName] || null
   const auth = { token: 'flow-principal', audience: 'flows-worker', scope: [...FLOW_SCOPES, ...(lentScope ? [lentScope] : [])], userId: owner.userId, clientId: 'flows-worker' }
   const props = { userId: owner.userId, email: owner.email, role: owner.role, authMethod: 'flow' }
@@ -128,7 +180,9 @@ export async function callToolForFlow(env, { email, toolName, args = {}, approva
       if (!sendScope) {
         return { ok: false, status: 403, error: `"${toolName}" changes or sends something, so a flow cannot run it. Flows run read-only tools, and ${Object.keys(FLOW_SEND_TOOLS).join(', ')} after an approval.` }
       }
-      const refused = await checkApprovedSend(env, owner, toolName, args, approval)
+      const refused = approval
+        ? await checkApprovedSend(env, owner, toolName, args, approval)
+        : await checkOwnerNotice(env, owner, toolName, args, notify)
       if (refused) return refused
     }
     const r = await client.callTool({ name: toolName, arguments: args && typeof args === 'object' ? args : {} })

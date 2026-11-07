@@ -379,3 +379,125 @@ describe('the owner approves the real e-mail: preview_email in a flow', () => {
     assert.match(text, /decide_flow_approval/)
   })
 })
+
+// ── Phase 2: schedules — the flow loader, the owner notice, activate_flow / list_flows ──
+import { loadFlowForOwner } from '../flow-tools.js'
+
+describe('phase 2: a scheduled run is read and noticed as its owner', () => {
+  test('loadFlowForOwner reads the flow graph and aliases for the owner, and refuses anyone else', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    seed(raw)
+    const r = await loadFlowForOwner(env, { email: 'alice@example.com', graphId: FLOW_ID })
+    assert.equal(r.ok, true, JSON.stringify(r))
+    assert.equal(r.graph.id, FLOW_ID)
+    assert.equal(r.graph.nodes.length, 2)
+    assert.equal(r.aliases.find((a) => a.alias === 'fast').model, 'claude-haiku-5-5')
+    const bob = await loadFlowForOwner(env, { email: 'bob@example.com', graphId: FLOW_ID })
+    assert.equal(bob.ok, false, 'not his flow')
+    const nobody = await loadFlowForOwner(env, { email: 'nobody@example.com', graphId: FLOW_ID })
+    assert.equal(nobody.status, 403)
+  })
+
+  const NOTE_RUN = '2d3e4f5a-6b7c-4d8e-9fa0-b1c2d3e4f5a6'
+  const NOTE = { fromEmail: 'alice@example.com', toEmail: 'alice@example.com', subject: 'Flow venter', bodyHtml: '<p>{tekst}</p>', variables: { tekst: 'hei' } }
+  function waitingRun({ runStatus = 'waiting', stepStatus = 'waiting' } = {}) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    raw.exec(readFileSync(new URL('../../flows-worker/schema.sql', import.meta.url), 'utf8'))
+    raw.exec('CREATE TABLE IF NOT EXISTS flow_notifications (run_id TEXT NOT NULL, seq INTEGER NOT NULL, at TEXT, PRIMARY KEY (run_id, seq))')
+    raw.prepare("INSERT INTO flow_runs (id, flow_graph_id, owner_email, dry_run, status, spec_json, created_at) VALUES (?,?,?,0,?,'{}','x')").run(NOTE_RUN, FLOW_ID, 'alice@example.com', runStatus)
+    raw.prepare("INSERT INTO flow_run_steps (run_id, seq, node_id, kind, status, at) VALUES (?,2,'godkjenn','approval',?,'x')").run(NOTE_RUN, stepStatus)
+    return { env, raw }
+  }
+  const notice = (env, extra = {}) => callToolForFlow(env, { email: 'alice@example.com', toolName: 'send_email', args: NOTE, notify: { runId: NOTE_RUN, seq: 2 }, ...extra })
+
+  test('the owner is told once that a waiting run needs them', async () => {
+    const { env, raw } = waitingRun()
+    const r = await notice(env)
+    assert.notEqual(r.status, 403, JSON.stringify(r))
+    assert.equal(raw.prepare('SELECT COUNT(*) AS n FROM flow_notifications').get().n, 1)
+    assert.equal((await notice(env)).status, 403, 'only once per approval')
+  })
+
+  test('a notice to anyone else, for a run that is not waiting, or for a decided approval is refused', async () => {
+    for (const [why, opts, extra] of [
+      ['another recipient', {}, { args: { ...NOTE, toEmail: 'bob@example.com' } }],
+      ['bcc', {}, { args: { ...NOTE, bcc: ['bob@example.com'] } }],
+      ['run finished', { runStatus: 'succeeded' }, {}],
+      ['already decided', { stepStatus: 'approved' }, {}],
+      ['another tool', {}, { toolName: 'send_sms' }],
+    ]) {
+      const { env, raw } = waitingRun(opts)
+      const r = await notice(env, extra)
+      assert.equal(r.status, 403, why)
+      assert.equal(raw.prepare('SELECT COUNT(*) AS n FROM flow_notifications').get().n, 0, `${why}: nothing recorded`)
+    }
+  })
+})
+
+describe('activate_flow and list_flows', () => {
+  function fakeSchedule({ status = 200, body = null } = {}) {
+    const calls = []
+    return {
+      calls,
+      fetch: async (url, init = {}) => {
+        const u = new URL(url)
+        calls.push({ path: u.pathname, search: u.search, body: init.body ? JSON.parse(init.body) : null })
+        const trig = { flowGraphId: FLOW_ID, triggerId: 't_morgen', type: 'schedule', cron: '0 7 * * *', timezone: 'Europe/Oslo', enabled: true, nextRunAt: '2026-11-08T06:00:00.000Z', nextRunLocal: 'søndag 8. november kl. 07:00', lastFiredAt: null, lastRunId: null, lastResult: null }
+        if (u.pathname === '/flows/activate') return new Response(JSON.stringify(body || (status === 200 ? { ok: true, active: true, flow: 'Hei, flow', triggers: [trig], warnings: [] } : { ok: false, errors: ['Run the flow once first (a dry run is enough).'] })), { status })
+        if (u.pathname === '/flows/list') return new Response(JSON.stringify({ ok: true, triggers: [trig], recentRuns: [{ id: RUN_ID, flow_graph_id: FLOW_ID, trigger_id: 't_morgen', status: 'waiting', dry_run: 0, created_at: 'x', finished_at: null }] }), { status: 200 })
+        return new Response('{}', { status: 404 })
+      },
+    }
+  }
+  const ALICE_W = authFor('alice@example.com', ['graph:read', 'graph:write'])
+
+  test('the owner turns a schedule on: the graph and aliases cross the binding with the verified e-mail', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    seed(raw)
+    env.FLOWS_WORKER = fakeSchedule()
+    const r = await (await connect(env, ALICE_W)).callTool({ name: 'activate_flow', arguments: { graphId: FLOW_ID } })
+    assert.notEqual(r.isError, true, JSON.stringify(r.structuredContent))
+    assert.match(r.content[0].text, /is ON:[\s\S]*søndag 8\. november kl\. 07:00/)
+    const sent = env.FLOWS_WORKER.calls[0].body
+    assert.equal(sent.actor.email, 'alice@example.com')
+    assert.equal(sent.graph.id, FLOW_ID)
+    assert.equal(sent.active, true)
+    assert.ok(sent.aliases.some((a) => a.alias === 'fast'))
+  })
+
+  test('someone else cannot switch the owner\'s flow on; graph:read alone cannot either', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    seed(raw)
+    env.FLOWS_WORKER = fakeSchedule()
+    const bob = await (await connect(env, authFor('bob@example.com', ['graph:read', 'graph:write']))).callTool({ name: 'activate_flow', arguments: { graphId: FLOW_ID } })
+    assert.equal(bob.isError, true)
+    const ro = await (await connect(env, ALICE)).callTool({ name: 'activate_flow', arguments: { graphId: FLOW_ID } })
+    assert.equal(ro.isError, true)
+    assert.equal(env.FLOWS_WORKER.calls.length, 0)
+  })
+
+  test('the engine\'s reason comes back when it refuses', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    seed(raw)
+    env.FLOWS_WORKER = fakeSchedule({ status: 409 })
+    const r = await (await connect(env, ALICE_W)).callTool({ name: 'activate_flow', arguments: { graphId: FLOW_ID } })
+    assert.equal(r.isError, true)
+    assert.match(JSON.stringify(r), /Run the flow once first/)
+  })
+
+  test('list_flows shows schedules and what waits for you', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    env.FLOWS_WORKER = fakeSchedule()
+    const r = await (await connect(env, ALICE)).callTool({ name: 'list_flows', arguments: {} })
+    assert.notEqual(r.isError, true, JSON.stringify(r))
+    assert.match(r.content[0].text, /t_morgen: "0 7 \* \* \*" \(Europe\/Oslo\) — next: søndag/)
+    assert.match(r.content[0].text, new RegExp(`Waiting for your approval: ${RUN_ID}`))
+    assert.equal(env.FLOWS_WORKER.calls[0].search, '?email=alice%40example.com')
+  })
+})
