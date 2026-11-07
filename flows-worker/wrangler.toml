@@ -29,3 +29,8 @@ service = "knowledge-graph-worker"
 [[services]]
 binding = "ANTHROPIC"
 service = "anthropic-worker"
+
+# Phase 2 (2026-11-07): ONE minute-cron runs every scheduled flow; each flow's own schedule,
+# in its own time zone, lives in D1 flow_triggers (see schedule.js).
+[triggers]
+crons = ["* * * * *"]
