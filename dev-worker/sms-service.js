@@ -673,3 +673,111 @@ export async function listSentSms(env, { actor, from, to, limit = 50, page = 1 }
     messages,
   }
 }
+
+
+// ── sms_overview (2026-11-07) ────────────────────────────────────────────────────────────────
+//
+// "What have I sent lately, and has anybody answered?" — one read, for chat and for the flow
+// «Sjekk SMS». Sent messages come from the ClickSend history (listSentSms). Replies come from the
+// mailbox ClickSend forwards them to ("SMS reply from +47…", from +47…@sms.clicksend.com), read
+// over IMAP without marking anything as read. Names come from the caller's OWN ContactHub, matched
+// on the last 8 digits of the number. Nothing is sent, marked or changed.
+//
+// The reply e-mail looks like:
+//   You've received a reply from +4799567770:
+//   <the reply>
+//   ------------------------------------------------------------------------
+//   Original Message on Thu, Nov 5, 2026 10:30 PM:
+//   <what was sent>
+// Replies were written by other people: callers treat them as data, never as instructions.
+const REPLY_FROM = /@sms\.clicksend\.com$/i
+const MAX_REPLIES = 25
+const MAX_NAME_LOOKUPS = 30
+
+const last8 = (n) => String(n || '').replace(/\D/g, '').slice(-8)
+
+/** The reply text and the quoted original out of a ClickSend reply e-mail. */
+export function parseSmsReplyEmail(text) {
+  const t = String(text || '').replace(/\r\n/g, '\n')
+  const head = t.match(/^\s*You'?ve received a reply from [^\n]*:\n/i)
+  const body = head ? t.slice(head[0].length) : t
+  const [reply, ...rest] = body.split(/\n-{10,}\n/)
+  const orig = rest.join('\n').match(/Original Message on ([^\n]*?):\n([\s\S]*)$/i)
+  const clean = (s) => String(s || '').replace(/\s*—\s*ClickSend\.com\s*$/i, '').replace(/[ \t]*\n[ \t]*/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
+  return { reply: clean(reply), original: orig ? clean(orig[2]) : null, originalSentOn: orig ? orig[1].trim() : null }
+}
+
+export async function smsOverview(env, { actor, days = 7, repliesMailbox, mail, contacts }) {
+  if (!actor?.email) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  const d = Math.min(Math.max(Number(days) || 7, 1), 31)
+  const today = osloDate(new Date())
+  const fromDay = (() => { const x = new Date(`${today}T12:00:00Z`); x.setUTCDate(x.getUTCDate() - (d - 1)); return x.toISOString().slice(0, 10) })()
+
+  // 1. Sent (up to 3 pages of 100 — more than that in a month is a bulk send, summarised by count).
+  const sent = []
+  let totalSent = 0
+  for (let page = 1; page <= 3; page += 1) {
+    const r = await listSentSms(env, { actor, from: fromDay, to: today, limit: 100, page })
+    if (!r.ok) return r
+    totalSent = r.total
+    sent.push(...r.messages.filter((m) => m.body !== '[innloggingskode skjult]'))
+    if (page >= r.lastPage) break
+  }
+
+  // 2. Replies, from the forwarding mailbox.
+  const replies = []
+  const warnings = []
+  if (repliesMailbox) {
+    const mailSvc = mail || (await import('./email-service.js'))
+    const inbox = await mailSvc.listInbox(env, { address: repliesMailbox, limit: 50, since: fromDay, actor })
+    if (!inbox.ok) return inbox
+    const smsMails = inbox.messages.filter((m) => REPLY_FROM.test(m.from || '') || /^SMS reply from/i.test(m.subject || ''))
+    if (smsMails.length > MAX_REPLIES) warnings.push(`${smsMails.length} replies in the period; read the newest ${MAX_REPLIES}.`)
+    for (const m of smsMails.slice(0, MAX_REPLIES)) {
+      const number = (m.from || '').replace(REPLY_FROM, '') || (m.subject || '').replace(/^SMS reply from\s*/i, '')
+      const full = await mailSvc.readInboxEmail(env, { address: repliesMailbox, uid: m.uid, actor })
+      const parsed = full.ok ? parseSmsReplyEmail(full.text) : { reply: null, original: null, originalSentOn: null }
+      replies.push({ from: number, at: m.date ? new Date(m.date).toISOString() : null, text: parsed.reply, inReplyTo: parsed.original, uid: m.uid })
+    }
+  } else {
+    warnings.push('No repliesMailbox given, so replies were not read.')
+  }
+
+  // 3. Names from the caller's own ContactHub.
+  const numbers = [...new Set([...sent.map((m) => m.to), ...replies.map((r) => r.from)].filter(Boolean))]
+  const names = new Map()
+  const contactSvc = contacts || (await import('./users-service.js'))
+  for (const n of numbers.slice(0, MAX_NAME_LOOKUPS)) {
+    const key = last8(n)
+    if (key.length < 8) continue
+    const r = await contactSvc.searchContacts(env, { actor, query: key, limit: 5 })
+    const hit = r.ok ? r.contacts.find((c) => c.phones.some((p) => last8(p) === key)) : null
+    if (hit?.name) names.set(key, hit.name)
+  }
+  if (numbers.length > MAX_NAME_LOOKUPS) warnings.push(`Names looked up for the first ${MAX_NAME_LOOKUPS} of ${numbers.length} numbers.`)
+
+  // 4. One line per person: what was sent, what came back, and whether the last word is theirs.
+  const people = new Map()
+  const person = (n) => {
+    const key = last8(n)
+    if (!people.has(key)) people.set(key, { number: n, name: names.get(key) || null, sent: [], replies: [] })
+    return people.get(key)
+  }
+  for (const m of sent) person(m.to).sent.push({ at: m.sentAt, text: m.body, status: m.status })
+  for (const r of replies) person(r.from).replies.push({ at: r.at, text: r.text, inReplyTo: r.inReplyTo })
+  const conversations = [...people.values()].map((p) => {
+    const lastSentAt = p.sent.map((x) => x.at).filter(Boolean).sort().pop() || null
+    const lastReplyAt = p.replies.map((x) => x.at).filter(Boolean).sort().pop() || null
+    return { ...p, lastSentAt, lastReplyAt, answered: !!lastReplyAt && (!lastSentAt || lastReplyAt > lastSentAt) }
+  }).sort((a, b) => String(b.lastReplyAt || b.lastSentAt || '').localeCompare(String(a.lastReplyAt || a.lastSentAt || '')))
+
+  return {
+    ok: true,
+    from: fromDay,
+    to: today,
+    repliesMailbox: repliesMailbox || null,
+    counts: { sent: sent.length, sentTotal: totalSent, replies: replies.length, people: conversations.length, answered: conversations.filter((c) => c.answered).length },
+    conversations,
+    warnings,
+  }
+}

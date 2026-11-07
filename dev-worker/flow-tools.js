@@ -40,7 +40,14 @@ export const FLOW_SCOPES = ['graph:read', 'contacts:read']
  * chat:write because it shows what may be sent — a flow uses it so the owner approves the
  * real e-mail, not a description of it (Tor Arne, 6 Nov 2026).
  */
-export const FLOW_READ_TOOL_SCOPES = { preview_email: 'chat:write' }
+export const FLOW_READ_TOOL_SCOPES = {
+  preview_email: 'chat:write',
+  // Reading a mailbox the owner may read (own profile or granted), never marking anything:
+  // the «Sjekk SMS» flow (7 Nov 2026). The tools' own access checks decide WHICH mailbox.
+  sms_overview: 'chat:read',
+  list_inbox: 'chat:read',
+  read_inbox_email: 'chat:read',
+}
 
 /** Tools a flow may run after an approval, with the one scope each needs. */
 export const FLOW_SEND_TOOLS = { send_email: 'chat:write' }
