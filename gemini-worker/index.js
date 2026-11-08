@@ -832,6 +832,43 @@ function handleApiDocs(corsHeaders) {
           responses: { 200: { description: 'Image bytes' }, 401: { description: 'Missing or invalid token' } }
         }
       },
+      '/v1/stories': {
+        get: {
+          summary: "Get the caller's saved Khalle stories (gated)",
+          description: 'Requires X-API-Token. Returns { history: [...] | null, updatedAt: number } from R2 (bucket khalle-stories, per user).',
+          responses: { 200: { description: 'Story list' }, 401: { description: 'Missing or invalid token' } }
+        },
+        put: {
+          summary: "Replace the caller's story list (gated)",
+          description: 'Requires X-API-Token. Body { history: [], updatedAt: number }, at most 5 MB. Clip bytes are not in the list; they go to /v1/stories/files/{name}.',
+          responses: { 200: { description: '{ ok, updatedAt }' }, 400: { description: 'Bad body' }, 413: { description: 'Too large' } }
+        }
+      },
+      '/v1/stories/files': {
+        get: {
+          summary: "List the caller's stored clip and image files (gated)",
+          description: 'Requires X-API-Token. Returns { files: [{ name, size }] }.',
+          responses: { 200: { description: 'File list' }, 401: { description: 'Missing or invalid token' } }
+        }
+      },
+      '/v1/stories/files/{name}': {
+        get: {
+          summary: 'Download one stored file (gated)',
+          parameters: [{ name: 'name', in: 'path', required: true, schema: { type: 'string', pattern: '^[\\w.-]{1,160}$' } }],
+          responses: { 200: { description: 'File bytes' }, 404: { description: 'Not found' } }
+        },
+        put: {
+          summary: 'Store one file (gated)',
+          description: 'Requires X-API-Token. Raw body, Content-Type video/* or image/*, at most 95 MB (415 / 413 otherwise).',
+          parameters: [{ name: 'name', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: { description: '{ ok, size }' } }
+        },
+        delete: {
+          summary: 'Delete one stored file (gated)',
+          parameters: [{ name: 'name', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: { description: '{ ok }' } }
+        }
+      },
       '/models': {
         get: {
           summary: 'List available chat models',
@@ -1486,6 +1523,9 @@ async function handleSpeechModels(request, env, corsHeaders) {
  *   POST /v1/interactions            → POST v1beta/interactions (raw body)
  *   GET  /v1/interactions/:id        → GET  v1beta/interactions/:id
  *   GET  /v1/fetch-image?url=        → remote image bytes (image/* only, ≤ 20 MB)
+ *   GET|PUT /v1/stories              → the caller's story list { history, updatedAt } (R2 STORIES)
+ *   GET  /v1/stories/files           → { files: [{ name, size }] } stored for the caller
+ *   GET|PUT|DELETE /v1/stories/files/:name → one clip or image (video/* or image/*, ≤ 95 MB)
  * ========================================================== */
 
 const V1_MAX_IMAGE_BYTES = 20 * 1024 * 1024
@@ -1545,6 +1585,10 @@ async function handleV1(request, env, corsHeaders, url) {
 
   if (path === '/v1/fetch-image' && request.method === 'GET') {
     return await handleV1FetchImage(url, corsHeaders)
+  }
+
+  if (path === '/v1/stories' || path.startsWith('/v1/stories/')) {
+    return await handleV1Stories(request, env, caller, path, corsHeaders)
   }
 
   const geminiKey = await resolveV1GeminiKey(env, caller)
@@ -1618,4 +1662,100 @@ async function handleV1FetchImage(url, corsHeaders) {
     status: 200,
     headers: { ...corsHeaders, 'Content-Type': type, 'Cache-Control': 'private, max-age=300' }
   })
+}
+
+/* ==========================================================
+ * /v1/stories — Khalle stories, saved per signed-in user in R2 (binding STORIES,
+ * bucket khalle-stories). Keys: users/<user_id>/history.json and
+ * users/<user_id>/files/<name>. A caller only ever reaches their own prefix.
+ * ========================================================== */
+
+const V1_STORY_FILE_MAX = 95 * 1024 * 1024
+const V1_STORY_HISTORY_MAX = 5 * 1024 * 1024
+
+async function v1StoryPrefix(caller) {
+  if (caller.userId && /^[\w-]{1,80}$/.test(caller.userId)) return `users/${caller.userId}/`
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(caller.email || '').toLowerCase()))
+  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+  return `users/e-${hex}/`
+}
+
+async function handleV1Stories(request, env, caller, path, corsHeaders) {
+  if (!env.STORIES) return v1Json({ error: 'Story storage is not configured.' }, 500, corsHeaders)
+  const prefix = await v1StoryPrefix(caller)
+  const method = request.method
+
+  if (path === '/v1/stories') {
+    const key = prefix + 'history.json'
+    if (method === 'GET') {
+      const obj = await env.STORIES.get(key)
+      if (!obj) return v1Json({ history: null, updatedAt: 0 }, 200, corsHeaders)
+      return new Response(obj.body, {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+      })
+    }
+    if (method === 'PUT') {
+      const text = await request.text()
+      if (text.length > V1_STORY_HISTORY_MAX) return v1Json({ error: 'The story list is larger than 5 MB.' }, 413, corsHeaders)
+      let body
+      try { body = JSON.parse(text) } catch { return v1Json({ error: 'The story list is not valid JSON.' }, 400, corsHeaders) }
+      if (!body || !Array.isArray(body.history) || typeof body.updatedAt !== 'number') {
+        return v1Json({ error: 'Expected { history: [], updatedAt: number }.' }, 400, corsHeaders)
+      }
+      const saved = JSON.stringify({ history: body.history, updatedAt: body.updatedAt })
+      await env.STORIES.put(key, saved, { httpMetadata: { contentType: 'application/json' } })
+      return v1Json({ ok: true, updatedAt: body.updatedAt }, 200, corsHeaders)
+    }
+    return v1Json({ error: 'Method not allowed' }, 405, corsHeaders)
+  }
+
+  if (path === '/v1/stories/files' && method === 'GET') {
+    const files = []
+    let cursor
+    do {
+      const page = await env.STORIES.list({ prefix: prefix + 'files/', cursor, limit: 1000 })
+      for (const o of page.objects) files.push({ name: o.key.slice(prefix.length + 6), size: o.size })
+      cursor = page.truncated ? page.cursor : undefined
+    } while (cursor)
+    return v1Json({ files }, 200, corsHeaders)
+  }
+
+  const fileMatch = path.match(/^\/v1\/stories\/files\/([\w.-]{1,160})$/)
+  if (fileMatch) {
+    const key = prefix + 'files/' + fileMatch[1]
+    if (method === 'GET') {
+      const obj = await env.STORIES.get(key)
+      if (!obj) return v1Json({ error: 'Not found' }, 404, corsHeaders)
+      return new Response(obj.body, {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': obj.httpMetadata?.contentType || 'application/octet-stream',
+          'Content-Length': String(obj.size),
+          'Cache-Control': 'private, no-store'
+        }
+      })
+    }
+    if (method === 'PUT') {
+      const type = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase()
+      if (!type.startsWith('video/') && !type.startsWith('image/')) {
+        return v1Json({ error: 'Only video and image files can be stored.' }, 415, corsHeaders)
+      }
+      const declared = parseInt(request.headers.get('Content-Length') || '0', 10)
+      if (declared > V1_STORY_FILE_MAX) return v1Json({ error: 'The file is larger than 95 MB.' }, 413, corsHeaders)
+      const bytes = await request.arrayBuffer()
+      if (!bytes.byteLength) return v1Json({ error: 'The file is empty.' }, 400, corsHeaders)
+      if (bytes.byteLength > V1_STORY_FILE_MAX) return v1Json({ error: 'The file is larger than 95 MB.' }, 413, corsHeaders)
+      await env.STORIES.put(key, bytes, { httpMetadata: { contentType: type } })
+      return v1Json({ ok: true, size: bytes.byteLength }, 200, corsHeaders)
+    }
+    if (method === 'DELETE') {
+      await env.STORIES.delete(key)
+      return v1Json({ ok: true }, 200, corsHeaders)
+    }
+    return v1Json({ error: 'Method not allowed' }, 405, corsHeaders)
+  }
+
+  return v1Json({ error: 'Not Found' }, 404, corsHeaders)
 }
