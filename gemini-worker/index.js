@@ -227,6 +227,11 @@ export default {
         }
       }
 
+      // Gated /v1 routes (first client: khalle.vegvisr.org). Every one needs X-API-Token.
+      if (pathname.startsWith('/v1/')) {
+        return await handleV1(request, env, corsHeaders, url)
+      }
+
       if (pathname.match(/^\/gemini-(?:[\w.-]+)$/) && request.method === 'POST') {
         const model = pathname.substring(1)
         return await handleModelEndpoint(request, env, corsHeaders, model)
@@ -788,6 +793,43 @@ function handleApiDocs(corsHeaders) {
           summary: 'Health check',
           description: 'Returns worker health status and timestamp.',
           responses: { 200: { description: 'Worker health status' } }
+        }
+      },
+      '/v1/session': {
+        get: {
+          summary: 'Who is calling (gated)',
+          description: 'Requires X-API-Token (config.emailVerificationToken). Returns { email, role }, or 401.',
+          responses: { 200: { description: '{ email, role }' }, 401: { description: 'Missing or invalid token' } }
+        }
+      },
+      '/v1/generate': {
+        post: {
+          summary: 'Raw generateContent (gated)',
+          description: 'Requires X-API-Token. Body is the Gemini REST models/{model}:generateContent body plus "model". Uses the caller\'s own Gemini key, else the default key. Returns Google\'s raw JSON and status; errors as { error }.',
+          requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { model: { type: 'string' }, contents: { type: 'array' }, systemInstruction: { type: 'object' }, generationConfig: { type: 'object' }, safetySettings: { type: 'array' } }, required: ['model', 'contents'] } } } },
+          responses: { 200: { description: 'Gemini generateContent response' }, 401: { description: 'Missing or invalid token' } }
+        }
+      },
+      '/v1/interactions': {
+        post: {
+          summary: 'Create an interaction, e.g. video generation (gated)',
+          description: 'Requires X-API-Token. Body is forwarded unchanged to POST v1beta/interactions (model, input, response_format, background, store, stream). Returns Google\'s raw interaction JSON; video is in steps[].content[] with type "video".',
+          responses: { 200: { description: 'Interaction' }, 401: { description: 'Missing or invalid token' } }
+        }
+      },
+      '/v1/interactions/{id}': {
+        get: {
+          summary: 'Get an interaction (gated)',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: { description: 'Interaction' }, 401: { description: 'Missing or invalid token' } }
+        }
+      },
+      '/v1/fetch-image': {
+        get: {
+          summary: 'Fetch a remote image (gated)',
+          description: 'Requires X-API-Token. Fetches an http(s) URL and returns its bytes when the Content-Type is image/* and the size is at most 20 MB (415 / 413 otherwise).',
+          parameters: [{ name: 'url', in: 'query', required: true, schema: { type: 'string' } }],
+          responses: { 200: { description: 'Image bytes' }, 401: { description: 'Missing or invalid token' } }
         }
       },
       '/models': {
@@ -1429,4 +1471,151 @@ async function handleSpeechModels(request, env, corsHeaders) {
       status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     })
   }
+}
+
+/* ==========================================================
+ * GATED /v1 ROUTES  (added 2026-11-08, first client: khalle.vegvisr.org)
+ *
+ * Unlike the older routes above, every /v1 route requires X-API-Token
+ * (config.emailVerificationToken). The Gemini key is picked from the
+ * caller's own user_api_keys row, falling back to DEFAULT_USER_ID — never
+ * from a userId in the request body.
+ *
+ *   GET  /v1/session                 → { email, role }
+ *   POST /v1/generate                → models/{model}:generateContent (raw REST body + model)
+ *   POST /v1/interactions            → POST v1beta/interactions (raw body)
+ *   GET  /v1/interactions/:id        → GET  v1beta/interactions/:id
+ *   GET  /v1/fetch-image?url=        → remote image bytes (image/* only, ≤ 20 MB)
+ * ========================================================== */
+
+const V1_MAX_IMAGE_BYTES = 20 * 1024 * 1024
+
+async function resolveV1Caller(request, env) {
+  const token = request.headers.get('X-API-Token')
+  if (!token) return { valid: false, error: 'Sign in to use this service.', status: 401 }
+  if (!env.DB) return { valid: false, error: 'DB binding not configured', status: 500 }
+  try {
+    const row = await env.DB
+      .prepare('SELECT email, Role, user_id FROM config WHERE emailVerificationToken = ? LIMIT 1')
+      .bind(token)
+      .first()
+    if (!row) return { valid: false, error: 'Your session has expired. Sign in again.', status: 401 }
+    return { valid: true, email: row.email, role: row.Role || null, userId: row.user_id || null }
+  } catch (e) {
+    return { valid: false, error: 'Token validation failed', status: 500 }
+  }
+}
+
+async function resolveV1GeminiKey(env, caller) {
+  if (caller.userId) {
+    const own = await getGeminiApiKeyForUser(env, caller.userId)
+    if (own) return own
+  }
+  if (env.DEFAULT_USER_ID && env.DEFAULT_USER_ID !== caller.userId) {
+    return await getGeminiApiKeyForUser(env, env.DEFAULT_USER_ID)
+  }
+  return null
+}
+
+function v1Json(data, status, corsHeaders) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  })
+}
+
+// Pass Google's answer through with its own status. Error bodies become { error }.
+async function v1Forward(googleRes, corsHeaders) {
+  const text = await googleRes.text()
+  let body
+  try { body = JSON.parse(text) } catch { body = { error: text.slice(0, 2000) } }
+  if (!googleRes.ok && body && !body.error) body = { error: body }
+  return v1Json(body, googleRes.status, corsHeaders)
+}
+
+async function handleV1(request, env, corsHeaders, url) {
+  const caller = await resolveV1Caller(request, env)
+  if (!caller.valid) return v1Json({ error: caller.error }, caller.status, corsHeaders)
+
+  const path = url.pathname
+
+  if (path === '/v1/session' && request.method === 'GET') {
+    return v1Json({ email: caller.email, role: caller.role }, 200, corsHeaders)
+  }
+
+  if (path === '/v1/fetch-image' && request.method === 'GET') {
+    return await handleV1FetchImage(url, corsHeaders)
+  }
+
+  const geminiKey = await resolveV1GeminiKey(env, caller)
+  if (!geminiKey) {
+    return v1Json({ error: 'No Gemini API key is configured for your account.' }, 403, corsHeaders)
+  }
+  const googleHeaders = { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey }
+
+  if (path === '/v1/generate' && request.method === 'POST') {
+    const body = await request.json().catch(() => null)
+    const model = body?.model
+    if (!model || typeof model !== 'string' || !/^[\w.-]+$/.test(model)) {
+      return v1Json({ error: 'A valid model is required.' }, 400, corsHeaders)
+    }
+    const { model: _m, ...rest } = body
+    const res = await fetch(`${GEMINI_API_BASE}/models/${model}:generateContent`, {
+      method: 'POST', headers: googleHeaders, body: JSON.stringify(rest)
+    })
+    return await v1Forward(res, corsHeaders)
+  }
+
+  if (path === '/v1/interactions' && request.method === 'POST') {
+    const body = await request.text()
+    const res = await fetch(`${GEMINI_API_BASE}/interactions`, {
+      method: 'POST', headers: googleHeaders, body
+    })
+    return await v1Forward(res, corsHeaders)
+  }
+
+  const interactionMatch = path.match(/^\/v1\/interactions\/([\w.-]+)$/)
+  if (interactionMatch && request.method === 'GET') {
+    const res = await fetch(`${GEMINI_API_BASE}/interactions/${interactionMatch[1]}`, {
+      headers: googleHeaders
+    })
+    return await v1Forward(res, corsHeaders)
+  }
+
+  return v1Json({ error: 'Not Found' }, 404, corsHeaders)
+}
+
+async function handleV1FetchImage(url, corsHeaders) {
+  const target = url.searchParams.get('url') || ''
+  let parsed
+  try { parsed = new URL(target) } catch { return v1Json({ error: 'A valid url is required.' }, 400, corsHeaders) }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return v1Json({ error: 'Only http and https URLs are allowed.' }, 400, corsHeaders)
+  }
+
+  let res
+  try {
+    res = await fetch(parsed.toString(), {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; VegvisrImageFetch/1.0)', Accept: 'image/*' },
+      redirect: 'follow'
+    })
+  } catch (e) {
+    return v1Json({ error: `Could not fetch the image: ${e.message}` }, 502, corsHeaders)
+  }
+  if (!res.ok) return v1Json({ error: `The image host answered ${res.status}.` }, 502, corsHeaders)
+
+  const type = (res.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase()
+  if (!type.startsWith('image/')) {
+    return v1Json({ error: `That URL is not an image (${type || 'unknown type'}).` }, 415, corsHeaders)
+  }
+  const declared = parseInt(res.headers.get('Content-Length') || '0', 10)
+  if (declared > V1_MAX_IMAGE_BYTES) return v1Json({ error: 'The image is larger than 20 MB.' }, 413, corsHeaders)
+
+  const bytes = await res.arrayBuffer()
+  if (bytes.byteLength > V1_MAX_IMAGE_BYTES) return v1Json({ error: 'The image is larger than 20 MB.' }, 413, corsHeaders)
+
+  return new Response(bytes, {
+    status: 200,
+    headers: { ...corsHeaders, 'Content-Type': type, 'Cache-Control': 'private, max-age=300' }
+  })
 }
