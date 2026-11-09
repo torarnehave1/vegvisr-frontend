@@ -767,6 +767,48 @@ describe('search, list and the deep-research pair', () => {
     assert.equal(noMatch.total, 0)
   })
 
+  test('a metaArea filter reads tags as list_meta_areas does: with or without #, whole tags only', async () => {
+    const { env } = freshDb()
+    const { client: a } = await connect(env, ALICE_RW)
+    const make = (title, metaArea) => callOk(a, 'create_graph', { title, metaArea })
+    const hashed = await make('Med #', '#NINE')
+    const bare = await make('Uten #', 'NINE')
+    const mixed = await make('Blandet', 'KINESISK KOSMOLOGI #NINE ')
+    const lower = await make('Små bokstaver', '#nine #IIBA')
+    const longer = await make('Lengre tag', '#NINETEEN')
+    const spaced = await make('Tag med mellomrom', 'KINESISK KOSMOLOGI #NINE')
+    const want = [hashed, bare, mixed, lower, spaced].map((g) => g.graphId).sort()
+
+    for (const filter of ['#NINE', 'NINE', 'nine', ' #Nine ']) {
+      for (const tool of ['list_my_graphs', 'search_graphs']) {
+        const r = await callOk(a, tool, { metaArea: filter })
+        assert.deepEqual(r.results.map((x) => x.graphId).sort(), want, `${tool} with "${filter}"`)
+        assert.ok(!r.results.some((x) => x.graphId === longer.graphId), `${tool} "${filter}" caught #NINETEEN`)
+      }
+    }
+    // A tag with a space in it is one tag, matched whole.
+    const kk = await callOk(a, 'list_my_graphs', { metaArea: '#KINESISK KOSMOLOGI' })
+    assert.deepEqual(kk.results.map((x) => x.graphId).sort(), [mixed.graphId, spaced.graphId].sort())
+    // LIKE wildcards in a filter are literal, not wildcards.
+    assert.equal((await callOk(a, 'list_my_graphs', { metaArea: '#N_NE' })).total, 0)
+    assert.equal((await callOk(a, 'list_my_graphs', { metaArea: '#%' })).total, 0)
+  })
+
+  test('the counts from list_meta_areas match what the metaArea filter returns', async () => {
+    const { env } = freshDb()
+    const { client: a } = await connect(env, ALICE_RW)
+    for (const m of ['#NINE', 'NINE', 'VEGVISR #NINE', '#IIBA', '#NINETEEN']) {
+      await callOk(a, 'create_graph', { title: m, metaArea: m })
+    }
+    const areas = await gs.listMetaAreas(env, {
+      actor: gs.normalizeActor({ valid: true, userId: 'alice@example.com', userEmail: 'alice@example.com', userRole: 'User' }),
+    })
+    for (const { metaArea, graphCount } of areas.metaAreas) {
+      const r = await callOk(a, 'list_my_graphs', { metaArea })
+      assert.equal(r.total, graphCount, `${metaArea}: list_meta_areas says ${graphCount}, the filter found ${r.total}`)
+    }
+  })
+
   test('paging reports hasMore and does not repeat rows', async () => {
     const { env } = freshDb()
     const { a } = await corpus(env)

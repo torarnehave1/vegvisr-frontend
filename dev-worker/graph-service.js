@@ -1111,6 +1111,31 @@ function clampLimit(limit, fallback = 20, max = SEARCH_MAX_LIMIT) {
 const OWN_GRAPHS_MAX_LIMIT = 200
 
 /**
+ * The SQL condition for "this graph carries the tag `metaArea`", read the way list_meta_areas and
+ * the Portfolio read tags: split on '#', trimmed, case-insensitive. So a graph tagged "NINE" (typed
+ * without the #, which the editor allows) is found by a filter of "#NINE" or "NINE" alike, and
+ * "#NINE" no longer catches "#NINETEEN".
+ *
+ * How: the stored string is wrapped as '#…#' with the spaces next to each '#' removed, so every
+ * tag sits between two '#'s — "KINESISK KOSMOLOGI #NINE " becomes "#KINESISK KOSMOLOGI#NINE#" —
+ * and the tag is matched whole between them. Both sides go through SQLite's UPPER, so they agree
+ * even where SQLite and JavaScript upper-case differently (non-ASCII letters such as Å, Ø).
+ * Returns null for an empty tag, so the caller adds no filter.
+ */
+export function metaAreaTagFilter(dataSql, metaArea) {
+  const tag = String(metaArea ?? '').replace(/#/g, ' ').trim()
+  if (!tag) return null
+  let wrapped = `'#' || UPPER(COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '')) || '#'`
+  // Three passes collapse up to three spaces on either side of a '#'.
+  for (let i = 0; i < 3; i++) wrapped = `REPLACE(REPLACE(${wrapped}, ' #', '#'), '# ', '#')`
+  const escaped = tag.replace(/[\\%_]/g, (c) => `\\${c}`)
+  return {
+    sql: `${wrapped} LIKE ('%#' || UPPER(?) || '#%') ESCAPE '\\'`,
+    binding: escaped,
+  }
+}
+
+/**
  * Free-text search across titles, descriptions, meta areas and node content, restricted to what
  * the actor may see. Mirrors the columns GET /searchGraphs matches on.
  */
@@ -1149,9 +1174,10 @@ export async function searchGraphs(env, { query, metaArea = null, nodeType = nul
     bindings.push(pattern, pattern, pattern, pattern, pattern, pattern, ...ids)
   }
 
-  if (metaArea) {
-    conditions.push(`LOWER(COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '')) LIKE ?`)
-    bindings.push(`%${String(metaArea).toLowerCase()}%`)
+  const areaFilter = metaAreaTagFilter(dataSql, metaArea)
+  if (areaFilter) {
+    conditions.push(areaFilter.sql)
+    bindings.push(areaFilter.binding)
   }
 
   if (nodeType) {
@@ -1228,8 +1254,9 @@ export async function listMyGraphs(env, { limit = 20, offset = 0, metaArea = nul
   // "Mine" on the platform means created by me. In a World store it means the World's graphs —
   // they are the founder's whoever typed them in — except for a Superadmin who is not that World's
   // founder: theirs there is still only what they created.
-  const areaClause = metaArea ? [`LOWER(COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '')) LIKE ?`] : []
-  const areaBind = metaArea ? [`%${String(metaArea).toLowerCase()}%`] : []
+  const areaFilter = metaAreaTagFilter(dataSql, metaArea)
+  const areaClause = areaFilter ? [areaFilter.sql] : []
+  const areaBind = areaFilter ? [areaFilter.binding] : []
   const founderOf = new Set()
   if (actor.isSuperadmin) {
     for (const ws of await worldStoresFor(env, { ...actor, isSuperadmin: false })) founderOf.add(ws.world)
