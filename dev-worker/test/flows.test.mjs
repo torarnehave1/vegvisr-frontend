@@ -217,6 +217,30 @@ describe('callToolForFlow — a flow runs MCP tools as its owner, read-only', ()
     assert.ok(!/\bx\b — x/.test(after.text) && !(after.structured?.nodes || []).some((n) => n.id === 'x'), 'bob\'s node is not there')
   })
 
+  // A flow writes the same node types as chat: built-in plus registered (samtale-rapport is one).
+  test('write-own: a flow may add a node of a REGISTERED type, and an unknown type is still refused', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const reg = JSON.stringify({
+      metadata: { title: 'Vegvisr System Registry', version: 1 },
+      nodes: [{ id: 'nodetype-samtale-rapport', type: 'system-nodetype', label: 'samtale-rapport', info: '' }],
+      edges: [],
+    })
+    raw.prepare('INSERT INTO knowledge_graphs (id, title, created_by, data) VALUES (?,?,?,?)')
+      .run('graph_system_registry', 'Vegvisr System Registry', 'owner@example.com', reg)
+    const { invalidateNodeTypeCache } = await import('../node-type-registry.js')
+    invalidateNodeTypeCache()
+    const made = await callToolForFlow(env, { email: 'alice@example.com', toolName: 'create_graph', args: { title: 'Samtale', metaArea: '#SAMTALE' } })
+    const graphId = made.structured?.graphId
+    assert.ok(graphId, made.text)
+    const ok = await callToolForFlow(env, { email: 'alice@example.com', toolName: 'add_node', args: { graphId, node: { id: 'rapport', label: 'Rapport', type: 'samtale-rapport', info: 'x', metadata: { title: 'Rapport' } } } })
+    assert.equal(ok.ok, true, JSON.stringify(ok))
+    assert.equal(ok.isError, false, ok.text)
+    const bad = await callToolForFlow(env, { email: 'alice@example.com', toolName: 'add_node', args: { graphId, node: { id: 'y', label: 'y', type: 'ingen-slik-type', info: 'y' } } })
+    assert.ok(bad.ok === false || bad.isError === true, 'an unregistered type is refused')
+    invalidateNodeTypeCache()
+  })
+
   test('write-own lends graph:write for that one tool only', async () => {
     const { FLOW_WRITE_OWN_TOOLS } = await import('../flow-tools.js')
     assert.deepEqual(Object.keys(FLOW_WRITE_OWN_TOOLS).sort(), ['add_edge', 'add_node', 'create_graph', 'transcribe_contact_recording', 'update_graph_metadata', 'update_node'])

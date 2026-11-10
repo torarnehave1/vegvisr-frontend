@@ -34,7 +34,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { registerTools } from './mcp/tools.js'
+import { registerTools, actorFromAuth } from './mcp/tools.js'
+import { requestNodeTypes } from './mcp/server.js'
 import * as gs from './graph-service.js'
 import { loadModelAliases } from './flows-service.js'
 
@@ -197,7 +198,10 @@ export async function callToolForFlow(env, { email, toolName, args = {}, approva
   const props = { userId: owner.userId, email: owner.email, role: owner.role, authMethod: 'flow' }
 
   const server = new McpServer({ name: 'vegr-flows', version: '1.0.0' })
-  registerTools(server, () => ({ auth, env, props }))
+  // The same node types as a chat session: the built-in ones plus those registered in
+  // graph_system_registry and the owner's Worlds. Without this a flow could not write a registered
+  // type such as samtale-rapport, though the owner can in chat (found 2026-11-10, before it ran).
+  registerTools(server, () => ({ auth, env, props }), { nodeTypes: await requestNodeTypes(env, actorFromAuth(auth, props)) })
   // The client's default output validator is Ajv, which compiles schemas with `new Function` —
   // refused by the Workers runtime ("Code generation from strings disallowed", seen live
   // 2026-11-06). Here the client only checks what our own server, in this same process, just

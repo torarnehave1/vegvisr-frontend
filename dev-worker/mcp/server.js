@@ -439,7 +439,7 @@ export { describeCall }
  * The node types this request's schema lists: the platform's, then the own types of each World
  * the caller may use. A World that cannot be read only hides its types; the platform list stands.
  */
-async function requestNodeTypes(env, actor) {
+export async function requestNodeTypes(env, actor) {
   const types = await allowedNodeTypes(env)
   let stores = []
   try { stores = actor ? await worldStoresFor(env, actor) : [] } catch (e) { console.error('[node-types] world stores:', e.message) }
