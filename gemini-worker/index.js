@@ -835,12 +835,12 @@ function handleApiDocs(corsHeaders) {
       '/v1/stories': {
         get: {
           summary: "Get the caller's saved Khalle stories (gated)",
-          description: 'Requires X-API-Token. Returns { history: [...] | null, updatedAt: number } from R2 (bucket khalle-stories, per user).',
+          description: 'Requires X-API-Token. Returns { history: [...] | null, boards?: [...], updatedAt: number } from R2 (bucket khalle-stories, per user).',
           responses: { 200: { description: 'Story list' }, 401: { description: 'Missing or invalid token' } }
         },
         put: {
           summary: "Replace the caller's story list (gated)",
-          description: 'Requires X-API-Token. Body { history: [], updatedAt: number }, at most 5 MB. Clip bytes are not in the list; they go to /v1/stories/files/{name}.',
+          description: 'Requires X-API-Token. Body { history: [], boards?: [], updatedAt: number }, at most 5 MB. Without boards, the stored boards are kept. Clip bytes are not in the list; they go to /v1/stories/files/{name}.',
           responses: { 200: { description: '{ ok, updatedAt }' }, 400: { description: 'Bad body' }, 413: { description: 'Too large' } }
         }
       },
@@ -1523,7 +1523,7 @@ async function handleSpeechModels(request, env, corsHeaders) {
  *   POST /v1/interactions            → POST v1beta/interactions (raw body)
  *   GET  /v1/interactions/:id        → GET  v1beta/interactions/:id
  *   GET  /v1/fetch-image?url=        → remote image bytes (image/* only, ≤ 20 MB)
- *   GET|PUT /v1/stories              → the caller's story list { history, updatedAt } (R2 STORIES)
+ *   GET|PUT /v1/stories              → the caller's story list { history, boards?, updatedAt } (R2 STORIES)
  *   GET  /v1/stories/files           → { files: [{ name, size }] } stored for the caller
  *   GET|PUT|DELETE /v1/stories/files/:name → one clip or image (video/* or image/*, ≤ 95 MB)
  * ========================================================== */
@@ -1703,7 +1703,19 @@ async function handleV1Stories(request, env, caller, path, corsHeaders) {
       if (!body || !Array.isArray(body.history) || typeof body.updatedAt !== 'number') {
         return v1Json({ error: 'Expected { history: [], updatedAt: number }.' }, 400, corsHeaders)
       }
-      const saved = JSON.stringify({ history: body.history, updatedAt: body.updatedAt })
+      // Story boards (Khalle's scene plans) ride along. A client that sends no `boards`
+      // (an older Khalle) must not wipe them, so the stored ones are kept in that case.
+      let boards = Array.isArray(body.boards) ? body.boards : undefined
+      if (boards === undefined) {
+        const prev = await env.STORIES.get(key)
+        if (prev) {
+          try {
+            const old = await prev.json()
+            if (Array.isArray(old?.boards)) boards = old.boards
+          } catch { /* unreadable old list: nothing to keep */ }
+        }
+      }
+      const saved = JSON.stringify(boards ? { history: body.history, boards, updatedAt: body.updatedAt } : { history: body.history, updatedAt: body.updatedAt })
       await env.STORIES.put(key, saved, { httpMetadata: { contentType: 'application/json' } })
       return v1Json({ ok: true, updatedAt: body.updatedAt }, 200, corsHeaders)
     }
