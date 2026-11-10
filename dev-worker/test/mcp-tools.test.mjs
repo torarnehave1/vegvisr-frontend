@@ -1225,6 +1225,99 @@ describe('set_graph_password writes what the editor writes, so the viewers gate 
   })
 })
 
+describe('unpublish_graph takes a published graph back to private', () => {
+  const storedMeta = (raw, id) => JSON.parse(raw.prepare('SELECT data FROM knowledge_graphs WHERE id = ?').get(id).data).metadata
+  const actor = { email: 'alice@example.com', userId: 'u-alice', role: 'User' }
+
+  test('a published graph becomes private, is no longer readable by others, and keeps its content', async () => {
+    const { env, raw } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', {
+      title: 'Voucher',
+      metaArea: '#NIBI',
+      nodes: [{ id: 'n1', label: 'Intro', type: 'fulltext', info: 'body' }],
+    })
+    const owner = { ...actor, email: storedMeta(raw, g.graphId).createdBy }
+    const pub = await gs.publishGraph(env, { graphId: g.graphId, expectedVersion: g.version, actor: owner })
+    assert.equal(pub.publicationState, 'published')
+    assert.equal((await gs.checkReadAccess(env, null, g.graphId)).ok, true, 'published: anonymous may read')
+
+    const r = await callOk(client, 'unpublish_graph', { graphId: g.graphId })
+    assert.equal(r.wasPublished, true)
+    assert.equal(r.publicationState, 'private')
+    assert.equal(r.seoSlug, null)
+    assert.equal(r.newVersion, pub.newVersion + 1)
+
+    const meta = storedMeta(raw, g.graphId)
+    assert.equal(meta.publicationState, 'private')
+    assert.equal(meta.publishedAt, null)
+    assert.ok(meta.unpublishedAt)
+    assert.equal(meta.title, 'Voucher')
+    assert.equal(meta.metaArea, '#NIBI')
+    assert.equal((await gs.checkReadAccess(env, null, g.graphId)).code, gs.ERR.FORBIDDEN_GRAPH, 'anonymous is refused again')
+    const { client: bob } = await connect(env, BOB_RW)
+    assert.equal((await callErr(bob, 'get_graph', { graphId: g.graphId })).code, gs.ERR.FORBIDDEN_GRAPH)
+    // A following write still works — the version bookkeeping stayed consistent.
+    await callOk(client, 'update_graph_metadata', { graphId: g.graphId, fields: { metaArea: '#NIBI #B' } })
+  })
+
+  test('a graph that is not published is left alone: no new version', async () => {
+    const { env, raw } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#A' })
+    const r = await callOk(client, 'unpublish_graph', { graphId: g.graphId })
+    assert.equal(r.wasPublished, false)
+    assert.equal(r.publicationState, 'private')
+    assert.equal(r.newVersion, g.version)
+    assert.equal(storedMeta(raw, g.graphId).unpublishedAt, undefined)
+  })
+
+  test('a seoSlug is reported, because the open list routes still list such a graph', async () => {
+    const { env, raw } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#A' })
+    const owner = { ...actor, email: storedMeta(raw, g.graphId).createdBy }
+    const withSlug = await gs.updateMetadata(env, { graphId: g.graphId, fields: { seoSlug: 'my-page' }, expectedVersion: g.version, actor: owner })
+    await gs.publishGraph(env, { graphId: g.graphId, expectedVersion: withSlug.newVersion, actor: owner })
+    const res = await client.callTool({ name: 'unpublish_graph', arguments: { graphId: g.graphId } })
+    assert.ok(!res.isError, JSON.stringify(res))
+    assert.equal(res.structuredContent.seoSlug, 'my-page')
+    assert.match(res.content[0].text, /my-page/)
+    assert.equal(storedMeta(raw, g.graphId).seoSlug, 'my-page', 'the slug itself is not removed')
+  })
+
+  test("another user's graph and a read-only connection are refused, and nothing changes", async () => {
+    const { env, raw } = freshDb()
+    const { client: alice } = await connect(env, ALICE_RW)
+    const g = await callOk(alice, 'create_graph', { title: 'Hers', metaArea: '#A' })
+    const owner = { ...actor, email: storedMeta(raw, g.graphId).createdBy }
+    await gs.publishGraph(env, { graphId: g.graphId, expectedVersion: g.version, actor: owner })
+    const { client: bob } = await connect(env, BOB_RW)
+    assert.equal((await callErr(bob, 'unpublish_graph', { graphId: g.graphId })).code, gs.ERR.FORBIDDEN_GRAPH)
+    const { client: ro } = await connect(env, ALICE_RO)
+    assert.equal((await callErr(ro, 'unpublish_graph', { graphId: g.graphId })).code, gs.ERR.INSUFFICIENT_SCOPE)
+    assert.equal(storedMeta(raw, g.graphId).publicationState, 'published')
+  })
+
+  test('a stale expectedVersion is a conflict, not a silent overwrite', async () => {
+    const { env, raw } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#A' })
+    const owner = { ...actor, email: storedMeta(raw, g.graphId).createdBy }
+    await gs.publishGraph(env, { graphId: g.graphId, expectedVersion: g.version, actor: owner })
+    const e = await callErr(client, 'unpublish_graph', { graphId: g.graphId, expectedVersion: g.version })
+    assert.equal(e.code, gs.ERR.VERSION_CONFLICT)
+  })
+
+  test('there is still no tool that publishes a graph', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    assert.ok(tools.some((x) => x.name === 'unpublish_graph'))
+    assert.ok(!tools.some((x) => x.name === 'publish_graph'))
+  })
+})
+
 describe('update_graph_metadata gives updateMetadata its first caller', () => {
   test('replaces metaArea and leaves title and nodes alone', async () => {
     const { env } = freshDb()

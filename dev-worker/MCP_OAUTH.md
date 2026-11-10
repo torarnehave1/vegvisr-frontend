@@ -269,6 +269,10 @@ normal API; a copy of the content here would only be a second place for it to le
    at vegvisr.org in the same browser, or add a number to their profile.
 3. **`graph:publish` is grantable but has no tool.** `graphService.publishGraph()` exists and is
    tested; no MCP tool calls it yet.
+   The other direction has one: `unpublish_graph` (2026-11-10) takes a published graph back to
+   private. It only narrows who can read a graph, so it needs `graph:write` and ownership, not
+   `graph:publish`. It does not remove a `seoSlug` or a page put on a domain with
+   `publish_html_node`; it reports the slug so the caller can say so.
 4. **No delete.** Deliberate for v1. `graph:delete` is not offered in the consent screen.
 4b. **`post_chat_message` needs `chat:write`, which is never advertised.** It is the only tool
    whose effect reaches other people, so an ordinary connection cannot obtain the scope: a

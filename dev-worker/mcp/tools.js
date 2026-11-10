@@ -4335,7 +4335,7 @@ ${result.warnings.join('\n')}` : ''),
         'ADD a tag you must read the current value with get_graph and send the whole new string ' +
         'including the tags that were already there. Sending only the new tag silently deletes ' +
         'the rest. Meta-area tags are written #LIKETHIS, uppercase, separated by spaces. ' +
-        'Anything you omit is left untouched. This cannot publish or unpublish a graph and ' +
+        'Anything you omit is left untouched. This cannot publish a graph (unpublish_graph takes one back to private) and ' +
         'cannot change who created it. Requires the graph:write scope.',
       inputSchema: {
         graphId: z.string().min(1).describe('The graph to update.'),
@@ -4485,6 +4485,104 @@ ${result.warnings.join('\n')}` : ''),
           : `Password protection removed from graph ${graphId}.`) +
           (result.nodesSynced ? `\nUpdated ${result.nodesSynced} password-protection node(s) to match.` : '') +
           `\nVersion is now ${result.newVersion}.\nViewer: ${result.viewerUrl}`,
+      )
+    },
+  )
+
+  // ── unpublish_graph ───────────────────────────────────────────────────────
+  //
+  // Added 2026-11-10: two internal NIBI graphs (a payment voucher and a draft protocol) were
+  // published and showed on nibi.no, and nothing here could take them back — the only fix was
+  // the editor. Unpublishing only ever narrows who can read a graph, so it needs graph:write
+  // and ownership, not graph:publish. There is deliberately still no publish_graph tool.
+  server.registerTool(
+    'unpublish_graph',
+    {
+      title: 'Unpublish a graph (make it private again)',
+      description:
+        'Take a published graph back to private, so only its owner can read it. It leaves ' +
+        'lists and pages that show published graphs (e.g. the Articles list on a site). Nodes, ' +
+        'edges, title and meta areas are untouched, and the graph keeps its id. Calling it on a ' +
+        'graph that is not published changes nothing and says so. Two things it does NOT take ' +
+        'down — tell the user when they apply: a page already put on a domain with ' +
+        'publish_html_node stays live, and a graph with a seoSlug (reported in the result) is ' +
+        'still listed by the open list routes. There is no tool to publish a graph again: that ' +
+        'is done in the editor. Requires the graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph to unpublish.'),
+        expectedVersion: z
+          .number()
+          .int()
+          .optional()
+          .describe('Optional concurrency guard. Omit it to use the graph\'s current version.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        wasPublished: z.boolean(),
+        publicationState: z.string(),
+        seoSlug: z.string().nullable(),
+        newVersion: z.number(),
+        title: z.string().nullable(),
+        metaArea: z.string().nullable(),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      // Reduces visibility and loses nothing; the same call twice lands in the same state.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ graphId, expectedVersion }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const access = await gs.checkAccess(env, actor, graphId, 'write')
+      if (!access.ok) return fromService(access)
+
+      let meta = {}
+      try {
+        meta = JSON.parse(access.graph.data)?.metadata || {}
+      } catch {
+        /* unparseable JSON has no metadata, so it is not published */
+      }
+      const seoSlug = typeof meta.seoSlug === 'string' && meta.seoSlug ? meta.seoSlug : null
+      const seoNote = seoSlug
+        ? `\nNote: it still has the SEO slug "${seoSlug}", so the open list routes still list it.`
+        : ''
+
+      const current = await gs.currentVersion(env, graphId, actor)
+
+      if (!access.isPublished) {
+        const links = gs.graphLinks(graphId, access.world)
+        return ok(
+          {
+            success: true,
+            graphId,
+            wasPublished: false,
+            publicationState: meta.publicationState || 'private',
+            seoSlug,
+            newVersion: current,
+            title: meta.title || null,
+            metaArea: meta.metaArea || null,
+            ...links,
+          },
+          `Graph ${graphId} was not published, so nothing changed.` + seoNote,
+        )
+      }
+
+      const version = Number.isInteger(expectedVersion) ? expectedVersion : current
+      const result = await gs.unpublishGraph(env, { graphId, expectedVersion: version, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload, wasPublished: true, seoSlug },
+        `Unpublished graph ${graphId}${result.title ? ` ("${result.title}")` : ''}. It is private now.` +
+          seoNote +
+          `\nVersion is now ${result.newVersion}.\nEditor: ${result.editorUrl}`,
       )
     },
   )
@@ -6519,6 +6617,7 @@ export const TOOL_NAMES = [
   'generate_image_openai',
   'update_graph_metadata',
   'set_graph_password',
+  'unpublish_graph',
   'publish_html_node',
   'register_user',
   'list_users',

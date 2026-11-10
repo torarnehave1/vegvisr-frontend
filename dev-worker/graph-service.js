@@ -965,6 +965,26 @@ export async function publishGraph(env, { graphId, expectedVersion, actor }) {
   })
 }
 
+/**
+ * Unpublish a graph — take it back to 'private'. The mirror of publishGraph(), and likewise its
+ * own action rather than a metadata edit, so it can be named in the audit log. It only ever
+ * REDUCES who can read the graph, which is why its tool asks for graph:write and not
+ * graph:publish. publishedAt is cleared the way the editor clears it (GraphPortfolio.vue).
+ *
+ * Not touched here, and both still public afterwards: a seoSlug (the open list routes treat a
+ * graph with one as listed) and any page already put on a domain with publish_html_node.
+ */
+export async function unpublishGraph(env, { graphId, expectedVersion, actor }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  return updateMetadata(env, {
+    graphId,
+    fields: { publicationState: 'private', publishedAt: null, unpublishedAt: new Date().toISOString() },
+    expectedVersion,
+    actor,
+    allowPublicationState: true,
+  })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Input validation for nodes and edges
 // ─────────────────────────────────────────────────────────────────────────────
