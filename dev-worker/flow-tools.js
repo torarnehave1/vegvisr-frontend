@@ -21,6 +21,12 @@
  *     flipped to "calling" with a conditional UPDATE, so one claim sends one message. In this
  *     phase a flow e-mail may go to the owner only (no cc/bcc): the owner approved the text, and
  *     recipients are never taken from model output (VEGR Flows safety rule 3).
+ *   - and a second, narrow exception, "write-own" (2026-11-10): the tools in FLOW_WRITE_OWN_TOOLS
+ *     change the OWNER'S OWN graphs and nothing else — they reach nobody, publish nothing and set
+ *     no password. They run without an approval, with graph:write lent for that one call; which
+ *     graph may be changed is still decided by each tool's own ownership check, exactly as in
+ *     chat. This is the risk class `write-own` from the VEGR Flows safety plan (rule 1), and it
+ *     is what «Samtalerapport» needs to build a conversation graph from a ContactHub recording.
  *   Anything else that writes or sends is refused here, not merely discouraged by the compiler.
  *
  * Reachable only over the binding (hostname knowledge-graph-worker); the route checks that.
@@ -47,6 +53,23 @@ export const FLOW_READ_TOOL_SCOPES = {
   sms_overview: 'chat:read',
   list_inbox: 'chat:read',
   read_inbox_email: 'chat:read',
+}
+
+/**
+ * "write-own" (2026-11-10): tools that only change the flow owner's own graphs, with the scope
+ * lent for that call. No approval — nothing here reaches another person or the public web.
+ * Deliberately NOT here: publish_html_node (public), set_graph_password, move_graph_to_world,
+ * anything about users, groups, contacts or node types, and every tool that sends.
+ * transcribe_contact_recording writes a transcript node (and the note on the owner's own
+ * ContactHub entry); it sends the audio to OpenAI, as it does when the owner asks in chat.
+ */
+export const FLOW_WRITE_OWN_TOOLS = {
+  transcribe_contact_recording: 'graph:write',
+  create_graph: 'graph:write',
+  add_node: 'graph:write',
+  update_node: 'graph:write',
+  add_edge: 'graph:write',
+  update_graph_metadata: 'graph:write',
 }
 
 /** Tools a flow may run after an approval, with the one scope each needs. */
@@ -166,7 +189,9 @@ export async function callToolForFlow(env, { email, toolName, args = {}, approva
 
   // An approved send gets the one extra scope its tool needs — checked and consumed below, before it runs.
   const sendScope = (approval || notify) && FLOW_SEND_TOOLS[toolName] ? FLOW_SEND_TOOLS[toolName] : null
-  const lentScope = sendScope || FLOW_READ_TOOL_SCOPES[toolName] || null
+  // Object.hasOwn: a tool name is caller text — "constructor" must not find Object.prototype.
+  const writeOwnScope = Object.hasOwn(FLOW_WRITE_OWN_TOOLS, toolName) ? FLOW_WRITE_OWN_TOOLS[toolName] : null
+  const lentScope = sendScope || writeOwnScope || FLOW_READ_TOOL_SCOPES[toolName] || null
   const auth = { token: 'flow-principal', audience: 'flows-worker', scope: [...FLOW_SCOPES, ...(lentScope ? [lentScope] : [])], userId: owner.userId, clientId: 'flows-worker' }
   const props = { userId: owner.userId, email: owner.email, role: owner.role, authMethod: 'flow' }
 
@@ -184,13 +209,14 @@ export async function callToolForFlow(env, { email, toolName, args = {}, approva
     const tool = tools.find((t) => t.name === toolName)
     if (!tool) return { ok: false, status: 404, error: `There is no tool named "${toolName}".` }
     if (tool.annotations?.readOnlyHint !== true) {
-      if (!sendScope) {
-        return { ok: false, status: 403, error: `"${toolName}" changes or sends something, so a flow cannot run it. Flows run read-only tools, and ${Object.keys(FLOW_SEND_TOOLS).join(', ')} after an approval.` }
+      if (sendScope) {
+        const refused = approval
+          ? await checkApprovedSend(env, owner, toolName, args, approval)
+          : await checkOwnerNotice(env, owner, toolName, args, notify)
+        if (refused) return refused
+      } else if (!writeOwnScope) {
+        return { ok: false, status: 403, error: `"${toolName}" changes or sends something, so a flow cannot run it. Flows run read-only tools, tools that only change your own graphs (${Object.keys(FLOW_WRITE_OWN_TOOLS).join(', ')}), and ${Object.keys(FLOW_SEND_TOOLS).join(', ')} after an approval.` }
       }
-      const refused = approval
-        ? await checkApprovedSend(env, owner, toolName, args, approval)
-        : await checkOwnerNotice(env, owner, toolName, args, notify)
-      if (refused) return refused
     }
     const r = await client.callTool({ name: toolName, arguments: args && typeof args === 'object' ? args : {} })
     let text = (r.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n')

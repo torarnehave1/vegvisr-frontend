@@ -186,13 +186,41 @@ describe('callToolForFlow — a flow runs MCP tools as its owner, read-only', ()
   test('a tool that writes or sends is refused before it runs', async () => {
     const { env, raw } = freshDb()
     seedUsers(raw)
-    for (const toolName of ['create_graph', 'send_email', 'send_sms', 'add_node', 'run_flow']) {
+    for (const toolName of ['send_email', 'send_sms', 'run_flow', 'publish_html_node', 'set_graph_password', 'create_contact', 'post_chat_message', 'constructor']) {
       const r = await callToolForFlow(env, { email: 'alice@example.com', toolName, args: { title: 'x', metaArea: '#X' } })
       assert.equal(r.ok, false, toolName)
-      assert.equal(r.status, 403, toolName)
+      assert.ok(r.status === 403 || r.status === 404, `${toolName}: ${r.status}`)
     }
     const graphs = raw.prepare('SELECT COUNT(*) n FROM knowledge_graphs').get().n
     assert.equal(graphs, 0, 'nothing was created')
+  })
+
+  // write-own (2026-11-10): «Samtalerapport» builds a graph, so a flow may change its owner's own graphs.
+  test('write-own: a flow creates and fills a graph of its owner\'s, and cannot touch another user\'s', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const made = await callToolForFlow(env, { email: 'alice@example.com', toolName: 'create_graph', args: { title: 'Samtale med Test', metaArea: '#SAMTALE' } })
+    assert.equal(made.ok, true, JSON.stringify(made))
+    assert.equal(made.isError, false, made.text)
+    const graphId = made.structured?.graphId
+    assert.ok(graphId, `create_graph answers with the graph id: ${made.text}`)
+    const row = raw.prepare('SELECT created_by FROM knowledge_graphs WHERE id = ?').get(graphId)
+    assert.ok(row, 'the graph exists')
+
+    const node = await callToolForFlow(env, { email: 'alice@example.com', toolName: 'add_node', args: { graphId, node: { id: 'oppsummering', label: 'Oppsummering', type: 'fulltext', info: 'Hei' } } })
+    assert.equal(node.ok, true, JSON.stringify(node))
+    assert.equal(node.isError, false, node.text)
+
+    const bob = await callToolForFlow(env, { email: 'bob@example.com', toolName: 'add_node', args: { graphId, node: { id: 'x', label: 'x', type: 'fulltext', info: 'x' } } })
+    assert.ok(bob.ok === false || bob.isError === true, `bob cannot write alice's graph: ${JSON.stringify(bob)}`)
+    const after = await callToolForFlow(env, { email: 'alice@example.com', toolName: 'get_graph', args: { graphId } })
+    assert.ok(!/\bx\b — x/.test(after.text) && !(after.structured?.nodes || []).some((n) => n.id === 'x'), 'bob\'s node is not there')
+  })
+
+  test('write-own lends graph:write for that one tool only', async () => {
+    const { FLOW_WRITE_OWN_TOOLS } = await import('../flow-tools.js')
+    assert.deepEqual(Object.keys(FLOW_WRITE_OWN_TOOLS).sort(), ['add_edge', 'add_node', 'create_graph', 'transcribe_contact_recording', 'update_graph_metadata', 'update_node'])
+    assert.ok(Object.values(FLOW_WRITE_OWN_TOOLS).every((s) => s === 'graph:write'))
   })
 
   test('an unknown owner, an unknown tool and a missing tool name are refused', async () => {
@@ -291,7 +319,7 @@ describe('callToolForFlow — an approved send', () => {
 
   test('without an approval object every sending tool is still refused', async () => {
     const { env } = withRun()
-    for (const toolName of ['send_email', 'send_sms', 'create_graph']) {
+    for (const toolName of ['send_email', 'send_sms', 'send_sms_to_user']) {
       const r = await callToolForFlow(env, { email: 'alice@example.com', toolName, args: ARGS })
       assert.equal(r.status, 403, toolName)
     }
