@@ -2640,9 +2640,9 @@ ${result.warnings.join('\n')}` : ''),
     title: 'Get the VEmotion catalog (what it can draw)',
     description:
       'Structured, not prose: every layer type (text, shape, math-shape, image, video, audio, kg-shape, ' +
-      'card, path, knitting-chart, telemetry-track) with each property\'s type, unit, default, range ' +
+      'card, path, knitting-chart, telemetry-track, dot-field) with each property\'s type, unit, default, range ' +
       'and whether it can be animated; the layer and composition fields; animation kinds and their ' +
-      'fields; easings; the formula vocabulary for math-shapes and motion scenes; canvas presets; ' +
+      'fields; easings; the formula vocabulary for math-shapes, motion scenes and dot-fields; canvas presets; ' +
       'fonts; and which part libraries exist. Generated from the same rules vemotion_save_composition ' +
       'enforces. Use it to know WHAT exists; get_vemotion_reference teaches technique. Reading it ' +
       'changes nothing. Requires the graph:read scope.',
