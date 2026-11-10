@@ -114,6 +114,7 @@ async function checkApprovedSend(env, owner, toolName, args, approval) {
 /** A jsonSchemaValidator that never generates code: it accepts every value (see callToolForFlow). */
 const ACCEPT_OUTPUT = { getValidator: () => (input) => ({ valid: true, data: input, errorMessage: undefined }) }
 const MAX_RESULT_CHARS = 200_000
+const FLOW_TOOL_TIMEOUT_MS = 9 * 60 * 1000
 
 async function loadOwner(env, email) {
   const e = String(email || '').trim().toLowerCase()
@@ -218,7 +219,10 @@ export async function callToolForFlow(env, { email, toolName, args = {}, approva
         return { ok: false, status: 403, error: `"${toolName}" changes or sends something, so a flow cannot run it. Flows run read-only tools, tools that only change your own graphs (${Object.keys(FLOW_WRITE_OWN_TOOLS).join(', ')}), and ${Object.keys(FLOW_SEND_TOOLS).join(', ')} after an approval.` }
       }
     }
-    const r = await client.callTool({ name: toolName, arguments: args && typeof args === 'object' ? args : {} })
+    // The MCP client gives up after 60 s by default — a long recording takes longer to transcribe
+    // (seen live 2026-11-10: "MCP error -32001: Request timed out", 35 MB). A Workflow step may run
+    // 10 minutes, so the tool gets just under that.
+    const r = await client.callTool({ name: toolName, arguments: args && typeof args === 'object' ? args : {} }, undefined, { timeout: FLOW_TOOL_TIMEOUT_MS })
     let text = (r.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n')
     if (text.length > MAX_RESULT_CHARS) text = `${text.slice(0, MAX_RESULT_CHARS)}… [cut at ${MAX_RESULT_CHARS} chars]`
     return { ok: true, isError: r.isError === true, structured: r.structuredContent ?? null, text }
