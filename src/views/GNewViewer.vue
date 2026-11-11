@@ -704,6 +704,21 @@
                 </small>
               </div>
 
+              <div v-if="editingNode.type === 'album-video'" class="form-group">
+                <label class="form-label">🎞️ Album Video URL (Path):</label>
+                <input
+                  v-model="editingNode.path"
+                  type="text"
+                  class="form-control"
+                  placeholder="https://vegvisr.imgix.net/1234567890-1.mp4"
+                />
+                <small class="form-text text-muted">
+                  The full URL of a video in a Photos album (mp4, m4v, webm or mov). Copy the URL the
+                  album shows — anyone who can see this graph can play the video, also when the album
+                  is private.
+                </small>
+              </div>
+
               <div v-if="editingNode.type === 'realtime-video'" class="form-group">
                 <label class="form-label">🎬 Realtime Video Path:</label>
                 <div class="input-group">
@@ -4830,6 +4845,7 @@ const getTemplateIcon = (type) => {
     youtube: '🎬',
     'youtube-video': '🎬',
     'realtime-video': '🎬',
+    'album-video': '🎞️',
     image: '��️',
     fulltext: '📄',
     'json-node': '🧾',
@@ -4854,6 +4870,7 @@ const getTemplateDescription = (type) => {
     youtube: 'Embed YouTube videos',
     'youtube-video': 'Embed YouTube videos',
     'realtime-video': 'Play a meeting recording stored in the realtimevideos bucket',
+    'album-video': 'Play a video from a Photos album',
     image: 'Display images with captions',
     fulltext: 'Rich text content with formatting',
     'json-node': 'Structured JSON content with validation',
@@ -8770,7 +8787,7 @@ const saveNodeChanges = async () => {
       }
 
       // Persist path for node types that use URL/file paths from edit modal
-      const pathNodeTypes = ['youtube-video', 'audio', 'html-node', 'map', 'markdown-image', 'cloudflare-video', 'cloudflare-live', 'realtime-video']
+      const pathNodeTypes = ['youtube-video', 'audio', 'html-node', 'map', 'markdown-image', 'cloudflare-video', 'cloudflare-live', 'realtime-video', 'album-video']
       if (pathNodeTypes.includes(editingNode.value.type)) {
         const normalizedPath = String(editingNode.value.path || '').trim()
         updatedNode.path = normalizedPath || null
@@ -9394,6 +9411,7 @@ const getNodeTypeIcon = (type) => {
     'app-viewer': '📱',
     'cloudflare-video': '🎥',
     'realtime-video': '🎬',
+    'album-video': '🎞️',
     'cloudflare-live': '📡',
     'youtube-live': '🔴',
   }

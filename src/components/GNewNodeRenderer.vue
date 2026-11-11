@@ -76,6 +76,7 @@ import GNewYoutubeLiveNode from './GNewNodes/GNewYoutubeLiveNode.vue'
 import GNewCloudflareVideoNode from './GNewNodes/GNewCloudflareVideoNode.vue'
 import GNewCloudflareLiveNode from './GNewNodes/GNewCloudflareLiveNode.vue'
 import GNewRealtimeVideoNode from './GNewNodes/GNewRealtimeVideoNode.vue'
+import GNewAlbumVideoNode from './GNewNodes/GNewAlbumVideoNode.vue'
 import GNewInstagramNode from './GNewNodes/GNewInstagramNode.vue'
 import GNewAudioNode from './GNewNodes/GNewAudioNode.vue'
 import GNewTitleNode from './GNewNodes/GNewTitleNode.vue'
@@ -200,6 +201,7 @@ const nodeComponents = {
   'cloudflare-video': GNewCloudflareVideoNode,
   'cloudflare-live': GNewCloudflareLiveNode,
   'realtime-video': GNewRealtimeVideoNode,
+  'album-video': GNewAlbumVideoNode,
   'instagram-post': GNewInstagramNode,
   audio: GNewAudioNode,
   title: GNewDefaultNode, // Use DefaultNode for full FANCY formatting support

@@ -108,7 +108,8 @@ const makeNodeInput = (nodeTypes) => z
           `wrong one would display as plain text. Note the -node suffix: "html-node", not "html". ` +
           `Defaults to ${DEFAULT_NODE_TYPE}. Common: fulltext (markdown), html-node (a full HTML ` +
           `document in an iframe), css-node (a stylesheet for the html-nodes in the same graph), ` +
-          `info (markdown in an info panel), markdown-image, youtube-video, mermaid-diagram. ` +
+          `info (markdown in an info panel), markdown-image, youtube-video, mermaid-diagram, ` +
+          `album-video (a video file from a Photos album: path = the url get_album_images returns). ` +
           `Types after youtube-video in the list are DATA types, read by a program rather than ` +
           `displayed (e.g. work-context: an Agent-Builder work-context card).`,
       ),
@@ -2714,11 +2715,12 @@ ${result.warnings.join('\n')}` : ''),
     annotations: MEDIA_READ,
   })
   compositionTool('get_album_images', 'graph:read', {
-    title: 'List the images in a photo album',
+    title: 'List the images and videos in a photo album',
     description:
-      'Every image in one of the user\'s albums with its public url — use the url as an image ' +
-      "layer's src (or a text layer's fillSource). Sizes are not included: get_vemotion_media_info " +
-      'reads one. Requires the graph:read scope.',
+      'Every item in one of the user\'s albums with its public url — use the url as an image ' +
+      "layer's src (or a text layer's fillSource). Albums hold videos too: an item whose key ends " +
+      'in .mp4, .m4v, .webm or .mov is a video, and its url is the path of an album-video node. ' +
+      'Sizes are not included: get_vemotion_media_info reads one. Requires the graph:read scope.',
     inputSchema: { albumName: z.string().min(1).describe('Album name from album_list, e.g. "VEmotion".') },
     outputSchema: anyResult,
     annotations: MEDIA_READ,

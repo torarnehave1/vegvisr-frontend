@@ -19,7 +19,7 @@
 
 export const NODE_TYPES = [
   'REG', 'action_test', 'advertisement_manager', 'agent-config', 'agent-contract',
-  'agent-run', 'app-viewer', 'audio', 'audio-portfolio-selector', 'audio-transcription',
+  'agent-run', 'album-video', 'app-viewer', 'audio', 'audio-portfolio-selector', 'audio-transcription',
   'background', 'bubblechart', 'button_row', 'chart', 'cloudflare-live', 'cloudflare-video',
   'company-card', 'component', 'css-node', 'data-node', 'email-brand', 'email-manager',
   'email-signature', 'email-template', 'fulltext', 'guide-node', 'html-node', 'image', 'image-analysis',
