@@ -323,3 +323,19 @@ normal API; a copy of the content here would only be a second place for it to le
    is closed; anonymous reads are unchanged because `getknowgraph?id=` was always open.
 8. **`/mcp` audit rows depend on `ctx.waitUntil`.** If the runtime drops the deferred work the
    call still succeeds but the row is lost. Audit failures never fail a request by design.
+
+## Realtime tools (`realtime_*`) — added 2026-11-11
+
+Vegvisr Realtime (realtime.vegvisr.org) operated from MCP. Plan and decisions: knowledge graph
+`5b429a57-0fc3-41b9-b6c4-0adbdecdee0a`.
+
+- **One implementation.** `realtime-service.js` forwards to `realtime-worker` (`/realtime/*`) over
+  the `REALTIME_WORKER` service binding with the caller's own `X-API-Token`. Ownership and role
+  checks stay in realtime-worker. The response shapes are the ones in
+  `https://api.vegvisr.org/realtime/openapi.json`; extend that spec before a tool reads a new endpoint.
+- **No new scope** (architect's decision D1 = A, 2026-11-10): reads need `contacts:read`, writes
+  need `graph:write`. No client had to authorize again. The consent text does not mention Realtime.
+- **Never exposed:** `admin/*`, `debug/*`, telemetry, raw join tokens. Tools return links.
+- **Live check:** `GET /realtime-tools/rooms` (signed-in session) runs the same function as
+  `realtime_list_rooms`; `test/smoke-live.mjs` calls it after every deploy.
+- **Tools so far:** `realtime_list_rooms`.
