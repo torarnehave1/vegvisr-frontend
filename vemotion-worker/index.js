@@ -13,7 +13,7 @@
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Token, X-File-Name"
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Token, X-File-Name, X-Video-Duration, X-Video-Width, X-Video-Height"
 };
 var PROJECT_PREFIX = "vemotion:project:";
 var COMP_PREFIX = "vemotion:comp:";
