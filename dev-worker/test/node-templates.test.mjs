@@ -71,6 +71,56 @@ describe('listNodeTemplates', () => {
   })
 })
 
+describe('saveNodeTemplate', () => {
+  const NODE = { label: 'Album Video', type: 'album-video', info: 'x', path: null, imageWidth: '100%', imageHeight: '100%', metadata: { album: null, key: null } }
+
+  test('a new name is created and get_node_types reads it back, without an id', async () => {
+    const { env } = setup()
+    const r = await tpl.saveNodeTemplate(env, { name: 'AlbumVideo', category: 'Video', node: { id: 'should-go', position: { x: 1, y: 2 }, ...NODE }, aiInstructions: { format: 'path = album url' } })
+    assert.equal(r.ok, true)
+    assert.equal(r.created, true)
+    assert.equal(r.type, 'album-video')
+    const t = (await tpl.listNodeTemplates(env, { type: 'album-video' })).types[0].templates[0]
+    assert.equal(t.name, 'AlbumVideo')
+    assert.equal(t.category, 'Video')
+    assert.deepEqual(t.aiInstructions, { format: 'path = album url' })
+    assert.equal('id' in t.example, false)
+    assert.equal('position' in t.example, false)
+    assert.deepEqual(t.example.metadata, { album: null, key: null })
+  })
+
+  test('saving the same name replaces it: one template, the new recipe', async () => {
+    const { env } = setup()
+    const first = await tpl.saveNodeTemplate(env, { name: 'AlbumVideo', node: NODE, aiInstructions: 'old' })
+    const second = await tpl.saveNodeTemplate(env, { name: 'AlbumVideo', category: 'Video', node: { ...NODE, label: 'New' }, aiInstructions: 'new' })
+    assert.equal(second.created, false)
+    assert.equal(second.id, first.id)
+    const list = (await tpl.listNodeTemplates(env, { type: 'album-video' })).types[0].templates
+    assert.equal(list.length, 1)
+    assert.equal(list[0].aiInstructions, 'new')
+    assert.equal(list[0].example.label, 'New')
+    assert.equal(list[0].category, 'Video')
+  })
+
+  test('refuses a missing type, a missing label, and the two categories that are not node templates', async () => {
+    const { env } = setup()
+    assert.equal((await tpl.saveNodeTemplate(env, { name: 'X', node: { label: 'a' } })).ok, false)
+    assert.equal((await tpl.saveNodeTemplate(env, { name: 'X', node: { type: 'album-video' } })).ok, false)
+    assert.equal((await tpl.saveNodeTemplate(env, { name: '', node: NODE })).ok, false)
+    assert.equal((await tpl.saveNodeTemplate(env, { name: 'X', category: 'Fulltext Elements', node: NODE })).ok, false)
+    assert.equal((await tpl.saveNodeTemplate(env, { name: 'X', category: 'My Apps', node: NODE })).ok, false)
+  })
+
+  test('never overwrites a fulltext element or a user app that happens to share the name', async () => {
+    const { env } = setup()
+    const r = await tpl.saveNodeTemplate(env, { name: 'FANCY', node: NODE })
+    assert.equal(r.ok, false)
+    assert.match(r.message, /Fulltext Elements/)
+    assert.equal((await tpl.listFulltextElements(env, { name: 'FANCY' })).elements[0].trigger, '[FANCY]')
+    assert.equal((await tpl.saveNodeTemplate(env, { name: 'Some user app', node: NODE })).ok, false)
+  })
+})
+
 describe('get_node_types (MCP)', () => {
   const ALICE = {
     auth: { token: 'redacted', audience: 'https://knowledge.vegvisr.org/mcp', scope: ['graph:read'], userId: 'alice@example.com', clientId: 'test' },
@@ -96,6 +146,37 @@ describe('get_node_types (MCP)', () => {
     assert.match(text, /template "YouTube" \(Video\)/)
     assert.match(text, /ai_instructions: \{"format":"!\[YOUTUBE src=https:\/\/www\.youtube\.com\/embed\/\{videoId\}\]/)
     assert.match(text, /example node: \{"label":"YouTube Video Node"/)
+  })
+
+  const ROOT = {
+    auth: { ...ALICE.auth, scope: ['graph:read', 'graph:write'], userId: 'root@example.com' },
+    props: { userId: 'root@example.com', email: 'root@example.com', role: 'Superadmin', authMethod: 'oauth_otp' },
+  }
+  const AV = { name: 'AlbumVideo', category: 'Video', node: { label: 'Album Video', type: 'album-video', path: null }, aiInstructions: { format: 'path = the url get_album_images returns' } }
+
+  test('save_node_template: the Superadmin saves a recipe and get_node_types returns it', async () => {
+    const { env } = setup()
+    const c = await connect(env, ROOT)
+    const saved = await c.callTool({ name: 'save_node_template', arguments: AV })
+    assert.equal(saved.isError, undefined, saved.content?.[0]?.text)
+    assert.equal(saved.structuredContent.created, true)
+    assert.match(saved.content[0].text, /Created node template "AlbumVideo" \(Video\) for type album-video/)
+    const read = await c.callTool({ name: 'get_node_types', arguments: { type: 'album-video' } })
+    assert.match(read.content[0].text, /template "AlbumVideo" \(Video\)/)
+    assert.match(read.content[0].text, /get_album_images/)
+  })
+
+  test('save_node_template: refused for an ordinary user, without graph:write, and for an unknown type', async () => {
+    const { env } = setup()
+    const user = await connect(env, { ...ALICE, auth: { ...ALICE.auth, scope: ['graph:read', 'graph:write'] } })
+    assert.equal((await user.callTool({ name: 'save_node_template', arguments: AV })).isError, true)
+    const readOnlyRoot = await connect(env, { ...ROOT, auth: { ...ROOT.auth, scope: ['graph:read'] } })
+    assert.equal((await readOnlyRoot.callTool({ name: 'save_node_template', arguments: AV })).isError, true)
+    const root = await connect(env, ROOT)
+    const bad = await root.callTool({ name: 'save_node_template', arguments: { ...AV, node: { label: 'x', type: 'albumvideo' } } })
+    assert.equal(bad.isError, true)
+    assert.match(bad.content[0].text, /not a platform node type/)
+    assert.equal((await tpl.listNodeTemplates(env, { type: 'album-video' })).ok, false, 'nothing was written')
   })
 
   test('without graph:read it is refused', async () => {

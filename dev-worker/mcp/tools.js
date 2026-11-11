@@ -3725,6 +3725,68 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── save_node_template ────────────────────────────────────────────────────
+  //
+  // The WRITE side of get_node_types (2026-11-11, with the album-video type). A new node type
+  // needs a template so get_node_types can teach its shape; until now that row could only be
+  // written by REST /addTemplate or SQL by hand, so it was the step that got skipped. Templates
+  // are platform-wide — every user's agent reads them — hence Superadmin only.
+  server.registerTool(
+    'save_node_template',
+    {
+      title: 'Save the recipe for a node type',
+      description:
+        'Create or replace a node template: the example node and ai_instructions that ' +
+        'get_node_types returns for a node type. Use it when a node type has no recipe yet, or ' +
+        'its recipe is wrong. One template per name — saving an existing name REPLACES that ' +
+        "template's example node, ai_instructions and category. The example node's type must be " +
+        'a type list_node_types knows. Templates are shared by every user of the platform, so ' +
+        'this is for the Superadmin only. Requires the graph:write scope.',
+      inputSchema: {
+        name: z.string().min(2).max(80).describe('Template name, e.g. "AlbumVideo". An existing name is replaced.'),
+        category: z.string().max(60).optional().describe('Template category, e.g. "Video". Defaults to "General".'),
+        node: z
+          .object({ type: z.string().min(1), label: z.string().min(1) })
+          .passthrough()
+          .describe('The example node, shaped exactly as a node of this type should be written (label, type, info, path, bibl, imageWidth, imageHeight, metadata …). No id.'),
+        aiInstructions: z
+          .union([z.string(), z.record(z.string(), z.any())])
+          .optional()
+          .describe('The recipe an agent follows to build the node: an object (stored as JSON) or prose.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        id: z.string(),
+        name: z.string(),
+        category: z.string(),
+        type: z.string(),
+        created: z.boolean().describe('true = new template; false = an existing one was replaced.'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ name, category, node, aiInstructions }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      if (!actor.isSuperadmin) return err(gs.ERR.FORBIDDEN_GRAPH, 'Node templates are shared by every user, so saving one is for the Superadmin only.')
+
+      const type = String(node?.type || '').trim()
+      if (!(await nodeTypeAllowedIn(env, type, null))) {
+        return err(gs.ERR.INVALID_INPUT, `"${type}" is not a platform node type. Call list_node_types for the types that exist.`)
+      }
+
+      const result = await templates.saveNodeTemplate(env, { name, category, node, aiInstructions })
+      if (!result.ok) return fromService(result)
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `${result.created ? 'Created' : 'Replaced'} node template "${result.name}" (${result.category}) for type ${result.type}. get_node_types returns it from the next call.`,
+      )
+    },
+  )
+
   // ── get_image_guide ───────────────────────────────────────────────────────
   //
   // WHY A TOOL AND NOT A PROMPT OR A RESOURCE.
@@ -6782,4 +6844,5 @@ export const TOOL_NAMES = [
   'approve_node_type_renderer',
   'list_node_types',
   'get_node_types',
+  'save_node_template',
 ]

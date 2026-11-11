@@ -212,3 +212,64 @@ export async function listNodeTemplates(env, { type = null, name = null } = {}) 
   const types = [...byType.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([t, templates]) => ({ type: t, templates }))
   return { ok: true, count: types.length, types }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Writing a node template — the recipe get_node_types hands back
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Added 2026-11-11 with the album-video node type. A new built-in type needs a template row so
+// get_node_types can teach its shape, and the only way to write one was REST /addTemplate or
+// SQL by hand — so the recipe for a new type was the step that got skipped. One template per
+// name: saving a name that exists REPLACES that template's example node and recipe, which is how
+// a recipe is corrected without leaving two that contradict each other.
+//
+// Refused: the Fulltext Elements and My Apps categories. Those rows are a different thing (the
+// element grammar; users' own app pages) and listNodeTemplates never reads them.
+
+const NOT_NODE_TEMPLATE_CATEGORIES = ['Fulltext Elements', 'My Apps']
+
+export async function saveNodeTemplate(env, { name, category = 'General', node, aiInstructions = null } = {}) {
+  const cleanName = String(name || '').trim()
+  if (!cleanName) return fail(ERR.INVALID_INPUT, 'A template needs a name.')
+  const cleanCategory = String(category || 'General').trim() || 'General'
+  if (NOT_NODE_TEMPLATE_CATEGORIES.includes(cleanCategory)) {
+    return fail(ERR.INVALID_INPUT, `"${cleanCategory}" is not a node-template category.`)
+  }
+  if (!node || typeof node !== 'object' || Array.isArray(node)) {
+    return fail(ERR.INVALID_INPUT, 'node must be the example node object of the template.')
+  }
+  const nodeType = String(node.type || '').trim()
+  if (!nodeType) return fail(ERR.INVALID_INPUT, 'The example node needs a type: it is what get_node_types groups the template under.')
+  if (!String(node.label || '').trim()) return fail(ERR.INVALID_INPUT, 'The example node needs a label.')
+
+  // Templates carry an empty id: the node gets a real one when it is inserted into a graph.
+  const { id: _id, position: _p, ...rest } = node
+  const nodesJson = JSON.stringify([{ id: '', ...rest, type: nodeType }])
+  const ai =
+    aiInstructions == null || aiInstructions === ''
+      ? null
+      : typeof aiInstructions === 'string' ? aiInstructions : JSON.stringify(aiInstructions)
+
+  const existing = await env.vegvisr_org
+    .prepare('SELECT id, category FROM graphTemplates WHERE name = ? ORDER BY id LIMIT 1')
+    .bind(cleanName)
+    .first()
+
+  if (existing) {
+    if (NOT_NODE_TEMPLATE_CATEGORIES.includes(existing.category)) {
+      return fail(ERR.INVALID_INPUT, `"${cleanName}" is the name of a ${existing.category} entry, not a node template. Choose another name.`)
+    }
+    await env.vegvisr_org
+      .prepare('UPDATE graphTemplates SET nodes = ?, ai_instructions = ?, category = ? WHERE id = ?')
+      .bind(nodesJson, ai, cleanCategory, existing.id)
+      .run()
+    return { ok: true, id: existing.id, name: cleanName, category: cleanCategory, type: nodeType, created: false }
+  }
+
+  const id = crypto.randomUUID()
+  await env.vegvisr_org
+    .prepare('INSERT INTO graphTemplates (id, name, nodes, edges, ai_instructions, category) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(id, cleanName, nodesJson, '[]', ai, cleanCategory)
+    .run()
+  return { ok: true, id, name: cleanName, category: cleanCategory, type: nodeType, created: true }
+}
