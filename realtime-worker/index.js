@@ -1033,7 +1033,7 @@ function buildRealtimeOpenApiSpec(origin) {
       '/realtime/my-rooms': {
         get: {
           operationId: 'getMyRooms',
-          summary: 'The authenticated user\'s personal and team room. A room id RealtimeKit no longer knows is cleared from the account by this call',
+          summary: 'The authenticated user\'s personal and team room. A room id RealtimeKit answers 404 for is cleared from the account by this call; on any other lookup failure the id is kept and its title is null',
           responses: okShape('Personal and team room', {
             success: { type: 'boolean' },
             personalMeetingId: { type: ['string', 'null'] },
@@ -1119,17 +1119,29 @@ export default {
         const { appId, accountId, apiToken } = await getUserCloudflareCredentials(auth.email, env)
 
         if (appId && accountId && apiToken) {
+          // `gone` is true ONLY when RealtimeKit answers 404 — the meeting does not exist in this
+          // app (measured 2026-11-11: missing meeting → 404, rejected token → 400). Any other
+          // failure (auth error, 5xx, network) says nothing about the room, so the id is kept.
+          // Before 2026-11-11 every non-OK answer cleared the id, so one temporary Cloudflare
+          // error — or a wrong credential, as in the 2026-06-15 incident — erased a user's rooms.
           const fetchRoomInfo = async (meetingId) => {
-            if (!meetingId) return { valid: false, title: null }
+            if (!meetingId) return { gone: false, title: null }
             try {
               const r = await fetch(
                 `https://api.cloudflare.com/client/v4/accounts/${accountId}/realtime/kit/${appId}/meetings/${meetingId}`,
                 { headers: { Authorization: `Bearer ${apiToken}` } }
               )
-              if (!r.ok) return { valid: false, title: null }
+              if (r.status === 404) return { gone: true, title: null }
+              if (!r.ok) {
+                console.warn(`/realtime/my-rooms: RealtimeKit answered ${r.status} for meeting ${meetingId}; id kept`)
+                return { gone: false, title: null }
+              }
               const d = await r.json()
-              return { valid: true, title: d?.data?.title || null }
-            } catch { return { valid: false, title: null } }
+              return { gone: false, title: d?.data?.title || null }
+            } catch (e) {
+              console.warn(`/realtime/my-rooms: RealtimeKit lookup failed for meeting ${meetingId} (${e.message}); id kept`)
+              return { gone: false, title: null }
+            }
           }
 
           const [personalInfo, teamInfo] = await Promise.all([fetchRoomInfo(personalId), fetchRoomInfo(teamId)])
@@ -1137,8 +1149,8 @@ export default {
           teamTitle = teamInfo.title
 
           let needsUpdate = false
-          if (personalId && !personalInfo.valid) { personalId = null; needsUpdate = true }
-          if (teamId && !teamInfo.valid) { teamId = null; needsUpdate = true }
+          if (personalId && personalInfo.gone) { personalId = null; needsUpdate = true }
+          if (teamId && teamInfo.gone) { teamId = null; needsUpdate = true }
           if (needsUpdate) {
             const updatedRt = { ...rt, personalMeetingId: personalId, teamMeetingId: teamId }
             await env.vegvisr_org.prepare("UPDATE config SET data = json_set(data, '$.realtime', json(?)) WHERE email = ?")
