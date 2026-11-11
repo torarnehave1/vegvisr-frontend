@@ -70,6 +70,7 @@ import { allowedNodeTypes, registeredNodeTypes, nodeTypeRenderers, approvedRende
 import * as nodeTypeService from './node-type-service.js'
 import * as emailService from './email-service.js'
 import * as smsService from './sms-service.js'
+import * as realtimeService from './realtime-service.js'
 import { imapProbe, imapFindSentFolder, fileSentCopy } from './imap-service.js'
 import { OAuthProvider, getOAuthApi } from '@cloudflare/workers-oauth-provider'
 import { resolveLoginToken } from './oauth/external-token.js'
@@ -5742,6 +5743,34 @@ const restHandler = {
           : preview
             ? smsService.previewSms(env, { toPhone: body.toPhone, message: body.message, actor })
             : await smsService.sendSms(env, { toPhone: body.toPhone, message: body.message, actor, clientId: 'rest' })
+        return new Response(
+          JSON.stringify(result.ok
+            ? { success: true, ...result, ok: undefined }
+            : { success: false, error: result.message, code: result.code }),
+          { status: result.ok ? 200 : (result.status || 500), headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+      }
+
+      // ── Realtime over REST, beside the MCP realtime_* tools (2026-11-11) ──
+      //
+      // Same reason as the SMS routes above (L158): a just-deployed MCP tool cannot be called by
+      // a client that connected before the deploy. This runs the SAME service function the tool
+      // runs, so the smoke test proves the binding and the forwarding on the deployed worker.
+      // Read-only. A signed-in session only — it reads the caller's own rooms and nothing else.
+      if (pathname === '/realtime-tools/rooms' && request.method === 'GET') {
+        const tv = await validateAuth(request, env)
+        if (!tv.valid) {
+          return new Response(JSON.stringify({ error: tv.error || 'Authentication required' }), {
+            status: tv.status || 401, headers: corsHeaders,
+          })
+        }
+        if (!hasScope(tv.scopes, 'all')) {
+          return new Response(JSON.stringify({
+            error: 'Reading rooms over REST needs a signed-in session, not a scoped API token.',
+            code: 'INSUFFICIENT_SCOPE',
+          }), { status: 403, headers: corsHeaders })
+        }
+        const result = await realtimeService.listRooms(env, { actor: normalizeActor(tv) })
         return new Response(
           JSON.stringify(result.ok
             ? { success: true, ...result, ok: undefined }

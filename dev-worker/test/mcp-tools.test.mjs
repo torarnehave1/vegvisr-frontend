@@ -4022,3 +4022,58 @@ describe('add_contact_note saves a Note interaction on the caller\'s own contact
     assert.equal(t.annotations.destructiveHint, false)
   })
 })
+
+describe('realtime_list_rooms reads the caller\'s own Realtime rooms (contacts:read)', () => {
+  const READ = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'contacts:read'] } }
+
+  // realtime-worker, stubbed with the live response shapes. It records the token it was shown,
+  // because whose rooms come back is decided by that token and by nothing a model can pass.
+  function withRealtime() {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    env.REALTIME_WORKER = {
+      fetch: async (url, init) => {
+        const path = new URL(url).pathname
+        calls.push({ path, token: init.headers['X-API-Token'] })
+        const body = path === '/realtime/my-rooms'
+          ? { success: true, personalMeetingId: 'p-1', teamMeetingId: 't-1', personalTitle: 'Alice', teamTitle: 'Team A', displayName: 'Alice', waitingScreen: null, waitingRoomEnabled: false }
+          : { success: true, rooms: [{ meetingId: 'p-1', isDefault: false }], slugs: { 'p-1': ['momentum'] }, canSetDefault: false }
+        return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      },
+    }
+    return { env, calls }
+  }
+
+  test('it needs contacts:read, and nothing is sent without it', async () => {
+    const { env, calls } = withRealtime()
+    const denied = await connect(env, ALICE_RW)
+    const e = await callErr(denied.client, 'realtime_list_rooms', {})
+    assert.equal(e.requiredScope, 'contacts:read')
+    assert.equal(calls.length, 0)
+  })
+
+  test('it returns the rooms with their links, as the caller', async () => {
+    const { env, calls } = withRealtime()
+    const { client } = await connect(env, READ)
+    const res = await client.callTool({ name: 'realtime_list_rooms', arguments: {} })
+    assert.equal(res.isError, undefined)
+    const r = res.structuredContent
+    assert.equal(r.total, 2)
+    assert.equal(r.rooms[0].joinUrl, 'https://realtime.vegvisr.org/?meetingId=p-1')
+    assert.equal(r.rooms[0].openRoomUrl, 'https://realtime.vegvisr.org/?openroom=momentum')
+    assert.equal(r.rooms[1].openRoom, false)
+    assert.match(res.content[0].text, /PERSONAL — Alice · meetingId p-1/)
+    assert.match(res.content[0].text, /OPEN to guests: https:\/\/realtime\.vegvisr\.org\/\?openroom=momentum/)
+    assert.ok(calls.length === 2 && calls.every((c) => c.token === 'sess-alice'))
+  })
+
+  test('it is read-only and takes no input that could name another user', async () => {
+    const { env } = withRealtime()
+    const { client } = await connect(env, READ)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'realtime_list_rooms')
+    assert.equal(t.annotations.readOnlyHint, true)
+    assert.deepEqual(Object.keys(t.inputSchema.properties || {}), [])
+  })
+})

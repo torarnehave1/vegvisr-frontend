@@ -111,6 +111,12 @@ service = "blotato-worker"
 binding = "VEMOTION_WORKER"
 service = "vemotion-worker"
 
+# Vegvisr Realtime from the MCP tools (realtime-service.js): rooms, meetings, recordings, called
+# as the caller with their own X-API-Token. realtime-worker keeps every ownership check.
+[[services]]
+binding = "REALTIME_WORKER"
+service = "realtime-worker"
+
 # The public origin this worker is reached on. It becomes the OAuth issuer and the RFC 9728
 # resource identifier (`<origin>/mcp`), which is the audience of every access token. Override it
 # in .dev.vars for local testing; the protected-resource document is only served for a request

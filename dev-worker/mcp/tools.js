@@ -44,6 +44,7 @@ import * as flows from '../flows-service.js'
 import * as social from '../social-service.js'
 import * as mediaUpload from '../media-upload-service.js'
 import * as vemotion from '../vemotion-service.js'
+import * as realtime from '../realtime-service.js'
 import * as workerSource from '../worker-source-service.js'
 import * as workerTools from '../worker-tools.js'
 
@@ -5616,6 +5617,75 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── realtime_* — Vegvisr Realtime from MCP (2026-11-11, plan graph 5b429a57-…) ────────────
+  //
+  // The meeting app at realtime.vegvisr.org, operated without opening it. Every tool forwards to
+  // an existing realtime-worker endpoint as the caller (realtime-service.js) — nothing about rooms
+  // is implemented here. Scopes are reused by the architect's decision (D1 = A, 2026-11-10): reads
+  // sit behind contacts:read, writes behind graph:write, so no client had to authorize again.
+  // The prefix keeps these apart from list_recordings, which is ContactHub and the audio portfolio.
+  const ROOM_SHAPE = z.object({
+    kind: z.enum(['personal', 'team', 'other']),
+    meetingId: z.string(),
+    title: z.string().nullable(),
+    joinUrl: z.string(),
+    slugs: z.array(z.string()),
+    slugUrls: z.array(z.string()),
+    openRoom: z.boolean(),
+    isDefaultOpenRoom: z.boolean(),
+    openRoomUrl: z.string().nullable(),
+  })
+  server.registerTool(
+    'realtime_list_rooms',
+    {
+      title: 'List my meeting rooms (Vegvisr Realtime)',
+      description:
+        'Your own rooms in the Vegvisr Realtime meeting app (realtime.vegvisr.org): the personal ' +
+        'room, the team room, and any other meeting of yours that is open to guests or has a ' +
+        'custom slug. Each room has its title, meetingId, joinUrl (the invitation link the app ' +
+        'shows — the person signs in), its slugs with their links, and whether it is an OPEN room ' +
+        'with the openRoomUrl a guest can use without logging in. waitingRoomEnabled says whether ' +
+        'guests must be admitted by you. Being in a meeting needs a browser: give the link, a ' +
+        'person opens it. This is NOT list_recordings (ContactHub audio). Requires the ' +
+        'contacts:read scope.',
+      inputSchema: {},
+      outputSchema: {
+        success: z.boolean(),
+        displayName: z.string().nullable(),
+        waitingRoomEnabled: z.boolean(),
+        canSetDefaultOpenRoom: z.boolean(),
+        total: z.number(),
+        rooms: z.array(ROOM_SHAPE),
+      },
+      annotations: READ_ONLY,
+    },
+    async () => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'contacts:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.listRooms(env, { actor })
+      if (!r.ok) return fromService(r)
+      const lines = r.rooms.map((x) =>
+        `• ${x.kind.toUpperCase()} — ${x.title || '(no title)'} · meetingId ${x.meetingId}\n` +
+        `  join: ${x.joinUrl}` +
+        (x.openRoom ? `\n  OPEN to guests${x.isDefaultOpenRoom ? ' (platform default)' : ''}: ${x.openRoomUrl}` : '') +
+        (x.slugUrls.length ? `\n  slugs: ${x.slugUrls.join(', ')}` : ''))
+      const head = r.rooms.length
+        ? `${r.rooms.length} room${r.rooms.length === 1 ? '' : 's'}${r.displayName ? ` for ${r.displayName}` : ''}. Waiting room is ${r.waitingRoomEnabled ? 'ON' : 'off'}.`
+        : 'No rooms on this account yet. Opening the Realtime app once creates the personal and team room.'
+      return ok({
+        success: true,
+        displayName: r.displayName,
+        waitingRoomEnabled: r.waitingRoomEnabled,
+        canSetDefaultOpenRoom: r.canSetDefaultOpenRoom,
+        total: r.rooms.length,
+        rooms: r.rooms,
+      }, [head, ...lines].join('\n'))
+    },
+  )
+
   // ── set_user_groups ───────────────────────────────────────────────────────
   //
   // register_user refuses an email that already exists, which left no way to tag someone who is
@@ -6691,6 +6761,7 @@ export const TOOL_NAMES = [
   'add_contact_note',
   'list_recordings',
   'transcribe_contact_recording',
+  'realtime_list_rooms',
   'set_user_groups',
   'update_user_profile',
   'set_user_role',

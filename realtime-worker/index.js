@@ -989,6 +989,9 @@ function canManageSlugs(role) {
 // resolve the user from the token via validateWorkerApiToken.
 function buildRealtimeOpenApiSpec(origin) {
   const okJson = (desc) => ({ 200: { description: desc, content: { 'application/json': { schema: { type: 'object' } } } } })
+  // A response whose fields are spelled out. The MCP realtime_* tools (dev-worker/realtime-service.js)
+  // are written from these shapes, so a field renamed in a handler must be renamed here too.
+  const okShape = (desc, properties) => ({ 200: { description: desc, content: { 'application/json': { schema: { type: 'object', properties } } } } })
   return {
     openapi: '3.1.0',
     info: {
@@ -1028,10 +1031,35 @@ function buildRealtimeOpenApiSpec(origin) {
         get: { operationId: 'listMeetings', summary: 'List the authenticated user\'s meetings', responses: okJson('Meetings list') },
       },
       '/realtime/my-rooms': {
-        get: { operationId: 'getMyRooms', summary: 'List the authenticated user\'s realtime rooms', responses: okJson('Rooms list') },
+        get: {
+          operationId: 'getMyRooms',
+          summary: 'The authenticated user\'s personal and team room. A room id RealtimeKit no longer knows is cleared from the account by this call',
+          responses: okShape('Personal and team room', {
+            success: { type: 'boolean' },
+            personalMeetingId: { type: ['string', 'null'] },
+            teamMeetingId: { type: ['string', 'null'] },
+            personalTitle: { type: ['string', 'null'] },
+            teamTitle: { type: ['string', 'null'] },
+            displayName: { type: ['string', 'null'] },
+            waitingScreen: { type: ['object', 'null'] },
+            waitingRoomEnabled: { type: 'boolean' },
+          }),
+        },
       },
       '/realtime/open-room/status': {
-        get: { operationId: 'getOpenRoomStatus', summary: 'The authenticated user\'s open rooms (joinable by guests without login) and the slugs pointing at them', responses: okJson('Open rooms, slugs by meeting id, canSetDefault') },
+        get: {
+          operationId: 'getOpenRoomStatus',
+          summary: 'The authenticated user\'s open rooms (joinable by guests without login) and the slugs pointing at them',
+          responses: okShape('Open rooms, slugs by meeting id, canSetDefault', {
+            success: { type: 'boolean' },
+            rooms: {
+              type: 'array',
+              items: { type: 'object', properties: { meetingId: { type: 'string' }, isDefault: { type: 'boolean' } } },
+            },
+            slugs: { type: 'object', description: 'Active slugs keyed by meeting id', additionalProperties: { type: 'array', items: { type: 'string' } } },
+            canSetDefault: { type: 'boolean' },
+          }),
+        },
       },
       '/realtime/open-room/info': {
         get: {

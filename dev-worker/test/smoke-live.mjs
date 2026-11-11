@@ -175,5 +175,19 @@ if (needsToken('sms/preview refuses a non-Norwegian number')) {
   check('sms/preview refuses a non-Norwegian number', status !== 200 && /\+47/.test(body.error || ''), `HTTP ${status} ${JSON.stringify(body).slice(0, 120)}`)
 }
 
+// 9. Realtime through the MCP server (2026-11-11). /realtime-tools/rooms runs the same service
+//    function as the realtime_list_rooms tool, so this proves the REALTIME_WORKER binding and the
+//    forwarding on the deployed worker. Read-only.
+{
+  const { status } = await json(`${MCP}/realtime-tools/rooms`)
+  check('realtime-tools/rooms refuses no token', status === 401, `HTTP ${status}`)
+}
+if (needsToken('realtime-tools/rooms lists the owner\'s rooms')) {
+  const { status, body } = await json(`${MCP}/realtime-tools/rooms`, { headers: { 'X-API-Token': TOKEN } })
+  check('realtime-tools/rooms answers through the binding', status === 200 && body.success === true && Array.isArray(body.rooms), `HTTP ${status} ${JSON.stringify(body).slice(0, 160)}`)
+  const first = (body.rooms || [])[0]
+  check('  and a room carries a join link on realtime.vegvisr.org', !!first && /^https:\/\/realtime\.vegvisr\.org\/\?meetingId=/.test(first.joinUrl || ''), JSON.stringify(first || null).slice(0, 160))
+}
+
 console.log(failures === 0 ? `\nLIVE SMOKE GREEN${skipped ? ` — ${skipped} check(s) skipped, public-only run` : ''}` : `\n${failures} live check(s) FAILED`)
 process.exit(failures === 0 ? 0 : 1)
