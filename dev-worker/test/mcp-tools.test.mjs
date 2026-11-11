@@ -3971,3 +3971,54 @@ describe('World member roles go through agent-worker with the caller\'s own cred
     assert.deepEqual(r.formerMembersWithRoles, [])
   })
 })
+
+describe('add_contact_note saves a Note interaction on the caller\'s own contact (2026-11-11)', () => {
+  function withAgent(status = 200, reply = { success: true, logId: 'L9', contactId: 'c1', name: 'Thomas Berg', loggedAt: '2026-11-11T10:00:00.000Z', note: 'Ring tilbake fredag' }) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    env.AGENT_WORKER = {
+      fetch: async (url, init) => {
+        calls.push({ path: new URL(url).pathname, token: init.headers['X-API-Token'], body: JSON.parse(init.body) })
+        return new Response(JSON.stringify(reply), { status, headers: { 'Content-Type': 'application/json' } })
+      },
+    }
+    return { env, calls }
+  }
+
+  test('writes through /contacts/notes/add with the caller\'s own token', async () => {
+    const { env, calls } = withAgent()
+    const { client } = await connect(env, ALICE_RW)
+    const r = await callOk(client, 'add_contact_note', { contactId: 'c1', note: 'Ring tilbake fredag' })
+    assert.equal(r.logId, 'L9')
+    assert.equal(r.name, 'Thomas Berg')
+    assert.equal(calls[0].path, '/contacts/notes/add')
+    assert.equal(calls[0].token, 'sess-alice')
+    assert.deepEqual(calls[0].body, { contactId: 'c1', note: 'Ring tilbake fredag' }, 'no identity or name is forwarded in the body')
+  })
+
+  test('an unknown contact is refused', async () => {
+    const { env } = withAgent(404, { success: false, error: 'No contact with id nope in your ContactHub.' })
+    const { client } = await connect(env, ALICE_RW)
+    const e = await callErr(client, 'add_contact_note', { contactId: 'nope', note: 'x' })
+    assert.equal(e.code, gs.ERR.INVALID_INPUT)
+    assert.match(e.message, /No contact with id nope/)
+  })
+
+  test('graph:write is required — contacts:read is not enough', async () => {
+    const { env, calls } = withAgent()
+    const { client } = await connect(env, { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'contacts:read'] } })
+    const e = await callErr(client, 'add_contact_note', { contactId: 'c1', note: 'x' })
+    assert.equal(e.requiredScope, 'graph:write')
+    assert.equal(calls.length, 0, 'nothing reached the address book')
+  })
+
+  test('it is an additive write, not destructive', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'add_contact_note')
+    assert.equal(t.annotations.readOnlyHint, false)
+    assert.equal(t.annotations.destructiveHint, false)
+  })
+})

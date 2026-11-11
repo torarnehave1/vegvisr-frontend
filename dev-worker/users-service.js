@@ -718,6 +718,13 @@ export function getContactLogs(env, { actor, contactId, limit }) {
   return contactHistoryCall(env, actor, '/contacts/logs', { contactId: String(contactId).trim(), limit })
 }
 
+/** Save a note on one contact — a contact_log row of type 'Note', what the Contacts app's Note button writes. */
+export function addContactNote(env, { actor, contactId, note }) {
+  if (!String(contactId || '').trim()) return Promise.resolve(fail(ERR.INVALID_INPUT, 'contactId is required. Nothing was saved.'))
+  if (!String(note || '').trim()) return Promise.resolve(fail(ERR.INVALID_INPUT, 'note is required. Nothing was saved.'))
+  return contactHistoryCall(env, actor, '/contacts/notes/add', { contactId: String(contactId).trim(), note: String(note) })
+}
+
 export function listRecordings(env, { actor, query, limit }) {
   return contactHistoryCall(env, actor, '/contacts/recordings', { query, limit })
 }

@@ -5697,6 +5697,58 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── add_contact_note (2026-11-11) ────────────────────────────────────────
+  //
+  // A note on one contact, saved as an interaction of type 'Note' — the same row the Contacts
+  // app's Note button writes (architect's decision 2026-11-11: notes are log entries, many per
+  // contact, with a timestamp, read back by get_contact_logs). Writing the caller's own book is
+  // graph:write, like create_contact and set_meeting_report. The contact must exist in the
+  // caller's own book; its name is taken from that row, never from an argument.
+  server.registerTool(
+    'add_contact_note',
+    {
+      title: 'Save a note on a contact (ContactHub)',
+      description:
+        'Save a free-text NOTE on ONE contact in YOUR OWN ContactHub. It is stored as a new ' +
+        'interaction of type "Note", timestamped now, and shows in the app under "Interaction ' +
+        'History" — the same as the Note button in the Contacts app. Each call adds a new note; ' +
+        'it never overwrites an earlier one. Read notes back with get_contact_logs. Find the ' +
+        'contactId with search_contacts. Requires the graph:write scope.',
+      inputSchema: {
+        contactId: z.string().min(1).describe('The contact, from search_contacts.'),
+        note: z.string().min(1).max(20000).describe('The note text.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        logId: z.string(),
+        contactId: z.string(),
+        name: z.string(),
+        loggedAt: z.string(),
+        note: z.string(),
+      },
+      annotations: ADDITIVE_WRITE,
+    },
+    async ({ contactId, note }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await users.addContactNote(env, { actor, contactId, note })
+      if (!r.ok) return fromService(r)
+      const payload = {
+        success: true,
+        logId: String(r.logId || ''),
+        contactId: String(r.contactId || contactId),
+        name: String(r.name || ''),
+        loggedAt: String(r.loggedAt || ''),
+        note: String(r.note ?? note),
+      }
+      return ok(payload, `Note saved on ${payload.name || 'the contact'} (contactId ${payload.contactId}) at ` +
+        `${payload.loggedAt.replace('T', ' ').slice(0, 16)} UTC — logId ${payload.logId}.`)
+    },
+  )
+
   const RECORDING_SHAPE = z.object({
     recordingId: z.string(),
     name: z.string(),
@@ -6636,6 +6688,7 @@ export const TOOL_NAMES = [
   'preview_meeting_report',
   'send_meeting_report',
   'get_contact_logs',
+  'add_contact_note',
   'list_recordings',
   'transcribe_contact_recording',
   'set_user_groups',
