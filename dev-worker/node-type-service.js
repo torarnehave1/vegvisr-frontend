@@ -10,7 +10,7 @@
  *   REST GET /node-types/world/mine · POST /node-types/world/{create,look,use}     (index.js)
  *
  * Every function returns { ok: true, ... } or a graph-service failure { ok: false, code, message }.
- * Who may: mayUseWorld — the World's founder or account holder, a system owner, a Superadmin.
+ * Who may: mayManageWorld — the World's founder or account holder, a system owner, a Superadmin.
  *
  * A type node (system-nodetype in the World's #WORLD-NODE-TYPES registry graph) carries:
  *   label            the type name (slug), what a node's `type` holds
@@ -20,7 +20,7 @@
  *   metadata.renderer { version, impl, status: pending|approved, scope, approvedBy, ... }
  */
 import * as gs from './graph-service.js'
-import { mayUseWorld, worldsFoundedBy } from './graph-store.js'
+import { mayManageWorld, worldsFoundedBy } from './graph-store.js'
 import { NODE_TYPES } from './node-types.js'
 import {
   REGISTRY_NODE_TYPE, TYPE_NAME, WORLD_TYPES_TAG, normalizeWorld, registeredNodeTypes,
@@ -79,7 +79,7 @@ export function normalizeFields(fields) {
 }
 
 /**
- * Which World an actor means. A named World is checked against mayUseWorld; with none, the Worlds
+ * Which World an actor means. A named World is checked against mayManageWorld; with none, the Worlds
  * they founded or hold (V4 A) — exactly one is used, several must be named, none is refused.
  */
 export async function resolveTypeWorld(env, actor, world) {
@@ -91,7 +91,7 @@ export async function resolveTypeWorld(env, actor, world) {
     else if (own.length > 1) return fail(ERR.INVALID_INPUT, `You have several Worlds (${own.join(', ')}). Say which one.`, { worlds: own })
     else return fail(ERR.FORBIDDEN_GRAPH, 'You have no World with its own storage, so there is nowhere to keep your own node types.')
   }
-  if (!(await mayUseWorld(env, actor, domain))) return fail(ERR.FORBIDDEN_GRAPH, `Node types in ${domain} are for that World's founder.`)
+  if (!(await mayManageWorld(env, actor, domain))) return fail(ERR.FORBIDDEN_GRAPH, `Node types in ${domain} are for that World's founder.`)
   return { ok: true, world: domain }
 }
 

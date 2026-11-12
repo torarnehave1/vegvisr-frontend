@@ -512,11 +512,11 @@ export async function isSystemOwner(env, actor) {
 }
 
 /**
- * Who may reach a World's graphs: a Superadmin, a system owner, or the World's founder or account
- * holder. An actor with no identity — a trusted origin, a service binding that names no user —
- * never may.
+ * Who RUNS a World: a Superadmin, a system owner, or the World's founder or account holder. This
+ * is the gate for what shapes the World itself — its node types and their renderers. An actor
+ * with no identity — a trusted origin, a service binding that names no user — never may.
  */
-export async function mayUseWorld(env, actor, domain) {
+export async function mayManageWorld(env, actor, domain) {
   if (!actor || actor.anonymous || (!actor.email && !actor.isSuperadmin)) return false
   if (actor.isSuperadmin || (await isSystemOwner(env, actor))) return true
   const row = await registryRead(
@@ -525,6 +525,55 @@ export async function mayUseWorld(env, actor, domain) {
     [String(domain).toLowerCase(), actor.email, actor.email],
   )
   return Boolean(row)
+}
+
+/**
+ * The tag that says "member of this World": world_founders.meta_area_tag when the registry names
+ * one (#IAMAZING), else the domain's first label by convention (nibi.no → #NIBI). Uppercase, with
+ * its hash. `founderRow` is a world_founders row, or null/undefined when there is none.
+ */
+export function worldTagOf(domain, founderRow) {
+  const named = String(founderRow?.meta_area_tag || '').trim().replace(/^#/, '')
+  const stem = named || String(domain || '').trim().split('.')[0]
+  return stem ? `#${stem.toUpperCase()}` : null
+}
+
+/**
+ * The group tags on a person's account (config.group_tags, "#NIBI #NIBI-OKONOMI"), as a Set of
+ * uppercase tags. Whole tags only: #NIBI-OKONOMI is not #NIBI. A missing table or column means no
+ * tags — membership fails closed; any other failure is an error.
+ */
+async function groupTagsOf(env, email) {
+  if (!email) return new Set()
+  let row
+  try {
+    row = await env.vegvisr_org.prepare('SELECT group_tags FROM config WHERE LOWER(email) = ? LIMIT 1').bind(String(email).toLowerCase()).first()
+  } catch (e) {
+    if (/no such (table|column)/i.test(e.message)) return new Set()
+    throw new GraphStoreError('STORE_UNAVAILABLE', `The member registry could not be read: ${e.message}`)
+  }
+  return new Set(String(row?.group_tags || '').toUpperCase().split(/\s+/).filter(Boolean))
+}
+
+/** Does this person carry the World's tag — are they a member of it? */
+async function isWorldMember(env, actor, domain) {
+  if (!actor?.email) return false
+  const d = String(domain).toLowerCase()
+  const founderRow = await registryRead(env, 'SELECT * FROM world_founders WHERE domain = ? LIMIT 1', [d])
+  const tag = worldTagOf(d, founderRow)
+  return Boolean(tag) && (await groupTagsOf(env, actor.email)).has(tag)
+}
+
+/**
+ * Who may reach a World's graphs: whoever runs it (mayManageWorld), and every MEMBER of it — a
+ * person whose account carries the World's tag (owner decision 2026-11-12: the tag gives full
+ * access, in every World). A World's graphs are shared by its members: there is no per-graph
+ * ownership inside a World store, so a member reads and changes all of them.
+ */
+export async function mayUseWorld(env, actor, domain) {
+  if (!actor || actor.anonymous || (!actor.email && !actor.isSuperadmin)) return false
+  if (await mayManageWorld(env, actor, domain)) return true
+  return isWorldMember(env, actor, domain)
 }
 
 /**
@@ -546,8 +595,8 @@ async function authorizedWorldStore(env, row, actor, graphId) {
     throw new GraphStoreError(
       'FORBIDDEN_GRAPH',
       graphId
-        ? `Graph ${graphId} is stored in the World ${row.domain}, and this request is not signed in as that World's founder.`
-        : `Only the founder of ${row.domain} or a Superadmin may store graphs there.`,
+        ? `Graph ${graphId} is stored in the World ${row.domain}, and this request is not signed in as a member of that World.`
+        : `Only members of ${row.domain} (people carrying its tag), its founder or a Superadmin may store graphs there.`,
     )
   }
   return new WorldStore(env, row)
@@ -619,24 +668,34 @@ export async function setLocationStatus(env, graphId, status, now = new Date().t
 /**
  * Every World store this actor may use — for listings, searches and the trash, which have no
  * graph id to route by and so must ask each store the actor can see. A Superadmin sees every live
- * store; a founder or account holder sees their own World's; anyone else, none.
+ * store; a founder, account holder or member (see mayUseWorld) sees their own World's; anyone
+ * else, none.
  */
 export async function worldStoresFor(env, actor) {
   if (!actor || actor.anonymous || (!actor.email && !actor.isSuperadmin)) return []
   const seesAll = actor.isSuperadmin || (await isSystemOwner(env, actor))
   let rows
   try {
-    const sql = seesAll
-      ? "SELECT * FROM world_graph_stores WHERE status IN ('provisioned', 'active') ORDER BY domain"
-      : `SELECT DISTINCT s.* FROM world_graph_stores s JOIN world_founders f ON f.domain = s.domain
-         WHERE s.status IN ('provisioned', 'active')
-           AND (LOWER(f.founder_email) = ? OR LOWER(COALESCE(f.account_holder_email, '')) = ?)
-         ORDER BY s.domain`
-    const stmt = env.vegvisr_org.prepare(sql)
-    rows = (await (seesAll ? stmt : stmt.bind(actor.email, actor.email)).all()).results || []
+    rows = (await env.vegvisr_org.prepare("SELECT * FROM world_graph_stores WHERE status IN ('provisioned', 'active') ORDER BY domain").all()).results || []
   } catch (e) {
     if (/no such table/i.test(e.message)) return []
     throw new GraphStoreError('STORE_UNAVAILABLE', `The graph registry could not be read: ${e.message}`)
+  }
+  if (!seesAll && rows.length) {
+    // One read of the founder rows and one of the person's tags, not one of each per World.
+    let founders
+    try {
+      founders = (await env.vegvisr_org.prepare('SELECT * FROM world_founders').all()).results || []
+    } catch (e) {
+      if (!/no such table/i.test(e.message)) throw new GraphStoreError('STORE_UNAVAILABLE', `The graph registry could not be read: ${e.message}`)
+      founders = []
+    }
+    const tags = await groupTagsOf(env, actor.email)
+    rows = rows.filter((row) => {
+      const mine = founders.filter((f) => String(f.domain || '').toLowerCase() === row.domain)
+      if (mine.some((f) => [f.founder_email, f.account_holder_email].some((e) => String(e || '').toLowerCase() === actor.email))) return true
+      return tags.has(worldTagOf(row.domain, mine[0]))
+    })
   }
   return rows.map((row) => new WorldStore(env, row))
 }

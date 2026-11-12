@@ -295,9 +295,10 @@ export async function checkAccess(env, actor, graphId, action = 'read') {
 
   const isPublished = meta.publicationState === 'published'
 
-  // A graph in a World store: resolveGraphStore() has already admitted this actor (Superadmin, or
-  // the World's founder or account holder), and that is the whole rule there — the World's
-  // graphs are the founder's, whoever typed them in.
+  // A graph in a World store: resolveGraphStore() has already admitted this actor (Superadmin, the
+  // World's founder or account holder, or a member carrying the World's tag — mayUseWorld), and
+  // that is the whole rule there — the World's graphs are shared by its members, whoever typed
+  // them in.
   if (store.kind === 'world') return { ok: true, graph: row, owner: ownerOf(row, meta), isPublished, world: store.world }
 
   // Superadmin passes everything.

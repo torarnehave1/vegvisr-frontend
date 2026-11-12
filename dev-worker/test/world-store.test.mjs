@@ -344,3 +344,58 @@ describe('platform graphs are untouched by any of this', () => {
     assert.equal((await gs.getGraph(env, r.graphId)).ok, true)
   })
 })
+
+// ── Members: the World's tag gives access to its graphs (owner decision 2026-11-12) ──────────────
+describe("a member — an account carrying the World's tag — shares the World's graphs", () => {
+  const member = actor('member@example.com', 'Admin')
+  const roleOnly = actor('roleonly@example.com', 'Admin')
+  const tagUser = (email, tags) => {
+    env.vegvisr_org.db.exec('CREATE TABLE IF NOT EXISTS config (user_id TEXT, data TEXT, email TEXT PRIMARY KEY, Role TEXT, group_tags TEXT)')
+    env.vegvisr_org.db.prepare("INSERT OR REPLACE INTO config (user_id, data, email, Role, group_tags) VALUES (?, '{}', ?, 'Admin', ?)").run(email, email, tags)
+  }
+
+  test('by convention the tag is the first label of the domain: #SODESIGN for sodesign.no', async () => {
+    tagUser(member.email, '#DEMO #SODESIGN')
+    const r = await create(member)
+    assert.equal(r.ok, true, r.message)
+    assert.equal(r.world, WORLD)
+    assert.equal(worldRows(r.graphId), 1)
+    assert.equal(platformRows(r.graphId), 0)
+  })
+  test("a member reads and changes a graph the founder made, and lists the World's graphs", async () => {
+    tagUser(member.email, '#SODESIGN')
+    const g = await create(stine)
+    assert.equal((await gs.getGraph(env, g.graphId, { caller: member })).ok, true)
+    const w = await gs.addNode(env, { graphId: g.graphId, node: { id: 'n2', label: 'n2', info: 'fra et medlem' }, actor: member })
+    assert.equal(w.ok, true, w.message)
+    const mine = await gs.listMyGraphs(env, { actor: member })
+    assert.ok(mine.results.some((x) => x.graphId === g.graphId && x.world === WORLD))
+  })
+  test('a role tag alone is not membership: #SODESIGN-OKONOMI is not #SODESIGN', async () => {
+    tagUser(roleOnly.email, '#SODESIGN-OKONOMI #NIBI')
+    const r = await create(roleOnly)
+    assert.equal(r.ok, false)
+    assert.equal(r.code, 'FORBIDDEN_GRAPH')
+  })
+  test("the registry's own tag wins over the convention when it names one", async () => {
+    env.vegvisr_org.db.exec("ALTER TABLE world_founders ADD COLUMN meta_area_tag TEXT; UPDATE world_founders SET meta_area_tag = '#STINE'")
+    tagUser(member.email, '#SODESIGN')
+    assert.equal((await create(member)).code, 'FORBIDDEN_GRAPH')
+    tagUser(member.email, '#stine')
+    assert.equal((await create(member)).ok, true)
+  })
+  test('a member is never defaulted into the World: unnamed, a new graph stays on the platform', async () => {
+    tagUser(member.email, '#SODESIGN')
+    const r = await gs.createGraph(env, { title: 'P', metaArea: '#X', actor: member })
+    assert.equal(r.ok, true, r.message)
+    assert.equal(r.world, null)
+  })
+  test('a member does not run the World: mayManageWorld stays with founder, holder and Superadmin', async () => {
+    const { mayManageWorld, mayUseWorld } = await import('../graph-store.js')
+    tagUser(member.email, '#SODESIGN')
+    assert.equal(await mayUseWorld(env, member, WORLD), true)
+    assert.equal(await mayManageWorld(env, member, WORLD), false)
+    assert.equal(await mayManageWorld(env, stine, WORLD), true)
+    assert.equal(await mayUseWorld(env, stranger, WORLD), false)
+  })
+})

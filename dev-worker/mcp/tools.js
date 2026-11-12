@@ -35,7 +35,7 @@ import {
   normalizeWorld, registeredNodeTypes, worldRegistryGraph, nodeTypeAllowedIn,
   nodeTypeEntry, nodeTypeRenderers, worldTypeInfo,
 } from '../node-type-registry.js'
-import { mayUseWorld, defaultWorldFor, HISTORY_CAP } from '../graph-store.js'
+import { mayManageWorld, defaultWorldFor, HISTORY_CAP } from '../graph-store.js'
 import * as nts from '../node-type-service.js'
 import * as users from '../users-service.js'
 import * as sms from '../sms-service.js'
@@ -337,7 +337,7 @@ async function typeRegistryFor(env, actor, world, what) {
     if (!reg.ok) return { error: fromService(reg) }
     return { graphId: REGISTRY_GRAPH_ID, nodes: reg.graph.nodes || [], version: reg.version, scope: 'platform', world: null }
   }
-  if (!(await mayUseWorld(env, actor, domain))) {
+  if (!(await mayManageWorld(env, actor, domain))) {
     return { error: err(gs.ERR.FORBIDDEN_GRAPH, `${what} in ${domain} is for that World's founder (or a Superadmin).`) }
   }
   const reg = await worldRegistryGraph(env, domain)
@@ -392,7 +392,8 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
           .optional()
           .describe(
             "Store the graph in this World's OWN storage instead of the platform's, e.g. \"sodesign.no\". " +
-              'Only that World\'s founder or a Superadmin may. Omit it to store on the platform as before.',
+              'Members of that World (people carrying its tag, e.g. #NIBI for nibi.no), its founder or a Superadmin may; ' +
+              "a World's graphs are shared by all its members. Omit it to store on the platform as before.",
           ),
       },
       outputSchema: {
