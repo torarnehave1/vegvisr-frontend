@@ -1551,6 +1551,32 @@ async function resolvePluginUser(env, token) {
   }
 }
 
+// The picture a graph-portfolio card shows (/getknowgraphsummaries `thumbnail`). Order: the
+// graph's own portfolio-image node, metadata.seoOgImage, then the same scan the SEO card and the
+// Knowledge Editor use (findGraphImage in Knowledge-Editor/src/lib/graphImage.ts): first image
+// node, then the first node whose info holds an IMAGEQUOTE background, markdown image or <img>,
+// then any node path ending in an image extension. The SQL hands over only the matching snippet
+// of that one node's info, so a big html-node does not travel. null when the graph has none.
+function pickSummaryThumbnail(row) {
+  if (row.portfolio_image_path) return row.portfolio_image_path
+  if (row.metadata_seo_og_image) return row.metadata_seo_og_image
+  if (row.image_node_path) return row.image_node_path
+  const info = typeof row.image_info_snippet === 'string' ? row.image_info_snippet : ''
+  if (info) {
+    const quote = info.match(/\[IMAGEQUOTE\s*([^\]]*)\]/i)
+    if (quote) {
+      const bg = quote[1].match(/backgroundImage:\s*(?:'([^']*)'|"([^"]*)"|(\S+))/i)
+      const u = bg ? bg[1] || bg[2] || bg[3] || '' : ''
+      if (/^https?:\/\//i.test(u)) return u
+    }
+    const md = info.match(/!\[.*?\]\((.*?)\)/)
+    if (md && md[1]) return md[1]
+    const img = info.match(/<img[^>]+src=["']([^"']+)["']/i)
+    if (img && img[1]) return img[1]
+  }
+  return row.any_image_path || null
+}
+
 function getPluginProxyPath(pathname) {
   const prefix = '/plugin/api'
   if (!pathname.startsWith(prefix)) return null
@@ -4394,6 +4420,11 @@ const restHandler = {
                                   edgeCount: { type: 'integer' },
                                   nodeTypes: { type: 'array', items: { type: 'string' } },
                                   nodeLabelsText: { type: 'string' },
+                                  thumbnail: {
+                                    type: 'string',
+                                    nullable: true,
+                                    description: "The picture for a graph-portfolio card: the graph's portfolio-image node, else metadata.seoOgImage, else the first image found in its nodes (image node path, IMAGEQUOTE background, markdown image, <img>, image-extension path). null when the graph has none. Not set by the minimal fallback query."
+                                  },
                                   publishedDomains: {
                                     type: 'array',
                                     items: { type: 'string' },
@@ -6638,6 +6669,46 @@ const restHandler = {
                   AND json_extract(value, '$.path') IS NOT NULL
                 LIMIT 1
               ) AS portfolio_image_path,
+              json_extract(${safeJsonDataSql}, '$.metadata.seoOgImage') AS metadata_seo_og_image,
+              (
+                SELECT json_extract(value, '$.path')
+                FROM json_each(${safeNodesSql})
+                WHERE json_extract(value, '$.type') = 'image'
+                  AND COALESCE(json_extract(value, '$.path'), '') <> ''
+                ORDER BY CAST(key AS INTEGER)
+                LIMIT 1
+              ) AS image_node_path,
+              (
+                SELECT substr(info, max(1, pos - 1), 4000)
+                FROM (
+                  SELECT
+                    CAST(key AS INTEGER) AS k,
+                    json_extract(value, '$.info') AS info,
+                    min(
+                      CASE WHEN instr(json_extract(value, '$.info'), '[IMAGEQUOTE') > 0 THEN instr(json_extract(value, '$.info'), '[IMAGEQUOTE') ELSE 1000000000 END,
+                      CASE WHEN instr(json_extract(value, '$.info'), '![') > 0 THEN instr(json_extract(value, '$.info'), '![') ELSE 1000000000 END,
+                      CASE WHEN instr(json_extract(value, '$.info'), '<img') > 0 THEN instr(json_extract(value, '$.info'), '<img') ELSE 1000000000 END
+                    ) AS pos
+                  FROM json_each(${safeNodesSql})
+                  WHERE json_type(value, '$.info') = 'text'
+                )
+                WHERE pos < 1000000000
+                ORDER BY k
+                LIMIT 1
+              ) AS image_info_snippet,
+              (
+                SELECT json_extract(value, '$.path')
+                FROM json_each(${safeNodesSql})
+                WHERE lower(COALESCE(json_extract(value, '$.path'), '')) LIKE '%.jpg'
+                   OR lower(COALESCE(json_extract(value, '$.path'), '')) LIKE '%.jpeg'
+                   OR lower(COALESCE(json_extract(value, '$.path'), '')) LIKE '%.png'
+                   OR lower(COALESCE(json_extract(value, '$.path'), '')) LIKE '%.gif'
+                   OR lower(COALESCE(json_extract(value, '$.path'), '')) LIKE '%.webp'
+                   OR lower(COALESCE(json_extract(value, '$.path'), '')) LIKE '%.svg'
+                   OR lower(COALESCE(json_extract(value, '$.path'), '')) LIKE '%picsum.photos%'
+                ORDER BY CAST(key AS INTEGER)
+                LIMIT 1
+              ) AS any_image_path,
               COALESCE((
                 SELECT GROUP_CONCAT(DISTINCT json_extract(value, '$.publishedDomain'))
                 FROM json_each(${safeNodesSql})
@@ -6806,6 +6877,7 @@ const restHandler = {
                 nodeTypes,
                 nodeLabelsText,
                 portfolioImagePath: row.portfolio_image_path || null,
+                thumbnail: pickSummaryThumbnail(row),
                 publishedDomains,
                 searchText: `${nodeTypes.join(' ')} ${nodeLabelsText} ${publishedDomains.join(' ')}`.trim(),
                 ...(row._world ? { world: row._world } : {}),
