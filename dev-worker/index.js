@@ -1551,6 +1551,21 @@ async function resolvePluginUser(env, token) {
   }
 }
 
+// /getknowgraphsummaries `nodeTypeCounts`: { type: number of nodes of that type }, from the rich
+// SQL's json_group_object. {} when the graph has no typed nodes or the minimal fallback ran.
+function parseNodeTypeCounts(json) {
+  if (!json || typeof json !== 'string') return {}
+  try {
+    const obj = JSON.parse(json)
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {}
+    const out = {}
+    for (const [k, v] of Object.entries(obj)) if (k && Number(v) > 0) out[k] = Number(v)
+    return out
+  } catch {
+    return {}
+  }
+}
+
 // The picture a graph-portfolio card shows (/getknowgraphsummaries `thumbnail`). Order: the
 // graph's own portfolio-image node, metadata.seoOgImage, then the same scan the SEO card and the
 // Knowledge Editor use (findGraphImage in Knowledge-Editor/src/lib/graphImage.ts): first image
@@ -4420,6 +4435,11 @@ const restHandler = {
                                   edgeCount: { type: 'integer' },
                                   nodeTypes: { type: 'array', items: { type: 'string' } },
                                   nodeLabelsText: { type: 'string' },
+                                  nodeTypeCounts: {
+                                    type: 'object',
+                                    additionalProperties: { type: 'integer' },
+                                    description: 'Number of nodes per node type, e.g. { "fulltext": 4, "image": 2 }. nodeTypes stays the list of distinct type names. {} when the minimal fallback query served the page.'
+                                  },
                                   thumbnail: {
                                     type: 'string',
                                     nullable: true,
@@ -6653,6 +6673,15 @@ const restHandler = {
                 FROM json_each(${safeNodesSql})
                 WHERE json_extract(value, '$.type') IS NOT NULL
               ), '') AS node_types_csv,
+              (
+                SELECT json_group_object(t, n)
+                FROM (
+                  SELECT json_extract(value, '$.type') AS t, COUNT(*) AS n
+                  FROM json_each(${safeNodesSql})
+                  WHERE json_extract(value, '$.type') IS NOT NULL
+                  GROUP BY t
+                )
+              ) AS node_type_counts_json,
               COALESCE((
                 SELECT GROUP_CONCAT(json_extract(label_rows.value, '$.label'), ' ')
                 FROM (
@@ -6875,6 +6904,7 @@ const restHandler = {
                 nodeCount: Number(row.node_count || 0),
                 edgeCount: Number(row.edge_count || 0),
                 nodeTypes,
+                nodeTypeCounts: parseNodeTypeCounts(row.node_type_counts_json),
                 nodeLabelsText,
                 portfolioImagePath: row.portfolio_image_path || null,
                 thumbnail: pickSummaryThumbnail(row),
