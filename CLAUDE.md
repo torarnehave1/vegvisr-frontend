@@ -256,7 +256,11 @@ wrangler deploy
 # Workers are NOT auto-deployed from GitHub
 ```
 
-**Four exceptions, all deployed by GitHub Actions behind the owner's approval:**
+**Five exceptions, all deployed by GitHub Actions behind the owner's approval:**
+
+- `flows-worker/` (the VEGR Flows engine) — `.github/workflows/deploy-flows-worker.yml`:
+  unit tests → approval → `wrangler deploy` → `/health` check. Its `wrangler.toml` is tracked
+  (binding names and ids only).
 
 - `dev-worker/` (the MCP server, `knowledge-graph-worker`) —
   `.github/workflows/deploy-dev-worker.yml`: unit tests → approval → `wrangler deploy` → public
@@ -280,7 +284,7 @@ wrangler deploy
   Superadmin only — discovered from the RUNNING worker by `dev-worker/worker-tools.js`, so an
   unapproved worker has no tools. Calls forward the arguments and nothing else.
 
-All four deploy jobs run in the GitHub environment `mcp-production`, which has a required reviewer.
+All five deploy jobs run in the GitHub environment `mcp-production`, which has a required reviewer.
 `CLOUDFLARE_API_TOKEN` is a secret of THAT ENVIRONMENT and must never be added as a repository
 secret — any workflow file on `main` can read a repository secret, which would bypass the approval.
 

@@ -1,0 +1,74 @@
+# Deploys flows-worker (the VEGR Flows engine: FlowRunner workflow + the minute-cron) from GitHub:
+# unit tests → the owner's approval → wrangler deploy → live check.
+#
+# Same gate as deploy-dev-worker.yml, and for the same reason: the deploy job runs in the
+# `mcp-production` environment, which has a required reviewer, and CLOUDFLARE_API_TOKEN exists
+# ONLY as a secret of that environment. Never add it as a repository secret.
+#
+# flows-worker/wrangler.toml is tracked (public repo): binding names and ids only.
+# Added 2026-11-13: until then this worker had no CI and was deployed by hand, so the strict
+# engine built after the failed Samtalerapport runs of 10 Nov sat in git without running.
+name: Deploy flows-worker (VEGR Flows engine)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'flows-worker/**'
+      - '.github/workflows/deploy-flows-worker.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-flows-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 1/3 unit tests
+        run: node --test flows-worker/test/*.test.mjs
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: mcp-production
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 5d9b2060ef095c777711a8649c24914e
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+
+      - name: Check the Cloudflare token is set
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Environment secret CLOUDFLARE_API_TOKEN is missing — gh secret set CLOUDFLARE_API_TOKEN --env mcp-production"
+            exit 1
+          fi
+
+      - name: 2/3 deploy
+        working-directory: flows-worker
+        run: npx wrangler deploy
+
+      - name: 3/3 live check (/health answers from the new code)
+        run: |
+          for i in 1 2 3 4 5 6; do
+            body=$(curl -s --max-time 10 https://flows-worker.torarnehave.workers.dev/health || true)
+            echo "attempt $i: $body"
+            case "$body" in *'"strict"'*) exit 0;; esac
+            sleep 5
+          done
+          echo "::error::flows-worker /health does not answer with the strict engine after deploy"
+          exit 1
