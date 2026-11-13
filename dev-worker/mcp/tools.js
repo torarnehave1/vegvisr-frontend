@@ -6730,6 +6730,84 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── graph_index ───────────────────────────────────────────────────────────
+  //
+  // The whole collection in one call. A map or timeline of every graph needs them all, and paging
+  // search_graphs for 1,510 graphs took 31 requests, each re-reading the pages before it. Light
+  // fields only; node lists only for one meta area at a time, and never node content.
+  server.registerTool(
+    'graph_index',
+    {
+      title: 'Index of all graphs in one call',
+      description:
+        'Every graph in ONE call, oldest first, with light fields only: id, title, meta area, ' +
+        'publication state, node count, created and updated dates (UTC) and World. No description ' +
+        'and no content. scope "mine" (default) is the graphs you own, as list_my_graphs counts ' +
+        'them; scope "all" is everything you can see, as search_graphs counts it. metaArea narrows ' +
+        'to one tag. includeNodes (needs a metaArea, at most 300 graphs) adds each graph\'s nodes ' +
+        '(id, label, type) and edges (source, target) — never node text. Made for maps, timelines ' +
+        'and counts over the whole collection; the rows are in the structured result, and the text ' +
+        'is only a summary — to read graphs as lines use list_my_graphs, to read one use get_graph. ' +
+        'Requires the graph:read scope.',
+      inputSchema: {
+        scope: z.enum(['mine', 'all']).optional().describe('"mine" (default): graphs you own. "all": every graph you can see, in every World you can use.'),
+        metaArea: z.string().optional().describe('Narrow to a meta-area tag, e.g. "#NINE".'),
+        includeNodes: z.boolean().optional().describe('Also return each graph\'s nodes (id, label, type) and edges. Needs metaArea.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        scope: z.string(),
+        metaArea: z.string().nullable(),
+        total: z.number(),
+        graphs: z.array(
+          z.object({
+            graphId: z.string(),
+            title: z.string().nullable(),
+            metaArea: z.string().nullable(),
+            publicationState: z.string(),
+            nodeCount: z.number(),
+            createdAt: z.string().nullable().describe("When the graph was first saved (UTC, the row's created_date)."),
+            updatedAt: z.string().nullable(),
+            world: z.string().nullable().describe("The World whose own storage holds this graph. Null: the platform's shared storage."),
+            nodes: z.array(z.object({ id: z.string(), label: z.string().nullable(), type: z.string().nullable() })).optional(),
+            edges: z.array(z.object({ source: z.string(), target: z.string() })).optional(),
+          }),
+        ),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ scope, metaArea, includeNodes }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await gs.graphIndex(env, { scope, metaArea, includeNodes: Boolean(includeNodes), actor })
+      if (!r.ok) return fromService(r)
+
+      const { ok: _o, ...payload } = r
+      const byYear = new Map()
+      for (const g of r.graphs) {
+        const y = g.createdAt ? String(g.createdAt).slice(0, 4) : 'no date'
+        byYear.set(y, (byYear.get(y) || 0) + 1)
+      }
+      const dated = r.graphs.filter((g) => g.createdAt)
+      const head = r.total === 0
+        ? 'No graphs matched.'
+        : `${r.total} graph${r.total === 1 ? '' : 's'} (${r.scope === 'all' ? 'everything you can see' : 'your own'}` +
+          `${r.metaArea ? `, meta area ${r.metaArea}` : ''})` +
+          (dated.length ? `, created ${String(dated[0].createdAt).slice(0, 10)} to ${String(dated[dated.length - 1].createdAt).slice(0, 10)}.` : '.')
+      const years = [...byYear.entries()].map(([y, n]) => `${y}: ${n}`).join(' · ')
+      // A short collection is listed; a long one would flood a chat, so the text says where the rows are.
+      const lines = r.total <= 60
+        ? r.graphs.map((g) => `• ${g.title || '(untitled)'} — ${g.graphId} · ${g.nodeCount} nodes` +
+            `${g.world ? ` · world ${g.world}` : ''}${createdText(g.createdAt)}`)
+        : ['The rows themselves are in the structured result (graphs[]). This text is a summary only: for readable lines use list_my_graphs or search_graphs.']
+      return ok({ success: true, ...payload }, [head, ...(r.total ? [`Created per year — ${years}`] : []), ...lines].join('\n'))
+    },
+  )
+
   // ── list_published_sites ──────────────────────────────────────────────────
   //
   // The portfolio's "Published sites" chip, as data. brand-worker writes an HTML_PAGES key
@@ -7185,6 +7263,7 @@ export const TOOL_NAMES = [
   'search_graphs',
   'list_my_graphs',
   'list_meta_areas',
+  'graph_index',
   'search',
   'fetch',
   'move_graph_to_world',

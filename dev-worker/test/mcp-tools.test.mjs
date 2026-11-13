@@ -502,6 +502,45 @@ describe('add_edge connects two existing nodes', () => {
   })
 })
 
+describe('graph_index: the whole collection in one call', () => {
+  test('returns every own graph oldest first with dates, and nodes only for a meta area', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const a = await callOk(client, 'create_graph', { title: 'Eldst', metaArea: '#NINE #X' })
+    const b = await callOk(client, 'create_graph', { title: 'Yngst', metaArea: '#Y' })
+    await env.vegvisr_org.prepare("UPDATE knowledge_graphs SET created_date = '2024-02-01 10:00:00' WHERE id = ?").bind(a.graphId).run()
+    await env.vegvisr_org.prepare("UPDATE knowledge_graphs SET created_date = '2026-05-01 10:00:00' WHERE id = ?").bind(b.graphId).run()
+    const n1 = await callOk(client, 'add_node', { graphId: a.graphId, node: { label: 'en', info: 'HEMMELIG TEKST' } })
+    const n2 = await callOk(client, 'add_node', { graphId: a.graphId, node: { label: 'to' } })
+    await callOk(client, 'add_edge', { graphId: a.graphId, edge: { source: n1.nodeId, target: n2.nodeId } })
+
+    const all = await callOk(client, 'graph_index', {})
+    assert.deepEqual(all.graphs.map((g) => g.title), ['Eldst', 'Yngst'])
+    assert.equal(all.graphs[0].createdAt, '2024-02-01 10:00:00')
+    assert.equal(all.graphs[0].nodeCount, 2)
+    assert.equal(all.graphs[0].nodes, undefined)
+
+    const nine = await callOk(client, 'graph_index', { metaArea: '#NINE', includeNodes: true })
+    assert.equal(nine.total, 1)
+    assert.deepEqual(nine.graphs[0].nodes.map((n) => n.label).sort(), ['en', 'to'])
+    assert.deepEqual(nine.graphs[0].edges, [{ source: n1.nodeId, target: n2.nodeId }])
+    assert.ok(!JSON.stringify(nine).includes('HEMMELIG'), 'node content must not be in the index')
+
+    const refused = await callErr(client, 'graph_index', { includeNodes: true })
+    assert.equal(refused.code, gs.ERR.INVALID_INPUT)
+  })
+
+  test('scope "mine" never returns another user\'s graph, and "all" only their published ones', async () => {
+    const { env } = freshDb()
+    const { client: alice } = await connect(env, ALICE_RW)
+    const { client: bob } = await connect(env, BOB_RW)
+    await callOk(alice, 'create_graph', { title: 'Alices private', metaArea: '#Z' })
+    await callOk(bob, 'create_graph', { title: 'Bobs', metaArea: '#Z' })
+    assert.deepEqual((await callOk(bob, 'graph_index', {})).graphs.map((g) => g.title), ['Bobs'])
+    assert.deepEqual((await callOk(bob, 'graph_index', { scope: 'all' })).graphs.map((g) => g.title), ['Bobs'])
+  })
+})
+
 describe('createdAt on graph reads', () => {
   test('list_my_graphs, search_graphs and get_graph carry the row\'s created_date, and an edit keeps it', async () => {
     const { env } = freshDb()
@@ -1010,6 +1049,8 @@ describe('annotations tell the client the truth about each tool', () => {
       ['list_my_graphs', {}],
       ['search_graphs', { query: 'T' }],
       ['list_meta_areas', {}],
+      ['graph_index', {}],
+      ['graph_index', { scope: 'all', metaArea: '#X', includeNodes: true }],
       ['list_published_sites', {}],
       ['get_graph', { graphId: g.graphId }],
       ['get_graph_links', { graphId: g.graphId }],

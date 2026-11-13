@@ -1692,3 +1692,135 @@ export async function moveGraphToWorld(env, { graphId, world, actor }) {
     ...graphLinks(graphId, domain),
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The whole collection in one read (2026-11-13)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const INDEX_MAX_GRAPHS = 20000
+const INDEX_NODES_MAX_GRAPHS = 300
+
+/**
+ * Every graph the actor owns (scope 'mine') or may see (scope 'all'), oldest first, in ONE query
+ * per store and with light fields only.
+ *
+ * Why it exists: a map of the collection needs every graph, and paging search_graphs for it cost
+ * 31 requests for 1,510 graphs — each of which re-read all earlier pages (queryAcrossStores takes
+ * the newest offset+limit rows per store) and ran a json_each over every graph's nodes for the
+ * published domains. This reads each store once and skips description and domains.
+ *
+ * includeNodes adds each graph's nodes (id, label, type) and edges (source, target) — never node
+ * content. It needs a metaArea and is refused above INDEX_NODES_MAX_GRAPHS graphs, so one call
+ * cannot pull the node lists of the whole collection.
+ *
+ * Who sees what is exactly listMyGraphs' rule ('mine') or searchGraphs' rule ('all').
+ */
+export async function graphIndex(env, { scope = 'mine', metaArea = null, includeNodes = false, actor }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  const all = scope === 'all'
+  if (!all && !actor.email) {
+    return fail(ERR.FORBIDDEN_GRAPH, 'This token has no user identity, so it owns no graphs.')
+  }
+
+  const dataSql = `CASE WHEN json_valid(data) THEN data END`
+  const nodesSql = `COALESCE(json_extract(${dataSql}, '$.nodes'), '[]')`
+  const edgesSql = `COALESCE(json_extract(${dataSql}, '$.edges'), '[]')`
+
+  const areaFilter = metaAreaTagFilter(dataSql, metaArea)
+  if (includeNodes && !areaFilter) {
+    return fail(ERR.INVALID_INPUT, 'includeNodes needs a metaArea: node lists are returned for one meta area at a time.')
+  }
+  const areaClause = areaFilter ? [areaFilter.sql] : []
+  const areaBind = areaFilter ? [areaFilter.binding] : []
+
+  let whereFor
+  if (all) {
+    const vis = visibilityClause(actor)
+    whereFor = (store) => {
+      const c = store.kind === 'world' ? [...areaClause] : [...(vis.sql ? [vis.sql] : []), ...areaClause]
+      const b = store.kind === 'world' ? [...areaBind] : [...vis.bindings, ...areaBind]
+      return { whereSql: c.length ? `WHERE ${c.join(' AND ')}` : '', bindings: b }
+    }
+  } else {
+    // The same "mine" as listMyGraphs: created by me on the platform; in a World store the
+    // World's graphs — except for a Superadmin who is not that World's founder.
+    const founderOf = new Set()
+    if (actor.isSuperadmin) {
+      for (const ws of await worldStoresFor(env, { ...actor, isSuperadmin: false })) founderOf.add(ws.world)
+    }
+    whereFor = (store) => {
+      const ownAll = store.kind === 'world' && (!actor.isSuperadmin || founderOf.has(store.world))
+      const c = [...(ownAll ? [] : [`LOWER(COALESCE(creator_email, '')) = ?`]), ...areaClause]
+      const b = [...(ownAll ? [] : [actor.email]), ...areaBind]
+      return { whereSql: c.length ? `WHERE ${c.join(' AND ')}` : '', bindings: b }
+    }
+  }
+
+  const nodeCols = includeNodes
+    ? `,
+        (SELECT json_group_array(json_object(
+            'id', json_extract(value, '$.id'),
+            'label', json_extract(value, '$.label'),
+            'type', json_extract(value, '$.type')))
+          FROM json_each(${nodesSql})) AS nodes_json,
+        (SELECT json_group_array(json_object(
+            'source', json_extract(value, '$.source'),
+            'target', json_extract(value, '$.target')))
+          FROM json_each(${edgesSql})) AS edges_json`
+    : ''
+  const selectSql = `
+      SELECT
+        id,
+        COALESCE(json_extract(${dataSql}, '$.metadata.title'), title, '') AS title,
+        COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '') AS meta_area,
+        COALESCE(json_extract(${dataSql}, '$.metadata.publicationState'), 'private') AS publication_state,
+        COALESCE(json_array_length(${nodesSql}), 0) AS node_count,
+        created_date,
+        updated_at${nodeCols}
+      FROM knowledge_graphs`
+
+  const cap = includeNodes ? INDEX_NODES_MAX_GRAPHS : INDEX_MAX_GRAPHS
+  const stores = [platformStore(env), ...(await worldStoresFor(env, actor))]
+  const rows = []
+  for (const store of stores) {
+    const w = whereFor(store)
+    if (!w) continue
+    const page = await store.all(`${selectSql} ${w.whereSql} ORDER BY created_date ASC LIMIT ?`, [...w.bindings, cap + 1])
+    for (const r of page) rows.push({ ...r, _world: store.world })
+  }
+  if (includeNodes && rows.length > INDEX_NODES_MAX_GRAPHS) {
+    return fail(ERR.INVALID_INPUT, `That meta area covers more than ${INDEX_NODES_MAX_GRAPHS} graphs; node lists are returned for at most ${INDEX_NODES_MAX_GRAPHS} graphs at a time.`)
+  }
+  rows.sort((a, b) => String(a.created_date || '').localeCompare(String(b.created_date || '')))
+
+  const parseList = (text) => {
+    try {
+      const v = JSON.parse(text || '[]')
+      return Array.isArray(v) ? v : []
+    } catch {
+      return []
+    }
+  }
+  const graphs = rows.slice(0, INDEX_MAX_GRAPHS).map((r) => ({
+    graphId: r.id,
+    title: r.title || null,
+    metaArea: r.meta_area || null,
+    publicationState: r.publication_state || 'private',
+    nodeCount: r.node_count ?? 0,
+    createdAt: r.created_date || null,
+    updatedAt: r.updated_at || null,
+    world: r._world || null,
+    ...(includeNodes
+      ? {
+          nodes: parseList(r.nodes_json)
+            .filter((n) => n && n.id != null)
+            .map((n) => ({ id: String(n.id), label: n.label == null ? null : String(n.label), type: n.type == null ? null : String(n.type) })),
+          edges: parseList(r.edges_json)
+            .filter((e) => e && e.source != null && e.target != null)
+            .map((e) => ({ source: String(e.source), target: String(e.target) })),
+        }
+      : {}),
+  }))
+
+  return { ok: true, scope: all ? 'all' : 'mine', metaArea: areaFilter ? String(metaArea) : null, total: graphs.length, graphs }
+}
