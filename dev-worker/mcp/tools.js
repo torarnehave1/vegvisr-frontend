@@ -47,6 +47,7 @@ import * as vemotion from '../vemotion-service.js'
 import * as realtime from '../realtime-service.js'
 import * as workerSource from '../worker-source-service.js'
 import * as workerTools from '../worker-tools.js'
+import * as componentPublish from '../component-publish-service.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared schemas
@@ -6568,6 +6569,117 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── publish_component ─────────────────────────────────────────────────────
+  //
+  // Moves a registry component's code from the repository into service, without the model ever
+  // carrying the code. Before this the only route from a chat was update_node with the whole file
+  // retyped as an argument (110 000 characters for graph-portfolio), where one slipped character
+  // breaks every page that loads the component. component-publish-service.js says which
+  // guarantees live where: the source is fixed, only an existing served component can be
+  // replaced, and the caller cannot pass code, a url or a commit to publish.
+  //
+  // graph:publish is the risk class, as for create_worker: this changes JavaScript that runs for
+  // people who are not signed in. Superadmin on top. Unlike create_worker NOTHING stands between
+  // this call and production — no approval step — which is why the description insists on a
+  // confirmation from the user and on a dry run first.
+  server.registerTool(
+    'publish_component',
+    {
+      title: 'Put a registry component\'s code from GitHub into service (live within minutes)',
+      description:
+        'Update a served component of the Component Registry (e.g. "graph-portfolio", ' +
+        '"vegvisr-fulltext") from its source file. The server itself fetches ' +
+        'worker/components/<name>.js at the head of the master branch of the public repository ' +
+        'torarnehave1/Agent-Builder and stores it as the component\'s code — you never pass the ' +
+        'code, and you cannot pass a url, a branch or another repository. So first commit and ' +
+        'push the change to that repository, run the component\'s tests there, and pass the ' +
+        'commit you tested as expectedCommit: the call is refused if master has moved since. ' +
+        'THIS GOES LIVE WITH NO APPROVAL STEP: api.vegvisr.org/components/<name>.js serves the ' +
+        'new code within about five minutes, on EVERY website that loads the component, signed ' +
+        'in or not. A syntax error breaks all of them at once, and this tool cannot check that ' +
+        'the code is correct. Therefore: confirm with the user before calling it for real, call ' +
+        'it with dryRun:true first to see what would change, and afterwards fetch the served url ' +
+        'to check it. Set verify.verdict to "PASS" only if the new code was actually run in a ' +
+        'real browser, and say how in verify.method; otherwise leave verify out and the ' +
+        'component is recorded as UNVERIFIED. It only UPDATES a component that already exists ' +
+        'and is already served as JavaScript; registering a new one, or changing its schema, is ' +
+        'done in the Agent Builder. A file that starts with markup, or that is far shorter than ' +
+        'the served one, is refused. To undo, revert the commit in the repository and publish ' +
+        'again. Requires the graph:publish scope, which an ordinary connection does not carry, ' +
+        'and the Superadmin role.',
+      inputSchema: {
+        name: z
+          .string()
+          .regex(componentPublish.COMPONENT_NAME_RE)
+          .describe('The component\'s name in the registry, e.g. "graph-portfolio". The file read is worker/components/<name>.js.'),
+        expectedCommit: z
+          .string()
+          .regex(/^[0-9a-fA-F]{40}$/)
+          .optional()
+          .describe('The full 40-character id of the commit you tested. If master is at another commit the call is refused and nothing is written. Leave it out only for a dry run.'),
+        changeNote: z.string().max(600).optional().describe('One or two sentences on what changed and why. Stored on the component, readable by anyone.'),
+        verify: z
+          .object({
+            verdict: z.enum(['PASS', 'UNVERIFIED']).describe('PASS only after the new code ran in a real browser.'),
+            method: z.string().max(800).optional().describe('How it was checked: browser, pages, widths. Required with PASS.'),
+            note: z.string().max(800).optional().describe('What was NOT checked, and anything a later reader should know.'),
+          })
+          .optional()
+          .describe('What was actually verified. Omitted means UNVERIFIED.'),
+        dryRun: z.boolean().optional().describe('true: fetch and check everything and report what would change, but write nothing.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        name: z.string(),
+        graphId: z.string(),
+        nodeId: z.string(),
+        commit: z.string(),
+        sourceUrl: z.string(),
+        url: z.string(),
+        chars: z.number(),
+        previousChars: z.number(),
+        verifyVerdict: z.string(),
+        changed: z.boolean(),
+        written: z.boolean(),
+        dryRun: z.boolean(),
+        registryVersion: z.number(),
+      },
+      // Destructive: it replaces code in service. openWorldHint: the result is served to anyone.
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ name, expectedCommit, changeNote, verify, dryRun }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:publish')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      // A real publish names the commit that was tested; only a dry run may look at "whatever is there".
+      if (!dryRun && !expectedCommit) {
+        return err(gs.ERR.INVALID_INPUT, 'expectedCommit is required to publish: pass the full id of the commit you tested. (A dry run does not need it and reports the commit master is at.)')
+      }
+
+      const r = await componentPublish.publishComponent(env, { name, expectedCommit, changeNote, verify, dryRun, actor })
+      if (!r.ok) return fromService(r)
+
+      const { ok: _o, ...payload } = r
+      const short = r.commit.slice(0, 7)
+      let text
+      if (!r.changed) {
+        text = `${r.name} already serves exactly the code at ${short}. Nothing was written.`
+      } else if (r.dryRun) {
+        text = `DRY RUN, nothing written. ${r.name} would go from ${r.previousChars} to ${r.chars} characters, from commit ${short}. Call again with expectedCommit "${r.commit}" and without dryRun to publish.`
+      } else {
+        text =
+          `${r.name} now holds the code from commit ${short} (${r.previousChars} → ${r.chars} characters), recorded as ${r.verifyVerdict}. ` +
+          `It is served at ${r.url} and reaches every page that loads it within about ${Math.round(componentPublish.SERVE_MAX_AGE_SECONDS / 60)} minutes. ` +
+          'Fetch that url and compare it with the file before telling the user it is live.'
+      }
+      return ok({ success: true, ...payload }, text)
+    },
+  )
+
   // ── list_meta_areas ───────────────────────────────────────────────────────
   //
   // The map before the territory. Without it the only way to learn which meta areas exist was to
@@ -7060,6 +7172,7 @@ export const TOOL_NAMES = [
   'list_world_member_roles',
   'set_world_member_roles',
   'create_worker',
+  'publish_component',
   'list_published_sites',
   'search_graphs',
   'list_my_graphs',

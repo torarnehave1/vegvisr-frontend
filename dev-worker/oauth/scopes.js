@@ -166,7 +166,14 @@ export const OPT_IN_SCOPE_DETAIL = {
     'Den kan også skrive KODE til en liten frittstående Cloudflare Worker og legge den i det ' +
     'offentlige GitHub-repoet. Koden blir synlig der med én gang, men workeren går ikke i ' +
     'produksjon før eieren har godkjent den på GitHub. En slik worker har ingen tilgang til ' +
-    'database, lagring eller hemmeligheter. Virker bare for Superadmin.',
+    'database, lagring eller hemmeligheter. ' +
+    // Widened 2026-11-13 for publish_component — the same class again, and the one case here
+    // with NO approval step, so the copy has to say that in so many words.
+    'Den kan også oppdatere en KOMPONENT som nettsidene dine laster (for eksempel porteføljen) ' +
+    'med koden som ligger i GitHub-repoet Agent-Builder. Det skjer UTEN godkjenning på GitHub, og ' +
+    'den nye koden kjører på alle sider som bruker komponenten i løpet av noen minutter. ' +
+    'Assistenten kan ikke sende inn egen kode her — bare hente det som allerede er lagt i repoet. ' +
+    'Virker bare for Superadmin.',
   // Widened 2026-09-30 to name group membership, when the member tools landed. The TEXT is not
   // frozen — only the scope names are — so describing more of a risk class costs a consent
   // screen that reads correctly and nothing else. Naming it matters: someone reading only

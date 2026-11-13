@@ -956,6 +956,8 @@ describe('annotations tell the client the truth about each tool', () => {
       // Added 2026-10-13. The source is committed to a PUBLIC repository the moment it returns,
       // before any approval — and after approval it is code answering on a public address.
       'create_worker',
+      // Added 2026-11-13. Replaces JavaScript that public pages load, with no approval step.
+      'publish_component',
       'decide_flow_approval',
       // Added 2026-10-21. Writes a report into a customer's kontaktlogg in the outside Enkel
       // endring CMS, not recallable. preview_meeting_report is deliberately NOT here — it
@@ -1530,6 +1532,7 @@ describe('publish_html_node is the one tool that reaches the public internet', (
       'generate_image_openai',
       'post_chat_message',
       'post_to_instagram',
+      'publish_component',
       'publish_html_node',
       'register_user',
       'remove_group_member',
@@ -2698,6 +2701,301 @@ describe('create_worker proposes a worker through GitHub and never deploys one',
   })
 })
 
+describe('publish_component moves a served component from GitHub into the registry', () => {
+  const ROOT = {
+    auth: { ...ALICE_RW.auth, scope: ['graph:read', 'graph:write', 'graph:publish'], userId: 'root@example.com' },
+    props: { userId: 'root@example.com', email: 'root@example.com', role: 'Superadmin', authMethod: 'oauth' },
+  }
+  const REGISTRY = '4072b898-f111-42a9-b5ca-0d901bb17d26'
+  const HEAD = 'a'.repeat(40)
+  const OLD = `/* old */ (function () { 'use strict'; ${'var x = 1; '.repeat(400)} })()`
+  const NEW = `/* new */ (function () { 'use strict'; ${'var y = 2; '.repeat(420)} })()`
+
+  /** GitHub, faked: the branch head from the API, the file from raw.githubusercontent.com. */
+  function github({ head = HEAD, file = NEW, headStatus = 200, rawStatus = 200, bytes = null } = {}) {
+    const calls = []
+    const real = globalThis.fetch
+    globalThis.fetch = async (url, init = {}) => {
+      const call = { url: String(url), method: init.method || 'GET', headers: new Headers(init.headers) }
+      calls.push(call)
+      if (call.url.startsWith('https://api.github.com/')) {
+        const status = typeof headStatus === 'function' ? headStatus(call) : headStatus
+        return new Response(status === 200 ? head : '{}', { status })
+      }
+      if (call.url.startsWith('https://raw.githubusercontent.com/')) {
+        return new Response(rawStatus === 200 ? (bytes || file) : 'Not Found', { status: rawStatus })
+      }
+      throw new Error(`unexpected fetch: ${call.url}`)
+    }
+    return { calls, restore: () => { globalThis.fetch = real } }
+  }
+
+  /** A registry with one served component, one inline component and one layout. */
+  async function seeded({ impl = OLD } = {}) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const r = await gs.saveGraph(env, {
+      id: REGISTRY,
+      actor: gs.normalizeActor({ valid: true, email: 'root@example.com', userId: 'root@example.com', role: 'Superadmin' }),
+      graphData: {
+        metadata: { title: 'Component Registry', createdBy: 'root@example.com' },
+        nodes: [
+          {
+            id: 'component-graph-portfolio', label: 'graph-portfolio', type: 'component', info: 'Card grid.',
+            metadata: {
+              origin: 'agent-registered', delivery: 'graph-js', impl,
+              schema: { props: { 'data-columns': { type: 'string' } } },
+              verify: { verdict: 'PASS', verifiedDate: '2026-10-30', method: 'Playwright', note: 'old' },
+              updatedBy: 'root@example.com', changeNote: '2026-10-30: old note',
+            },
+          },
+          { id: 'component-inline-thing', label: 'inline-thing', type: 'component', info: 'x', metadata: { impl: '<div>hi</div>' } },
+          { id: 'layout-graph-portfolio', label: 'graph-portfolio', type: 'layout', info: 'x', metadata: { delivery: 'graph-js', impl: 'var l = 1' } },
+        ],
+        edges: [],
+      },
+    })
+    assert.equal(r.ok, true, JSON.stringify(r))
+    return env
+  }
+
+  const stored = async (env, id = 'component-graph-portfolio') => {
+    const g = await gs.getGraph(env, REGISTRY, { caller: null })
+    return { node: g.graph.nodes.find((n) => n.id === id), version: g.version }
+  }
+
+  test('stores the file at the head of master, and nothing else on the node changes', async () => {
+    const gh = github()
+    try {
+      const env = await seeded()
+      const before = await stored(env)
+      const { client } = await connect(env, ROOT)
+      const r = await callOk(client, 'publish_component', {
+        name: 'graph-portfolio', expectedCommit: HEAD, changeNote: 'front page',
+        verify: { verdict: 'PASS', method: 'Chrome via Playwright, 1280 and 390 px', note: 'World mode not checked' },
+      })
+      assert.equal(r.written, true)
+      assert.equal(r.changed, true)
+      assert.equal(r.commit, HEAD)
+      assert.equal(r.chars, NEW.length)
+      assert.equal(r.previousChars, OLD.length)
+      assert.equal(r.url, 'https://api.vegvisr.org/components/graph-portfolio.js')
+      assert.equal(r.registryVersion, before.version + 1)
+
+      const after = await stored(env)
+      const m = after.node.metadata
+      assert.equal(m.impl, NEW, 'the stored code is the fetched file, byte for byte')
+      assert.equal(m.delivery, 'graph-js', 'delivery is kept — losing it is what made the url return 500')
+      assert.deepEqual(m.schema, before.node.metadata.schema, 'the schema is kept')
+      assert.equal(m.origin, 'agent-registered')
+      assert.equal(m.sourceCommit, HEAD)
+      assert.equal(m.verify.verdict, 'PASS')
+      assert.match(m.verify.method, /Playwright/)
+      assert.match(m.changeNote, /^\d{4}-\d{2}-\d{2}: front page$/)
+      assert.equal(/@/.test(m.updatedBy), false, 'no e-mail address on a node anyone can read')
+      assert.equal((await stored(env, 'layout-graph-portfolio')).node.metadata.impl, 'var l = 1', 'a layout of the same name is not touched')
+
+      const raw = gh.calls.find((c) => c.url.startsWith('https://raw.'))
+      assert.equal(raw.url, `https://raw.githubusercontent.com/torarnehave1/Agent-Builder/${HEAD}/worker/components/graph-portfolio.js`)
+      assert.equal(gh.calls[0].url, 'https://api.github.com/repos/torarnehave1/Agent-Builder/commits/master')
+      assert.equal(gh.calls[0].headers.get('Authorization'), null, 'the public repository is read without a credential')
+    } finally { gh.restore() }
+  })
+
+  test('the caller cannot name a url, a repository, a branch or code', async () => {
+    const { tools } = await (await connect(await seeded(), ROOT)).client.listTools()
+    const props = Object.keys(tools.find((t) => t.name === 'publish_component').inputSchema.properties).sort()
+    assert.deepEqual(props, ['changeNote', 'dryRun', 'expectedCommit', 'name', 'verify'])
+  })
+
+  test('verify left out records UNVERIFIED — an old PASS does not survive new code', async () => {
+    const gh = github()
+    try {
+      const env = await seeded()
+      const { client } = await connect(env, ROOT)
+      const r = await callOk(client, 'publish_component', { name: 'graph-portfolio', expectedCommit: HEAD })
+      assert.equal(r.verifyVerdict, 'UNVERIFIED')
+      const m = (await stored(env)).node.metadata
+      assert.equal(m.verify.verdict, 'UNVERIFIED')
+      assert.equal(m.verify.method ?? null, null)
+      assert.equal(m.changeNote, '2026-10-30: old note', 'without a new note the old one stands')
+    } finally { gh.restore() }
+  })
+
+  test('PASS without saying how it was checked is refused', async () => {
+    const gh = github()
+    try {
+      const env = await seeded()
+      const { client } = await connect(env, ROOT)
+      const e = await callErr(client, 'publish_component', { name: 'graph-portfolio', expectedCommit: HEAD, verify: { verdict: 'PASS' } })
+      assert.equal(e.code, gs.ERR.INVALID_INPUT)
+      assert.equal((await stored(env)).node.metadata.impl, OLD)
+      assert.equal(gh.calls.length, 0)
+    } finally { gh.restore() }
+  })
+
+  test('a dry run reports what would change and writes nothing', async () => {
+    const gh = github()
+    try {
+      const env = await seeded()
+      const before = await stored(env)
+      const { client } = await connect(env, ROOT)
+      const r = await client.callTool({ name: 'publish_component', arguments: { name: 'graph-portfolio', dryRun: true } })
+      assert.notEqual(r.isError, true)
+      assert.equal(sc(r).written, false)
+      assert.equal(sc(r).dryRun, true)
+      assert.equal(sc(r).changed, true)
+      assert.equal(sc(r).commit, HEAD)
+      assert.match(r.content.map((c) => c.text).join(' '), /DRY RUN, nothing written/)
+      const after = await stored(env)
+      assert.equal(after.node.metadata.impl, OLD)
+      assert.equal(after.version, before.version)
+    } finally { gh.restore() }
+  })
+
+  test('a real publish must name the commit that was tested', async () => {
+    const gh = github()
+    try {
+      const env = await seeded()
+      const { client } = await connect(env, ROOT)
+      const e = await callErr(client, 'publish_component', { name: 'graph-portfolio' })
+      assert.equal(e.code, gs.ERR.INVALID_INPUT)
+      assert.match(e.message, /expectedCommit is required/)
+      assert.equal(gh.calls.length, 0)
+    } finally { gh.restore() }
+  })
+
+  test('master having moved since the test is a refusal, not a publish of something else', async () => {
+    const gh = github({ head: 'b'.repeat(40) })
+    try {
+      const env = await seeded()
+      const { client } = await connect(env, ROOT)
+      const e = await callErr(client, 'publish_component', { name: 'graph-portfolio', expectedCommit: HEAD })
+      assert.equal(e.code, gs.ERR.VERSION_CONFLICT)
+      assert.equal(e.commit, 'b'.repeat(40))
+      assert.equal(gh.calls.some((c) => c.url.startsWith('https://raw.')), false, 'the file is not even fetched')
+      assert.equal((await stored(env)).node.metadata.impl, OLD)
+    } finally { gh.restore() }
+  })
+
+  test('identical code is reported as unchanged and the registry version does not move', async () => {
+    const gh = github({ file: OLD })
+    try {
+      const env = await seeded()
+      const before = await stored(env)
+      const { client } = await connect(env, ROOT)
+      const r = await callOk(client, 'publish_component', { name: 'graph-portfolio', expectedCommit: HEAD })
+      assert.equal(r.changed, false)
+      assert.equal(r.written, false)
+      assert.equal((await stored(env)).version, before.version)
+      assert.equal((await stored(env)).node.metadata.verify.verdict, 'PASS', 'nothing was touched, the old verdict included')
+    } finally { gh.restore() }
+  })
+
+  test('markup, an empty file, a truncated file and invalid UTF-8 are all refused', async () => {
+    const cases = [
+      [{ file: '<script>var a = 1</script>' }, /markup/],
+      [{ file: '   \n' }, /empty/],
+      [{ file: NEW.slice(0, Math.floor(OLD.length * 0.5)) }, /truncated/],
+      [{ bytes: new Uint8Array([0x76, 0x61, 0x72, 0x20, 0xff, 0xfe, 0x3b]) }, /UTF-8/],
+    ]
+    for (const [opts, why] of cases) {
+      const gh = github(opts)
+      try {
+        const env = await seeded()
+        const { client } = await connect(env, ROOT)
+        const e = await callErr(client, 'publish_component', { name: 'graph-portfolio', expectedCommit: HEAD })
+        assert.equal(e.code, gs.ERR.INVALID_INPUT, String(why))
+        assert.match(e.message, why)
+        assert.match(e.message, /Nothing was written/)
+        assert.equal((await stored(env)).node.metadata.impl, OLD)
+      } finally { gh.restore() }
+    }
+  })
+
+  test('only a component that exists and is served as JavaScript can be published', async () => {
+    const gh = github()
+    try {
+      const env = await seeded()
+      const { client } = await connect(env, ROOT)
+      const missing = await callErr(client, 'publish_component', { name: 'no-such-thing', expectedCommit: HEAD })
+      assert.equal(missing.code, gs.ERR.GRAPH_NOT_FOUND)
+      const inline = await callErr(client, 'publish_component', { name: 'inline-thing', expectedCommit: HEAD })
+      assert.equal(inline.code, gs.ERR.INVALID_INPUT)
+      assert.match(inline.message, /not served as JavaScript/)
+      assert.equal(gh.calls.length, 0, 'GitHub is not asked about a name that cannot be published')
+    } finally { gh.restore() }
+  })
+
+  test('a name that could leave the components directory never reaches GitHub', async () => {
+    const gh = github()
+    try {
+      const { client } = await connect(await seeded(), ROOT)
+      for (const bad of ['../index', 'a/b', 'Graph-Portfolio', 'x.js', '', 'a b']) {
+        const r = await client.callTool({ name: 'publish_component', arguments: { name: bad, expectedCommit: HEAD } })
+        assert.equal(r.isError, true, `"${bad}" must be refused`)
+      }
+      assert.equal(gh.calls.length, 0)
+    } finally { gh.restore() }
+  })
+
+  test('a file missing from the repository, or GitHub failing, writes nothing', async () => {
+    for (const opts of [{ rawStatus: 404 }, { rawStatus: 500 }, { headStatus: 500 }, { head: 'not-a-sha' }]) {
+      const gh = github(opts)
+      try {
+        const env = await seeded()
+        const { client } = await connect(env, ROOT)
+        const e = await callErr(client, 'publish_component', { name: 'graph-portfolio', expectedCommit: HEAD })
+        assert.match(e.message, /Nothing was written/)
+        assert.equal((await stored(env)).node.metadata.impl, OLD)
+      } finally { gh.restore() }
+    }
+  })
+
+  test('a rate-limited anonymous read is retried once with the worker token, which is never echoed', async () => {
+    const gh = github({ headStatus: (call) => (call.headers.get('Authorization') ? 200 : 403) })
+    try {
+      const env = await seeded()
+      env.GITHUB_WORKER_TOKEN = 'gh-test-token'
+      const { client } = await connect(env, ROOT)
+      const r = await client.callTool({ name: 'publish_component', arguments: { name: 'graph-portfolio', expectedCommit: HEAD } })
+      assert.notEqual(r.isError, true)
+      const api = gh.calls.filter((c) => c.url.startsWith('https://api.github.com/'))
+      assert.equal(api.length, 2)
+      assert.equal(api[1].headers.get('Authorization'), 'Bearer gh-test-token')
+      assert.equal(gh.calls.find((c) => c.url.startsWith('https://raw.')).headers.get('Authorization'), null, 'the token is not sent to the file host')
+      assert.equal(JSON.stringify(r).includes('gh-test-token'), false)
+    } finally { gh.restore() }
+  })
+
+  test('it needs graph:publish AND the Superadmin role', async () => {
+    const gh = github()
+    try {
+      const env = await seeded()
+      const noScope = { auth: { ...ROOT.auth, scope: ['graph:read', 'graph:write'] }, props: ROOT.props }
+      const e1 = await callErr((await connect(env, noScope)).client, 'publish_component', { name: 'graph-portfolio', expectedCommit: HEAD })
+      assert.equal(e1.code, gs.ERR.INSUFFICIENT_SCOPE)
+      const notRoot = { auth: { ...ROOT.auth, userId: 'alice@example.com' }, props: { ...ALICE_RW.props } }
+      const e2 = await callErr((await connect(env, notRoot)).client, 'publish_component', { name: 'graph-portfolio', expectedCommit: HEAD })
+      assert.equal(e2.code, gs.ERR.FORBIDDEN_GRAPH)
+      assert.equal(gh.calls.length, 0)
+      assert.equal((await stored(env)).node.metadata.impl, OLD)
+    } finally { gh.restore() }
+  })
+
+  test('the text result says it is live within minutes and asks for the served url to be checked', async () => {
+    const gh = github()
+    try {
+      const { client } = await connect(await seeded(), ROOT)
+      const r = await client.callTool({ name: 'publish_component', arguments: { name: 'graph-portfolio', expectedCommit: HEAD } })
+      const text = r.content.map((c) => c.text).join(' ')
+      assert.match(text, /within about 5 minutes/)
+      assert.match(text, /Fetch that url/)
+      assert.match(text, /UNVERIFIED/)
+    } finally { gh.restore() }
+  })
+})
+
 describe('set_user_role is the only way to re-rank someone', () => {
   const ROOT = {
     auth: { ...ALICE_RW.auth, scope: ['graph:read', 'user:register'], userId: 'root@example.com' },
@@ -3293,6 +3591,7 @@ describe('post_chat_message is gated harder than everything else', () => {
       'generate_image_openai',
       'post_chat_message',
       'post_to_instagram',
+      'publish_component',
       'publish_html_node',
       'register_user',
       'remove_group_member',
@@ -3413,6 +3712,7 @@ describe('read_chat_messages is gated apart from posting', () => {
       'generate_image_openai',
       'post_chat_message',
       'post_to_instagram',
+      'publish_component',
       'publish_html_node',
       'register_user',
       'remove_group_member',
