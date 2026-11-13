@@ -294,6 +294,10 @@ const graphSummaryShape = {
   world: z.string().nullable().optional().describe("The World whose own storage holds this graph, e.g. sodesign.no. Null or absent: the platform's shared storage."),
 }
 
+// The created date as the text lines show it. The structured answer has always carried createdAt,
+// but a chat model reads the text — and without the date there it concluded graphs had none.
+const createdText = (v) => (v ? ` · created ${String(v).slice(0, 10)}` : '')
+
 const listShape = {
   success: z.boolean(),
   total: z.number(),
@@ -921,7 +925,7 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         )
         summary = [
           `Graph "${payload.title}" (${graphId}) — version ${payload.version}, ${payload.nodeCount} nodes, ` +
-            `${payload.edgeCount} edges, ${payload.publicationState}.`,
+            `${payload.edgeCount} edges, ${payload.publicationState}${createdText(payload.createdAt)}.`,
           ...(lines.length ? ['', 'Nodes:', ...lines] : []),
           ...(edgeLines.length ? ['', 'Edges:', ...edgeLines] : []),
           ...(g.nodes.some((n) => String(n.info || '').replace(/\s+/g, ' ').trim().length > PREVIEW)
@@ -6847,7 +6851,8 @@ ${result.warnings.join('\n')}` : ''),
         : `${r.total} graph${r.total === 1 ? '' : 's'} matched, showing ${results.length} from ${r.offset}.`
       const lines = results.map(
         (g) => `• ${g.title || '(untitled)'} — ${g.graphId} · ${g.nodeCount} nodes · ${g.publicationState}` +
-          `${g.isMine ? ' · yours' : ''}${g.publishedDomains.length ? ` · live at ${g.publishedDomains.join(', ')}` : ''}`,
+          `${g.isMine ? ' · yours' : ''}${g.publishedDomains.length ? ` · live at ${g.publishedDomains.join(', ')}` : ''}` +
+          createdText(g.createdAt),
       )
       // Destructure `ok` out rather than setting it undefined: a key with an undefined value is
       // still a key, and outputSchema forbids extras — an SDK client that has fetched the tool
@@ -6863,8 +6868,8 @@ ${result.warnings.join('\n')}` : ''),
     {
       title: 'List my knowledge graphs',
       description:
-        'List the graphs the authenticated user owns, newest first, including private ones. Each ' +
-        'line carries the meta areas and any live site, so the whole collection can be surveyed ' +
+        'List the graphs the authenticated user owns, most recently changed first, including private ones. Each ' +
+        'line carries the meta areas, any live site and the created date (UTC), so the whole collection can be surveyed ' +
         'without opening graphs one by one. limit goes up to 200, so a few hundred graphs take a ' +
         'handful of calls — page with offset. To find out which meta areas exist before filtering, ' +
         'call list_meta_areas. Requires the graph:read scope.',
@@ -6893,7 +6898,8 @@ ${result.warnings.join('\n')}` : ''),
       const lines = results.map(
         (g) => `• ${g.title || '(untitled)'} — ${g.graphId} · ${g.nodeCount} nodes · ${g.publicationState}` +
           ` · meta: ${g.metaArea || '(none)'}` +
-          `${g.publishedDomains.length ? ` · live at ${g.publishedDomains.join(', ')}` : ''}`,
+          `${g.publishedDomains.length ? ` · live at ${g.publishedDomains.join(', ')}` : ''}` +
+          createdText(g.createdAt),
       )
       // Destructure `ok` out rather than setting it undefined: a key with an undefined value is
       // still a key, and outputSchema forbids extras — an SDK client that has fetched the tool
@@ -7002,6 +7008,8 @@ ${result.warnings.join('\n')}` : ''),
           publicationState: meta.publicationState || 'private',
           version: meta.version ?? null,
           nodeCount: g.nodes.length,
+          createdAt: g.created_date ?? null,
+          updatedAt: g.updated_at ?? null,
         },
       }
       return {

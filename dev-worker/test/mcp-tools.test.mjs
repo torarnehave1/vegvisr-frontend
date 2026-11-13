@@ -519,6 +519,21 @@ describe('createdAt on graph reads', () => {
     assert.equal(read.createdAt, '2025-04-17 18:21:00')
     assert.ok(read.updatedAt)
   })
+
+  test('the TEXT a chat model reads shows the created date too, not only the structured answer', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    await client.listTools()
+    const g = await callOk(client, 'create_graph', { title: 'Vekst', metaArea: '#X' })
+    await env.vegvisr_org.prepare("UPDATE knowledge_graphs SET created_date = '2025-04-17 18:21:00' WHERE id = ?").bind(g.graphId).run()
+
+    for (const [name, args] of [['list_my_graphs', {}], ['search_graphs', { query: 'Vekst' }], ['get_graph', { graphId: g.graphId }]]) {
+      const r = await client.callTool({ name, arguments: args })
+      assert.match(r.content[0].text, /created 2025-04-17/, `${name} text lacks the created date`)
+    }
+    const fetched = await client.callTool({ name: 'fetch', arguments: { id: g.graphId } })
+    assert.equal(JSON.parse(fetched.content[0].text).metadata.createdAt, '2025-04-17 18:21:00')
+  })
 })
 
 describe('get_graph_history and get_graph_version', () => {
