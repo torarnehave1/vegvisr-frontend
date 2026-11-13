@@ -245,3 +245,26 @@ test('listSlugs builds the slug address; a non-admin refusal is FORBIDDEN_GRAPH'
   assert.equal(d.code, gs.ERR.FORBIDDEN_GRAPH)
   assert.match(d.message, /Admin or Superadmin/)
 })
+
+test('a transcript file is not a recording, and a synced recording is listed once', async () => {
+  const { env } = world2({ '/realtime/recordings': [200, { success: true, recordings: [
+    { key: 'recordings/m_1.mp4', name: 'm_1.mp4', size: 185379051, uploaded: '2026-11-13T07:39:00.000Z', source: 'r2', playUrl: 'https://realtimevideos.vegvisr.org/recordings/m_1.mp4', playUrlPermanent: true, title: '', labels: [] },
+    { key: 'recordings/m_1.mp4.transcript.json', name: 'm_1.mp4.transcript.json', size: 4000, uploaded: '2026-11-13T08:00:00.000Z', source: 'r2', playUrl: 'https://realtimevideos.vegvisr.org/recordings/m_1.mp4.transcript.json', playUrlPermanent: true, title: '', labels: [] },
+    { key: 'rtk-1', name: 'm_1.mp4', size: 185379051, uploaded: '2026-11-12T11:50:09.858Z', duration: 2750.104, meetingId: 'p-1', meetingTitle: 'Tor Arne', status: 'UPLOADED', download_url: 'https://rtk.example/s', source: 'realtimekit' },
+    { key: 'rtk-2', name: 'm_2.mp4', size: 5, uploaded: '2026-11-01T10:00:00.000Z', duration: 60, meetingTitle: 'Team', status: 'UPLOADED', source: 'realtimekit' },
+    { key: 'recordings/plain.mp4', name: 'plain.mp4', size: 5, uploaded: '2026-10-01T10:00:00.000Z', source: 'r2', playUrl: 'https://realtimevideos.vegvisr.org/recordings/plain.mp4', playUrlPermanent: true, title: '', labels: [] },
+  ] }] })
+  const r = await rt.listRecordings(env, { actor: ALICE })
+  assert.deepEqual(r.recordings.map((x) => x.key), ['recordings/m_1.mp4', 'rtk-2', 'recordings/plain.mp4'])
+  assert.equal(r.total, 3)
+  assert.equal(r.notStored, 1, 'only the recording that really is not in storage')
+  const m1 = r.recordings[0]
+  assert.equal(m1.stored, true)
+  assert.equal(m1.hasTranscript, true)
+  assert.equal(m1.durationMinutes, 45.8, 'duration carried over from the cloud row')
+  assert.equal(m1.meetingTitle, 'Tor Arne')
+  assert.equal(r.recordings[2].hasTranscript, null)
+  assert.equal((await rt.listRecordings(env, { actor: ALICE, query: 'tor arne' })).recordings[0].key, 'recordings/m_1.mp4')
+  const gone = await rt.getRecordingLink(env, { actor: ALICE, key: 'recordings/m_1.mp4.transcript.json' })
+  assert.equal(gone.code, gs.ERR.GRAPH_NOT_FOUND, 'no playback link for a transcript file')
+})

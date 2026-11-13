@@ -184,7 +184,48 @@ function shapeRecording(x) {
 async function fetchRecordings(env, token) {
   const r = await callRealtime(env, token, '/realtime/recordings')
   if (!r.ok) return r
-  return { ok: true, raw: Array.isArray(r.data.recordings) ? r.data.recordings : [] }
+  return { ok: true, raw: tidyRecordings(Array.isArray(r.data.recordings) ? r.data.recordings : []) }
+}
+
+const TRANSCRIPT_SUFFIX = '.transcript.json'
+
+/**
+ * Two things the raw list says that are not recordings (seen in the live data, 2026-11-13):
+ *
+ *  - A transcript is saved BESIDE its recording as "<key>.transcript.json". The shared-bucket
+ *    branch of /realtime/recordings lists those files as if they were recordings (9 of 109 that
+ *    day). Here they are taken out, and their presence becomes hasTranscript on the recording.
+ *  - A recording that was copied to storage is still listed a second time from RealtimeKit cloud,
+ *    with the same file name (14 of 25 cloud rows). Left in, the list says "not synced" about
+ *    files that are stored. The cloud row is dropped and its duration and meeting are carried
+ *    over to the stored one.
+ *
+ * Which recordings the caller may see is untouched — this only merges rows about the same file.
+ */
+function tidyRecordings(raw) {
+  const rows = raw.filter((x) => x && typeof x === 'object')
+  const sidecarOf = new Set()
+  for (const x of rows) {
+    const k = String(x.key || '')
+    if (k.endsWith(TRANSCRIPT_SUFFIX)) sidecarOf.add(k.slice(0, -TRANSCRIPT_SUFFIX.length))
+  }
+  const cloudByName = new Map()
+  for (const x of rows) if (x.source === 'realtimekit' && x.name) cloudByName.set(String(x.name), x)
+  const storedNames = new Set()
+  const out = []
+  for (const x of rows) {
+    const k = String(x.key || '')
+    if (k.endsWith(TRANSCRIPT_SUFFIX) || x.source === 'realtimekit') continue
+    storedNames.add(String(x.name || ''))
+    const cloud = cloudByName.get(String(x.name || ''))
+    out.push({
+      ...x,
+      ...(cloud ? { duration: cloud.duration, meetingId: cloud.meetingId, meetingTitle: cloud.meetingTitle } : {}),
+      ...(typeof x.hasTranscript === 'boolean' ? {} : sidecarOf.has(k) ? { hasTranscript: true } : {}),
+    })
+  }
+  for (const x of rows) if (x.source === 'realtimekit' && !storedNames.has(String(x.name || ''))) out.push(x)
+  return out
 }
 
 /**
