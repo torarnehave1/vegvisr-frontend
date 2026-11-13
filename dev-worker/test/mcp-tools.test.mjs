@@ -510,7 +510,7 @@ describe('graph_index: the whole collection in one call', () => {
     const b = await callOk(client, 'create_graph', { title: 'Yngst', metaArea: '#Y' })
     await env.vegvisr_org.prepare("UPDATE knowledge_graphs SET created_date = '2024-02-01 10:00:00' WHERE id = ?").bind(a.graphId).run()
     await env.vegvisr_org.prepare("UPDATE knowledge_graphs SET created_date = '2026-05-01 10:00:00' WHERE id = ?").bind(b.graphId).run()
-    const n1 = await callOk(client, 'add_node', { graphId: a.graphId, node: { label: 'en', info: 'HEMMELIG TEKST' } })
+    const n1 = await callOk(client, 'add_node', { graphId: a.graphId, node: { label: 'en', type: 'fulltext', info: 'HEMMELIG TEKST' } })
     const n2 = await callOk(client, 'add_node', { graphId: a.graphId, node: { label: 'to' } })
     await callOk(client, 'add_edge', { graphId: a.graphId, edge: { source: n1.nodeId, target: n2.nodeId } })
 
@@ -519,6 +519,9 @@ describe('graph_index: the whole collection in one call', () => {
     assert.equal(all.graphs[0].createdAt, '2024-02-01 10:00:00')
     assert.equal(all.graphs[0].nodeCount, 2)
     assert.equal(all.graphs[0].nodes, undefined)
+    assert.deepEqual(all.graphs[0].nodeTypes, ['fulltext'])
+    assert.deepEqual(all.graphs[1].nodeTypes, [])
+    assert.deepEqual(all.graphs[0].publishedDomains, [])
 
     const nine = await callOk(client, 'graph_index', { metaArea: '#NINE', includeNodes: true })
     assert.equal(nine.total, 1)

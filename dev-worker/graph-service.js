@@ -1707,7 +1707,8 @@ const INDEX_NODES_MAX_GRAPHS = 300
  * Why it exists: a map of the collection needs every graph, and paging search_graphs for it cost
  * 31 requests for 1,510 graphs — each of which re-read all earlier pages (queryAcrossStores takes
  * the newest offset+limit rows per store) and ran a json_each over every graph's nodes for the
- * published domains. This reads each store once and skips description and domains.
+ * published domains. This reads each store once — one pass, so the node types and the published
+ * domains of each graph are affordable here — and skips the description.
  *
  * includeNodes adds each graph's nodes (id, label, type) and edges (source, target) — never node
  * content. It needs a metaArea and is refused above INDEX_NODES_MAX_GRAPHS graphs, so one call
@@ -1775,6 +1776,14 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, include
         COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '') AS meta_area,
         COALESCE(json_extract(${dataSql}, '$.metadata.publicationState'), 'private') AS publication_state,
         COALESCE(json_array_length(${nodesSql}), 0) AS node_count,
+        (SELECT json_group_array(DISTINCT json_extract(value, '$.type'))
+          FROM json_each(${nodesSql})
+          WHERE json_extract(value, '$.type') IS NOT NULL) AS node_types_json,
+        COALESCE((
+          SELECT GROUP_CONCAT(DISTINCT json_extract(value, '$.publishedDomain'))
+          FROM json_each(${nodesSql})
+          WHERE json_extract(value, '$.publishedDomain') IS NOT NULL
+        ), '') AS published_domains_csv,
         created_date,
         updated_at${nodeCols}
       FROM knowledge_graphs`
@@ -1810,6 +1819,10 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, include
     createdAt: r.created_date || null,
     updatedAt: r.updated_at || null,
     world: r._world || null,
+    // Which node types the graph contains, so a map can filter on "has a youtube-video".
+    nodeTypes: parseList(r.node_types_json).filter((t) => t != null).map(String).sort(),
+    // The node's own stamp only; the caller merges it with the publish registry, as the lists do.
+    publishedDomainsCsv: r.published_domains_csv || '',
     ...(includeNodes
       ? {
           nodes: parseList(r.nodes_json)

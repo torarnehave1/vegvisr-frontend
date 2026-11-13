@@ -6741,7 +6741,8 @@ ${result.warnings.join('\n')}` : ''),
       title: 'Index of all graphs in one call',
       description:
         'Every graph in ONE call, oldest first, with light fields only: id, title, meta area, ' +
-        'publication state, node count, created and updated dates (UTC) and World. No description ' +
+        'publication state, node count, the node types it contains, the hostnames it is live at, ' +
+        'created and updated dates (UTC) and World. No description ' +
         'and no content. scope "mine" (default) is the graphs you own, as list_my_graphs counts ' +
         'them; scope "all" is everything you can see, as search_graphs counts it. metaArea narrows ' +
         'to one tag. includeNodes (needs a metaArea, at most 300 graphs) adds each graph\'s nodes ' +
@@ -6769,6 +6770,8 @@ ${result.warnings.join('\n')}` : ''),
             createdAt: z.string().nullable().describe("When the graph was first saved (UTC, the row's created_date)."),
             updatedAt: z.string().nullable(),
             world: z.string().nullable().describe("The World whose own storage holds this graph. Null: the platform's shared storage."),
+            nodeTypes: z.array(z.string()).describe('The distinct node types in this graph, e.g. ["fulltext","youtube-video"].'),
+            publishedDomains: z.array(z.string()).describe('Hostnames this graph serves a live page at. Empty for a graph that publishes nowhere.'),
             nodes: z.array(z.object({ id: z.string(), label: z.string().nullable(), type: z.string().nullable() })).optional(),
             edges: z.array(z.object({ source: z.string(), target: z.string() })).optional(),
           }),
@@ -6786,7 +6789,9 @@ ${result.warnings.join('\n')}` : ''),
       const r = await gs.graphIndex(env, { scope, metaArea, includeNodes: Boolean(includeNodes), actor })
       if (!r.ok) return fromService(r)
 
-      const { ok: _o, ...payload } = r
+      const { ok: _o, graphs: rawGraphs, ...rest } = r
+      const payload = { ...rest, graphs: withDomains(rawGraphs, await sites.readPublishedDomainRegistry(env)) }
+      r.graphs = payload.graphs
       const byYear = new Map()
       for (const g of r.graphs) {
         const y = g.createdAt ? String(g.createdAt).slice(0, 4) : 'no date'
@@ -6802,6 +6807,8 @@ ${result.warnings.join('\n')}` : ''),
       // A short collection is listed; a long one would flood a chat, so the text says where the rows are.
       const lines = r.total <= 60
         ? r.graphs.map((g) => `• ${g.title || '(untitled)'} — ${g.graphId} · ${g.nodeCount} nodes` +
+            `${g.nodeTypes.length ? ` · types: ${g.nodeTypes.join(', ')}` : ''}` +
+            `${g.publishedDomains.length ? ` · live at ${g.publishedDomains.join(', ')}` : ''}` +
             `${g.world ? ` · world ${g.world}` : ''}${createdText(g.createdAt)}`)
         : ['The rows themselves are in the structured result (graphs[]). This text is a summary only: for readable lines use list_my_graphs or search_graphs.']
       return ok({ success: true, ...payload }, [head, ...(r.total ? [`Created per year — ${years}`] : []), ...lines].join('\n'))
