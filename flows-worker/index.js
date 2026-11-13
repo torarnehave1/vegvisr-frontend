@@ -39,7 +39,7 @@ export default {
     const url = new URL(request.url)
     const path = url.pathname
 
-    if (path === '/health') return json({ status: 'ok', worker: 'flows-worker', phase: '2 schedules' })
+    if (path === '/health') return json({ status: 'ok', worker: 'flows-worker', phase: '2 schedules', strict: '2026-11-13' })
     if (url.hostname !== BINDING_HOST) {
       return json({ error: 'flows-worker is reachable only over a service binding.' }, 403)
     }
@@ -342,6 +342,19 @@ async function decide(request, env, runId) {
  * the tool when that claim row exists and an approval in the same run said yes, so a message goes
  * out at most once even if the engine restarts mid-call.
  */
+/**
+ * Tools that must never run twice in one step: a second try does the whole expensive thing again
+ * (a transcription writes a second transcript graph — seen live 2026-11-10).
+ */
+const NO_RETRY_TOOLS = new Set(['transcribe_contact_recording'])
+
+/** How many times a step is tried again when it throws: metadata.retries (0–3), default 1. */
+export function retryLimit(s) {
+  if (s?.kind === 'action' && NO_RETRY_TOOLS.has(s.toolName)) return 0
+  const n = Number(s?.retries)
+  return Number.isInteger(n) && n >= 0 && n <= 3 ? n : 1
+}
+
 export class FlowRunner extends WorkflowEntrypoint {
   async run(event, step) {
     const { runId } = event.payload
@@ -383,7 +396,7 @@ export class FlowRunner extends WorkflowEntrypoint {
           if (!res.ok) return { ok: false, error: `HTTP ${res.status}: ${JSON.stringify(data.error || data).slice(0, 300)}` }
           const text = (data.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n').trim()
           if (!text) return { ok: false, error: 'the model returned no text' }
-          return { ok: true, text, usage: data.usage || null }
+          return { ok: true, text, usage: data.usage || null, stopReason: data.stop_reason || null }
         } catch (e) {
           return { ok: false, error: `could not reach the model: ${e.message}` }
         }
@@ -418,7 +431,7 @@ export class FlowRunner extends WorkflowEntrypoint {
 
         let outcome = await step.do(
           `${stepId}#${mySeq}`,
-          sending ? { retries: { limit: 0, delay: '1 second' } } : { retries: { limit: 1, delay: '2 seconds' } },
+          { retries: { limit: sending ? 0 : retryLimit(s), delay: sending ? '1 second' : '2 seconds' } },
           async () => {
             const r = dryRun
               ? dryRunStep(spec, stepId, state)

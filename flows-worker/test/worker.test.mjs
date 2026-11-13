@@ -359,3 +359,11 @@ test('a paused flow is not started', async () => {
   const paused = { ...GRAPH, nodes: [{ ...GRAPH.nodes[0], metadata: { kind: 'vegr-flow', status: 'paused' } }, ...GRAPH.nodes.slice(1)] }
   assert.equal((await post(env, { graph: paused, aliases: ALIASES, actor: { email: 'a@b.no' } })).status, 409)
 })
+
+test('retryLimit: a transcription is never tried twice; metadata.retries 0–3, default 1', async () => {
+  const { retryLimit } = await import('../index.js')
+  assert.equal(retryLimit({ kind: 'action', toolName: 'transcribe_contact_recording', retries: 3 }), 0)
+  assert.equal(retryLimit({ kind: 'action', toolName: 'get_graph' }), 1)
+  assert.equal(retryLimit({ kind: 'agent', retries: 0 }), 0)
+  assert.equal(retryLimit({ kind: 'agent', retries: 9 }), 1)
+})
