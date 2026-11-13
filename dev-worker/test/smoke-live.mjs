@@ -188,6 +188,30 @@ if (needsToken('realtime-tools/rooms lists the owner\'s rooms')) {
   const first = (body.rooms || [])[0]
   check('  and a room carries a join link on realtime.vegvisr.org', !!first && /^https:\/\/realtime\.vegvisr\.org\/\?meetingId=/.test(first.joinUrl || ''), JSON.stringify(first || null).slice(0, 160))
 }
+// 9b. The other realtime read tools (slice 1, 2026-11-13), through the same REST twins.
+for (const p of ['recordings', 'slugs', 'recording-link', 'transcript']) {
+  const { status } = await json(`${MCP}/realtime-tools/${p}`)
+  check(`realtime-tools/${p} refuses no token`, status === 401, `HTTP ${status}`)
+}
+if (needsToken('realtime-tools recordings, link, transcript and slugs')) {
+  const H = { headers: { 'X-API-Token': TOKEN } }
+  const rec = await json(`${MCP}/realtime-tools/recordings?limit=100`, H)
+  check('realtime-tools/recordings lists recordings', rec.status === 200 && Array.isArray(rec.body.recordings) && Number.isInteger(rec.body.total), `HTTP ${rec.status} ${JSON.stringify(rec.body).slice(0, 160)}`)
+  check('  and no RealtimeKit bearer link is in the answer', !/download_url|rtk-prod-recording/.test(JSON.stringify(rec.body)))
+  const stored = (rec.body.recordings || []).find((x) => x.stored)
+  if (stored) {
+    const link = await json(`${MCP}/realtime-tools/recording-link?key=${encodeURIComponent(stored.key)}`, H)
+    check('realtime-tools/recording-link returns an https link for a stored recording', link.status === 200 && /^https:\/\//.test(link.body.url || ''), `HTTP ${link.status} ${JSON.stringify(link.body).slice(0, 160)}`)
+    const tr = await json(`${MCP}/realtime-tools/transcript?key=${encodeURIComponent(stored.key)}&maxChars=1000`, H)
+    check('realtime-tools/transcript answers found true or false', tr.status === 200 && typeof tr.body.found === 'boolean', `HTTP ${tr.status} ${JSON.stringify(tr.body).slice(0, 160)}`)
+  } else {
+    console.log('skip  recording-link / transcript (the owner has no stored recording)')
+  }
+  const bogus = await json(`${MCP}/realtime-tools/recording-link?key=recordings/smoke-does-not-exist.mp4`, H)
+  check('realtime-tools/recording-link refuses a key that is not in the list', bogus.status === 404, `HTTP ${bogus.status}`)
+  const slugs = await json(`${MCP}/realtime-tools/slugs`, H)
+  check('realtime-tools/slugs lists slugs', slugs.status === 200 && Array.isArray(slugs.body.slugs), `HTTP ${slugs.status} ${JSON.stringify(slugs.body).slice(0, 160)}`)
+}
 
 console.log(failures === 0 ? `\nLIVE SMOKE GREEN${skipped ? ` — ${skipped} check(s) skipped, public-only run` : ''}` : `\n${failures} live check(s) FAILED`)
 process.exit(failures === 0 ? 0 : 1)

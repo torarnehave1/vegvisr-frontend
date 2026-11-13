@@ -4077,3 +4077,82 @@ describe('realtime_list_rooms reads the caller\'s own Realtime rooms (contacts:r
     assert.deepEqual(Object.keys(t.inputSchema.properties || {}), [])
   })
 })
+
+describe('realtime recordings, link, transcript and slugs are read tools behind contacts:read', () => {
+  const READ = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'contacts:read'] } }
+  const NAMES = ['realtime_list_recordings', 'realtime_get_recording_link', 'realtime_get_transcript', 'realtime_list_slugs']
+
+  function withRealtime() {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    const replies = {
+      '/realtime/recordings': { success: true, recordings: [
+        { key: 'recordings/Charlie.mp4', name: 'Charlie.mp4', size: 130042169, uploaded: '2026-09-06T08:02:36.160Z', source: 'r2', playUrl: 'https://realtimevideos.vegvisr.org/recordings/Charlie.mp4', playUrlPermanent: true, title: 'Charlie talk', labels: [] },
+        { key: 'fff51a14', name: 'x.mp4', size: 1, uploaded: '2026-11-12T11:50:09.858Z', duration: 600, meetingTitle: 'Tor Arne', status: 'UPLOADED', download_url: 'https://rtk.example/secret', source: 'realtimekit' },
+      ] },
+      '/realtime/recordings/transcript': { success: true, key: 'recordings/Charlie.mp4', found: true, text: '[00:00] hei', chars: 11, model: 'whisper', savedAt: '2026-10-02T08:00:00.000Z' },
+      '/realtime/slugs': { success: true, slugs: [{ id: 's1', slug: 'momentum', meetingId: 'p-1', allowedEmails: ['m@example.com'], scheduledStartAt: null, createdAt: '2026-10-17T09:21:54.594Z' }] },
+    }
+    env.REALTIME_WORKER = {
+      fetch: async (url, init) => {
+        const path = new URL(url).pathname
+        calls.push({ path, token: init.headers['X-API-Token'] })
+        return new Response(JSON.stringify(replies[path]), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      },
+    }
+    return { env, calls }
+  }
+
+  test('each needs contacts:read, is read-only, and nothing is sent without the scope', async () => {
+    const { env, calls } = withRealtime()
+    const denied = await connect(env, ALICE_RW)
+    for (const name of NAMES) {
+      const e = await callErr(denied.client, name, name.includes('get_') ? { key: 'recordings/Charlie.mp4' } : {})
+      assert.equal(e.requiredScope, 'contacts:read', name)
+    }
+    assert.equal(calls.length, 0)
+    const { tools } = await denied.client.listTools()
+    for (const name of NAMES) assert.equal(tools.find((t) => t.name === name).annotations.readOnlyHint, true, name)
+  })
+
+  test('realtime_list_recordings puts every key in the text and no bearer link anywhere', async () => {
+    const { env, calls } = withRealtime()
+    const { client } = await connect(env, READ)
+    const res = await client.callTool({ name: 'realtime_list_recordings', arguments: {} })
+    assert.equal(res.isError, undefined)
+    assert.equal(res.structuredContent.total, 2)
+    assert.equal(res.structuredContent.notStored, 1)
+    assert.match(res.content[0].text, /key fff51a14/)
+    assert.match(res.content[0].text, /NOT SYNCED \(UPLOADED\)/)
+    assert.match(res.content[0].text, /key recordings\/Charlie\.mp4/)
+    assert.equal(JSON.stringify(res).includes('rtk.example'), false)
+    assert.equal(calls[0].token, 'sess-alice')
+  })
+
+  test('realtime_get_recording_link returns the link; an unknown key is an error the model can read', async () => {
+    const { env } = withRealtime()
+    const { client } = await connect(env, READ)
+    const r = await callOk(client, 'realtime_get_recording_link', { key: 'recordings/Charlie.mp4' })
+    assert.equal(r.url, 'https://realtimevideos.vegvisr.org/recordings/Charlie.mp4')
+    assert.equal(r.permanent, true)
+    const e = await callErr(client, 'realtime_get_recording_link', { key: 'recordings/nope.mp4' })
+    assert.equal(e.code, gs.ERR.GRAPH_NOT_FOUND)
+  })
+
+  test('realtime_get_transcript hands the model the transcript text', async () => {
+    const { env } = withRealtime()
+    const { client } = await connect(env, READ)
+    const res = await client.callTool({ name: 'realtime_get_transcript', arguments: { key: 'recordings/Charlie.mp4' } })
+    assert.match(res.content[0].text, /TRANSCRIPT:\n\[00:00\] hei/)
+    assert.equal(res.structuredContent.found, true)
+  })
+
+  test('realtime_list_slugs returns each slug with its address', async () => {
+    const { env } = withRealtime()
+    const { client } = await connect(env, READ)
+    const r = await callOk(client, 'realtime_list_slugs', {})
+    assert.equal(r.total, 1)
+    assert.equal(r.slugs[0].url, 'https://realtime.vegvisr.org/momentum')
+  })
+})

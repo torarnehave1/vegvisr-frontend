@@ -5808,7 +5808,16 @@ const restHandler = {
       // a client that connected before the deploy. This runs the SAME service function the tool
       // runs, so the smoke test proves the binding and the forwarding on the deployed worker.
       // Read-only. A signed-in session only — it reads the caller's own rooms and nothing else.
-      if (pathname === '/realtime-tools/rooms' && request.method === 'GET') {
+      const realtimeRead = request.method === 'GET' && ({
+        '/realtime-tools/rooms': (actor) => realtimeService.listRooms(env, { actor }),
+        '/realtime-tools/recordings': (actor, q) => realtimeService.listRecordings(env, {
+          actor, query: q.get('query') || undefined, source: q.get('source') || undefined, limit: q.get('limit') || undefined,
+        }),
+        '/realtime-tools/recording-link': (actor, q) => realtimeService.getRecordingLink(env, { actor, key: q.get('key') }),
+        '/realtime-tools/transcript': (actor, q) => realtimeService.getTranscript(env, { actor, key: q.get('key'), maxChars: q.get('maxChars') || undefined }),
+        '/realtime-tools/slugs': (actor) => realtimeService.listSlugs(env, { actor }),
+      })[pathname]
+      if (realtimeRead) {
         const tv = await validateAuth(request, env)
         if (!tv.valid) {
           return new Response(JSON.stringify({ error: tv.error || 'Authentication required' }), {
@@ -5817,11 +5826,11 @@ const restHandler = {
         }
         if (!hasScope(tv.scopes, 'all')) {
           return new Response(JSON.stringify({
-            error: 'Reading rooms over REST needs a signed-in session, not a scoped API token.',
+            error: 'Reading Realtime over REST needs a signed-in session, not a scoped API token.',
             code: 'INSUFFICIENT_SCOPE',
           }), { status: 403, headers: corsHeaders })
         }
-        const result = await realtimeService.listRooms(env, { actor: normalizeActor(tv) })
+        const result = await realtimeRead(normalizeActor(tv), new URL(request.url).searchParams)
         return new Response(
           JSON.stringify(result.ok
             ? { success: true, ...result, ok: undefined }

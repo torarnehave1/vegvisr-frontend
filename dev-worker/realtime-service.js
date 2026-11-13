@@ -141,3 +141,162 @@ export async function listRooms(env, { actor }) {
     rooms,
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Recordings (slice 1, 2026-11-13) — read only
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RECORDING_SOURCES = ['r2', 'r2-own', 'stream', 'realtimekit']
+
+/**
+ * One item of GET /realtime/recordings, reduced to what a model needs.
+ *
+ * Left out on purpose: download_url (an expiring bearer link into RealtimeKit's own bucket),
+ * etag, customMetadata and thumbnailUrl. playUrl is passed on only when it never expires; a
+ * presigned one would be stale by the time anyone clicked it — getRecordingLink makes a fresh one.
+ */
+function shapeRecording(x) {
+  const source = RECORDING_SOURCES.includes(x?.source) ? x.source : 'r2'
+  const stored = source !== 'realtimekit'
+  const size = Number(x?.size) || 0
+  const duration = Number(x?.duration)
+  const labels = Array.isArray(x?.labels) ? x.labels.map(String) : []
+  return {
+    key: String(x?.key || ''),
+    name: String(x?.name || ''),
+    title: x?.title ? String(x.title) : null,
+    labels,
+    source,
+    stored,
+    sizeMB: Math.round((size / 1048576) * 10) / 10,
+    recordedAt: x?.uploaded ? String(x.uploaded) : null,
+    durationMinutes: Number.isFinite(duration) && duration > 0 ? Math.round((duration / 60) * 10) / 10 : null,
+    meetingId: x?.meetingId ? String(x.meetingId) : null,
+    meetingTitle: x?.meetingTitle ? String(x.meetingTitle) : null,
+    status: x?.status ? String(x.status) : null,
+    hasTranscript: typeof x?.hasTranscript === 'boolean' ? x.hasTranscript : null,
+    playUrl: stored && x?.playUrlPermanent === true && x?.playUrl ? String(x.playUrl) : null,
+    error: x?.error ? String(x.error) : null,
+    ownerEmail: x?.ownerEmail ? String(x.ownerEmail) : null,
+  }
+}
+
+async function fetchRecordings(env, token) {
+  const r = await callRealtime(env, token, '/realtime/recordings')
+  if (!r.ok) return r
+  return { ok: true, raw: Array.isArray(r.data.recordings) ? r.data.recordings : [] }
+}
+
+/**
+ * The caller's meeting recordings, newest first. `query` matches name, title, meeting title and
+ * labels; `source` narrows to one kind. Filtering here is presentation only — WHICH recordings the
+ * caller may see was already decided by realtime-worker.
+ */
+export async function listRecordings(env, { actor, query, source, limit = 20 }) {
+  const src = source == null || source === '' ? null : String(source)
+  if (src && !RECORDING_SOURCES.includes(src)) {
+    return fail(ERR.INVALID_INPUT, `source must be one of ${RECORDING_SOURCES.join(', ')}.`)
+  }
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const list = await fetchRecordings(env, t.token)
+  if (!list.ok) return list
+
+  const all = list.raw.map(shapeRecording).filter((x) => x.key)
+  all.sort((a, b) => String(b.recordedAt || '').localeCompare(String(a.recordedAt || '')))
+  const q = String(query || '').trim().toLowerCase()
+  const matched = all.filter((x) =>
+    (!src || x.source === src) &&
+    (!q || [x.name, x.title, x.meetingTitle, ...x.labels].some((s) => String(s || '').toLowerCase().includes(q))))
+  const n = Math.min(Math.max(Number(limit) || 20, 1), 100)
+  return {
+    ok: true,
+    total: all.length,
+    matched: matched.length,
+    notStored: all.filter((x) => !x.stored).length,
+    recordings: matched.slice(0, n),
+  }
+}
+
+/**
+ * A link that plays one recording. The key must be one from the caller's own list — play-url
+ * itself checks nothing and would build a link for any string, so the list is the gate.
+ *
+ * A permanent playUrl from the list is returned as it is. Otherwise a "recordings/…" key gets a
+ * fresh presign from /realtime/recordings/play-url. Any other key (a Stream copy in an own bucket
+ * without a public address) keeps the list's own link, which lasts about an hour — play-url would
+ * prefix such a key with "recordings/" and return a link to nothing.
+ */
+export async function getRecordingLink(env, { actor, key, expiresMinutes = 60 }) {
+  const k = String(key || '').trim()
+  if (!k) return fail(ERR.INVALID_INPUT, 'key is required — realtime_list_recordings gives it.')
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const list = await fetchRecordings(env, t.token)
+  if (!list.ok) return list
+  const raw = list.raw.find((x) => String(x?.key || '') === k)
+  if (!raw) return fail(ERR.GRAPH_NOT_FOUND, `No recording with key ${k} among your recordings. Call realtime_list_recordings.`)
+  const rec = shapeRecording(raw)
+  if (!rec.stored) {
+    return fail(ERR.INVALID_INPUT, 'This recording is still in RealtimeKit cloud and has not been copied to storage, so it has no playback link yet. Sync it in the Realtime app (Recordings → Sync).', { recordingStatus: rec.status, recordingError: rec.error })
+  }
+  const base = { ok: true, key: rec.key, name: rec.name, title: rec.title, source: rec.source }
+  if (rec.playUrl) return { ...base, url: rec.playUrl, expiresAt: null, permanent: true }
+
+  if (k.startsWith('recordings/')) {
+    const minutes = Math.min(Math.max(Number(expiresMinutes) || 60, 1), 1440)
+    const r = await callRealtime(env, t.token, `/realtime/recordings/play-url?key=${encodeURIComponent(k)}&expires=${Math.round(minutes * 60)}`)
+    if (!r.ok) return r
+    if (!r.data.url) return fail(ERR.INTERNAL_ERROR, 'realtime-worker returned no URL.')
+    return { ...base, url: String(r.data.url), expiresAt: r.data.expiresAt ? String(r.data.expiresAt) : null, permanent: !r.data.expiresAt }
+  }
+  if (raw.playUrl) {
+    return { ...base, url: String(raw.playUrl), expiresAt: new Date(Date.now() + 55 * 60 * 1000).toISOString(), permanent: false }
+  }
+  return fail(ERR.INTERNAL_ERROR, 'This recording has no playback link.')
+}
+
+/** The transcript saved beside a stored recording. found=false is an answer, not an error. */
+export async function getTranscript(env, { actor, key, maxChars = 50000 }) {
+  const k = String(key || '').trim()
+  if (!k) return fail(ERR.INVALID_INPUT, 'key is required — realtime_list_recordings gives it.')
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const r = await callRealtime(env, t.token, `/realtime/recordings/transcript?key=${encodeURIComponent(k)}`)
+  if (!r.ok) return r
+  if (r.data.found !== true) return { ok: true, key: k, found: false }
+  const text = typeof r.data.text === 'string' ? r.data.text : ''
+  const cap = Math.min(Math.max(Number(maxChars) || 50000, 1000), 200000)
+  return {
+    ok: true,
+    key: k,
+    found: true,
+    chars: text.length,
+    truncated: text.length > cap,
+    text: text.length > cap ? text.slice(0, cap) : text,
+    model: r.data.model ? String(r.data.model) : null,
+    savedAt: r.data.savedAt ? String(r.data.savedAt) : null,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Slugs (slice 1) — read only
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The caller's active custom room slugs. realtime-worker allows this to Admin and Superadmin. */
+export async function listSlugs(env, { actor }) {
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const r = await callRealtime(env, t.token, '/realtime/slugs')
+  if (!r.ok) return r
+  const slugs = (Array.isArray(r.data.slugs) ? r.data.slugs : []).filter((s) => s?.slug).map((s) => ({
+    id: String(s.id || ''),
+    slug: String(s.slug),
+    url: `${REALTIME_APP_ORIGIN}/${encodeURIComponent(String(s.slug))}`,
+    meetingId: String(s.meetingId || ''),
+    allowedEmails: Array.isArray(s.allowedEmails) ? s.allowedEmails.map(String) : [],
+    scheduledStartAt: s.scheduledStartAt ? String(s.scheduledStartAt) : null,
+    createdAt: s.createdAt ? String(s.createdAt) : null,
+  }))
+  return { ok: true, slugs }
+}

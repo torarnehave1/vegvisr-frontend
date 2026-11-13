@@ -73,6 +73,12 @@ Three things on this system cannot be inferred from general knowledge, so ask ra
   prompt — so a setting you assume exists is dropped rather than refused. For ChatGPT's image
   model (OpenAI gpt-image-2.5) use generate_image_openai; it costs money per call.
 
+Vegvisr Realtime (the video meeting app at realtime.vegvisr.org) is reached through the
+realtime_* tools: the user's rooms with their invitation links, their meeting recordings, a
+playback link or the saved transcript of one, and their invitation slugs. A meeting itself runs in
+a browser — these tools give links, they do not join. list_recordings (no prefix) is a different
+thing: ContactHub audio.
+
 Always show the user the viewerUrl or editorUrl that a write returns — that is how they see
 what you made.`
 

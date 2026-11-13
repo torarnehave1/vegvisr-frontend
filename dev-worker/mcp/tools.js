@@ -5751,6 +5751,229 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // realtime_list_recordings / realtime_get_recording_link / realtime_get_transcript /
+  // realtime_list_slugs (slice 1, 2026-11-13) — the read half of recordings and invitations.
+  // There is deliberately no realtime_list_meetings yet: /realtime/list-meetings returns every
+  // meeting in the RealtimeKit app, not the caller's own, and that is the architect's call to make.
+  const REALTIME_RECORDING_SHAPE = z.object({
+    key: z.string(),
+    name: z.string(),
+    title: z.string().nullable(),
+    labels: z.array(z.string()),
+    source: z.enum(['r2', 'r2-own', 'stream', 'realtimekit']),
+    stored: z.boolean(),
+    sizeMB: z.number(),
+    recordedAt: z.string().nullable(),
+    durationMinutes: z.number().nullable(),
+    meetingId: z.string().nullable(),
+    meetingTitle: z.string().nullable(),
+    status: z.string().nullable(),
+    hasTranscript: z.boolean().nullable(),
+    playUrl: z.string().nullable(),
+    error: z.string().nullable(),
+    ownerEmail: z.string().nullable(),
+  })
+  server.registerTool(
+    'realtime_list_recordings',
+    {
+      title: 'List my meeting recordings (Vegvisr Realtime)',
+      description:
+        'Your video recordings in the Vegvisr Realtime meeting app, newest first — the list under ' +
+        '"Recordings" in the app. query filters on file name, title, meeting title and labels. ' +
+        'Each recording has a key (pass it to realtime_get_recording_link and ' +
+        'realtime_get_transcript), name, title, labels, size, recordedAt (UTC) and source. ' +
+        'stored=true means the file is in storage and can be played; stored=false (source ' +
+        '"realtimekit") means it is still in RealtimeKit cloud and must be synced in the app first ' +
+        '— those carry the meeting title, duration and any sync error. playUrl is given only when ' +
+        'the link never expires. hasTranscript is null when unknown. total counts all your ' +
+        'recordings, matched those passing the filter. This is NOT list_recordings, which is ' +
+        'ContactHub audio. Requires the contacts:read scope.',
+      inputSchema: {
+        query: z.string().optional().describe('Filter, e.g. part of a title or a label.'),
+        source: z.enum(['r2', 'r2-own', 'stream', 'realtimekit']).optional().describe('Only this kind. "realtimekit" = not yet synced to storage.'),
+        limit: z.number().int().optional().describe('Maximum recordings, 1–100. Default 20.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        total: z.number(),
+        matched: z.number(),
+        returned: z.number(),
+        notStored: z.number(),
+        recordings: z.array(REALTIME_RECORDING_SHAPE),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ query, source, limit }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'contacts:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.listRecordings(env, { actor, query, source, limit })
+      if (!r.ok) return fromService(r)
+      const lines = r.recordings.map((x) =>
+        `• ${x.title || x.meetingTitle || x.name} — ${(x.recordedAt || '').replace('T', ' ').slice(0, 16)} UTC · ${x.sizeMB} MB` +
+        (x.durationMinutes ? ` · ${x.durationMinutes} min` : '') +
+        (x.stored ? '' : ` · NOT SYNCED${x.status ? ` (${x.status})` : ''}`) +
+        (x.hasTranscript ? ' · transcript' : '') +
+        `\n  key ${x.key}`)
+      const head = r.matched
+        ? `${r.recordings.length} of ${r.matched} recording${r.matched === 1 ? '' : 's'}${r.matched !== r.total ? ` matching (you have ${r.total})` : ''}.` +
+          (r.notStored ? ` ${r.notStored} of all are not yet synced to storage.` : '')
+        : (r.total ? `No recording matched. You have ${r.total}.` : 'No recordings on this account.')
+      return ok({
+        success: true,
+        total: r.total,
+        matched: r.matched,
+        returned: r.recordings.length,
+        notStored: r.notStored,
+        recordings: r.recordings,
+      }, [head, ...lines].join('\n'))
+    },
+  )
+
+  server.registerTool(
+    'realtime_get_recording_link',
+    {
+      title: 'Get a playback link for a meeting recording (Vegvisr Realtime)',
+      description:
+        'A link that plays ONE of your own Realtime recordings in a browser. key comes from ' +
+        'realtime_list_recordings. permanent=true means the link never expires; otherwise ' +
+        'expiresAt (UTC) says when it stops working — expiresMinutes asks for a lifetime where the ' +
+        'storage supports it. Anyone holding the link can watch the recording, so show it to the ' +
+        'user and send it on only when they ask. A recording that is not yet synced to storage ' +
+        '(stored=false) has no link. Requires the contacts:read scope.',
+      inputSchema: {
+        key: z.string().min(1).describe('The recording key, from realtime_list_recordings.'),
+        expiresMinutes: z.number().int().optional().describe('Lifetime of an expiring link, 1–1440 minutes. Default 60.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        key: z.string(),
+        name: z.string(),
+        title: z.string().nullable(),
+        source: z.string(),
+        url: z.string(),
+        permanent: z.boolean(),
+        expiresAt: z.string().nullable(),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ key, expiresMinutes }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'contacts:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.getRecordingLink(env, { actor, key, expiresMinutes })
+      if (!r.ok) return fromService(r)
+      return ok({
+        success: true,
+        key: r.key,
+        name: r.name,
+        title: r.title,
+        source: r.source,
+        url: r.url,
+        permanent: r.permanent,
+        expiresAt: r.expiresAt,
+      }, `${r.title || r.name}\n${r.url}\n${r.permanent ? 'This link does not expire.' : `Works until ${String(r.expiresAt).replace('T', ' ').slice(0, 16)} UTC.`}`)
+    },
+  )
+
+  server.registerTool(
+    'realtime_get_transcript',
+    {
+      title: 'Read the transcript of a meeting recording (Vegvisr Realtime)',
+      description:
+        'The transcript saved beside ONE of your Realtime recordings. key comes from ' +
+        'realtime_list_recordings. found=false means no transcript has been saved for it yet — ' +
+        'transcribing is done in the Realtime app (Recordings → Transcribe). A long transcript is ' +
+        'cut at maxChars and truncated=true says so; chars is the full length. Requires the ' +
+        'contacts:read scope.',
+      inputSchema: {
+        key: z.string().min(1).describe('The recording key, from realtime_list_recordings.'),
+        maxChars: z.number().int().optional().describe('Cut the text here, 1000–200000. Default 50000.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        key: z.string(),
+        found: z.boolean(),
+        chars: z.number(),
+        truncated: z.boolean(),
+        text: z.string(),
+        model: z.string().nullable(),
+        savedAt: z.string().nullable(),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ key, maxChars }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'contacts:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.getTranscript(env, { actor, key, maxChars })
+      if (!r.ok) return fromService(r)
+      if (!r.found) {
+        return ok({ success: true, key: r.key, found: false, chars: 0, truncated: false, text: '', model: null, savedAt: null },
+          'No transcript is saved for this recording yet.')
+      }
+      return ok({
+        success: true,
+        key: r.key,
+        found: true,
+        chars: r.chars,
+        truncated: r.truncated,
+        text: r.text,
+        model: r.model,
+        savedAt: r.savedAt,
+      }, `Transcript, ${r.chars} characters${r.truncated ? ` (cut at ${r.text.length})` : ''}${r.savedAt ? `, saved ${r.savedAt.slice(0, 10)}` : ''}.\n\nTRANSCRIPT:\n${r.text}`)
+    },
+  )
+
+  server.registerTool(
+    'realtime_list_slugs',
+    {
+      title: 'List my invitation slugs (Vegvisr Realtime)',
+      description:
+        'Your active custom room addresses in Vegvisr Realtime — short links like ' +
+        'realtime.vegvisr.org/momentum that lead approved people into one of your rooms. Each ' +
+        'slug has its url, the meetingId of the room it opens (see realtime_list_rooms), ' +
+        'allowedEmails (who may enter through it) and scheduledStartAt (UTC) when a meeting time ' +
+        'is set. Available to Admin and Superadmin accounts, as in the app. Requires the ' +
+        'contacts:read scope.',
+      inputSchema: {},
+      outputSchema: {
+        success: z.boolean(),
+        total: z.number(),
+        slugs: z.array(z.object({
+          id: z.string(),
+          slug: z.string(),
+          url: z.string(),
+          meetingId: z.string(),
+          allowedEmails: z.array(z.string()),
+          scheduledStartAt: z.string().nullable(),
+          createdAt: z.string().nullable(),
+        })),
+      },
+      annotations: READ_ONLY,
+    },
+    async () => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'contacts:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.listSlugs(env, { actor })
+      if (!r.ok) return fromService(r)
+      const lines = r.slugs.map((s) =>
+        `• ${s.url} → meetingId ${s.meetingId} · ${s.allowedEmails.length} allowed` +
+        (s.scheduledStartAt ? ` · meeting ${s.scheduledStartAt.replace('T', ' ').slice(0, 16)} UTC` : ''))
+      return ok({ success: true, total: r.slugs.length, slugs: r.slugs },
+        [r.slugs.length ? `${r.slugs.length} active slug${r.slugs.length === 1 ? '' : 's'}:` : 'No active slugs.', ...lines].join('\n'))
+    },
+  )
+
   // ── set_user_groups ───────────────────────────────────────────────────────
   //
   // register_user refuses an email that already exists, which left no way to tag someone who is
@@ -6827,6 +7050,10 @@ export const TOOL_NAMES = [
   'list_recordings',
   'transcribe_contact_recording',
   'realtime_list_rooms',
+  'realtime_list_recordings',
+  'realtime_get_recording_link',
+  'realtime_get_transcript',
+  'realtime_list_slugs',
   'set_user_groups',
   'update_user_profile',
   'set_user_role',

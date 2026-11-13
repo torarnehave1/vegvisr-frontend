@@ -1014,17 +1014,101 @@ function buildRealtimeOpenApiSpec(origin) {
         },
       },
       '/realtime/recordings': {
-        get: { operationId: 'listRecordings', summary: 'List the authenticated user\'s recordings', responses: okJson('Recordings list') },
+        get: {
+          operationId: 'listRecordings',
+          summary: 'List the authenticated user\'s recordings. A Superadmin\'s own view is unfiltered over the shared store. Three kinds of item, told apart by `source`: "r2" / "r2-own" (stored file), "stream" (stored Cloudflare Stream copy), "realtimekit" (still in RealtimeKit cloud, not synced; `key` is the RealtimeKit recording id and there is no playUrl)',
+          responses: okShape('Recordings list', {
+            success: { type: 'boolean' },
+            recordings: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  key: { type: 'string', description: 'R2 key ("recordings/…", "stream-recordings/…"), or the RealtimeKit recording id when source is "realtimekit"' },
+                  name: { type: 'string' },
+                  size: { type: 'integer', description: 'Bytes' },
+                  uploaded: { type: 'string', description: 'ISO time the file was stored, or the recording stopped' },
+                  source: { type: 'string', enum: ['r2', 'r2-own', 'stream', 'realtimekit'] },
+                  type: { type: 'string', description: 'Stored items only: "stream" or "realtime"; absent on plain shared-bucket files' },
+                  playUrl: { type: 'string', description: 'Stored items only' },
+                  playUrlPermanent: { type: 'boolean', description: 'Stored items only. false = playUrl is a 1 h presign' },
+                  title: { type: 'string', description: 'Stored items only; empty when unset' },
+                  labels: { type: 'array', items: { type: 'string' }, description: 'Stored items only' },
+                  thumbnailUrl: { type: 'string' },
+                  hasTranscript: { type: 'boolean', description: 'Own-bucket items only' },
+                  duration: { type: 'number', description: 'realtimekit only: seconds' },
+                  meetingId: { type: 'string', description: 'realtimekit only' },
+                  meetingTitle: { type: ['string', 'null'], description: 'realtimekit only' },
+                  status: { type: 'string', description: 'realtimekit only, e.g. UPLOADED' },
+                  download_url: { type: 'string', description: 'realtimekit only: expiring bearer link' },
+                  download_url_expiry: { type: 'string' },
+                  error: { type: ['string', 'null'], description: 'realtimekit only' },
+                  ownerEmail: { type: ['string', 'null'], description: 'realtimekit only' },
+                },
+              },
+            },
+          }),
+        },
       },
       '/realtime/recordings/play-url': {
         get: {
           operationId: 'getRecordingPlayUrl',
-          summary: 'Get a time-limited playback URL for a recording key',
+          summary: 'A playback URL for a stored recording key. The key is not checked for existence, and any key not starting with "recordings/" gets that prefix added — so pass only "recordings/…" keys taken from the recordings list',
           parameters: [
             { name: 'key', in: 'query', required: true, schema: { type: 'string' }, description: 'Recording R2 key' },
-            { name: 'expires', in: 'query', required: false, schema: { type: 'integer' }, description: 'URL TTL in seconds' },
+            { name: 'expires', in: 'query', required: false, schema: { type: 'integer' }, description: 'URL TTL in seconds, 60–86400, default 3600. Only applies to a presigned URL' },
           ],
-          responses: okJson('Signed playback URL'),
+          responses: okShape('Playback URL', {
+            success: { type: 'boolean' },
+            url: { type: 'string' },
+            source: { type: 'string', enum: ['r2', 'r2-own'] },
+            expiresAt: { type: ['string', 'null'], description: 'null = the URL does not expire' },
+          }),
+        },
+      },
+      '/realtime/recordings/transcript': {
+        get: {
+          operationId: 'getRecordingTranscript',
+          summary: 'The transcript saved beside a stored recording. found=false when none is saved. 409 when the recording has no storage bucket (RealtimeKit cloud only)',
+          parameters: [
+            { name: 'key', in: 'query', required: true, schema: { type: 'string' }, description: 'R2 key of the recording, not of the transcript' },
+          ],
+          responses: okShape('Transcript, or found=false', {
+            success: { type: 'boolean' },
+            key: { type: 'string' },
+            found: { type: 'boolean' },
+            text: { type: 'string' },
+            chars: { type: 'integer' },
+            model: { type: ['string', 'null'] },
+            source: { type: ['string', 'null'] },
+            savedBy: { type: 'string' },
+            savedAt: { type: 'string' },
+          }),
+        },
+      },
+      '/realtime/slugs': {
+        get: {
+          operationId: 'listSlugs',
+          summary: 'The authenticated user\'s active custom room slugs. Admin or Superadmin role required (403 otherwise)',
+          responses: okShape('Active slugs, newest first', {
+            success: { type: 'boolean' },
+            slugs: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  slug: { type: 'string' },
+                  meetingId: { type: 'string' },
+                  ownerEmail: { type: 'string' },
+                  allowedEmails: { type: 'array', items: { type: 'string' } },
+                  active: { type: 'boolean' },
+                  createdAt: { type: 'string' },
+                  scheduledStartAt: { type: ['string', 'null'] },
+                },
+              },
+            },
+          }),
         },
       },
       '/realtime/list-meetings': {
