@@ -338,4 +338,12 @@ Vegvisr Realtime (realtime.vegvisr.org) operated from MCP. Plan and decisions: k
 - **Never exposed:** `admin/*`, `debug/*`, telemetry, raw join tokens. Tools return links.
 - **Live check:** `GET /realtime-tools/rooms` (signed-in session) runs the same function as
   `realtime_list_rooms`; `test/smoke-live.mjs` calls it after every deploy.
-- **Tools so far:** `realtime_list_rooms`.
+- **Tools so far (all read, `contacts:read`):** `realtime_list_rooms`, `realtime_list_recordings`,
+  `realtime_get_recording_link`, `realtime_get_transcript`, `realtime_list_slugs`. Each has a REST
+  twin under `/realtime-tools/` (rooms, recordings, recording-link, transcript, slugs).
+- **Recordings list is tidied in `realtime-service.js`:** `.transcript.json` sidecars are not
+  recordings (they become `hasTranscript`), and a RealtimeKit cloud row with the same file name as
+  a stored file is merged into it. RealtimeKit's `download_url` is never passed on.
+- **A playback link is only made for a key in the caller's own list** — `play-url` itself checks nothing.
+- **No `realtime_list_meetings`:** `/realtime/list-meetings` returns every meeting in the
+  RealtimeKit app, not the caller's own. Pending the architect's decision.
