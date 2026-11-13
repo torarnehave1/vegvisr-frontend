@@ -2227,13 +2227,15 @@ export default {
                   console.error(`[DEBUG] Skipping recording ${rec.id} for meeting ${rec.meeting_id}: not owned by ${effectiveEmail}`)
                   continue
                 }
-                // For own-R2 users the R2 listing above is authoritative and already
-                // carries a PERMANENT public playUrl. Skip the RealtimeKit duplicate of a
-                // file already synced to R2 — its key is the RTK recording id (not the R2
-                // object key), so it would otherwise surface a second entry whose playUrl
-                // resolves to the wrong shared host. Shared-account users keep old behaviour.
-                if (userHasOwnR2 && rec.output_file_name && r2Keys.has(rec.output_file_name)) {
-                  console.error(`[DEBUG] Skipping RealtimeKit dup ${rec.id}: ${rec.output_file_name} already in own R2`)
+                // The R2 listing above (own bucket OR shared MEETING_RECORDINGS) is
+                // authoritative and carries a PERMANENT public playUrl. Skip the
+                // RealtimeKit duplicate of a file already synced to R2 — its key is the
+                // RTK recording id (not the R2 object key), and for shared-R2 users it
+                // also carries RealtimeKit's own stale err_message (e.g. ERROR:0003
+                // external-bucket upload), which the UI renders as "R2 failed" even
+                // though the sync to R2 succeeded.
+                if (rec.output_file_name && r2Keys.has(rec.output_file_name)) {
+                  console.error(`[DEBUG] Skipping RealtimeKit dup ${rec.id}: ${rec.output_file_name} already in ${userHasOwnR2 ? 'own' : 'shared'} R2`)
                   continue
                 }
                 console.error(`[DEBUG] Adding recording ${rec.id} from meeting ${rec.meeting_id} (${rec.meeting?.title})`)
