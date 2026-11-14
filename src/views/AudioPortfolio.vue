@@ -1,695 +1,499 @@
 <template>
-  <div>
-    <div
-      class="audio-portfolio-page"
-      :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
-    >
-      <div class="container-fluid">
-        <!-- Header -->
-        <!-- Audio Portfolio v2 -->
-        <div class="row mb-4">
-          <div class="col-12">
-            <h1 class="text-center">🎤 Audio Recording Portfolio</h1>
-            <div class="d-flex justify-content-between align-items-center mb-3">
-              <div class="search-box">
+  <div class="ap-page" :class="{ 'is-dark': theme === 'dark', 'has-player': !!nowPlaying }">
+    <div class="ap-wrap">
+      <!-- Header -->
+      <header class="ap-header">
+        <div class="ap-title-row">
+          <div class="ap-title">
+            <h1>Recordings</h1>
+            <p class="ap-subtitle">{{ countLabel }}</p>
+          </div>
+          <button
+            type="button"
+            class="ap-btn ap-btn-primary"
+            :aria-expanded="showUpload"
+            @click="showUpload = !showUpload"
+          >
+            <i class="bi" :class="showUpload ? 'bi-x-lg' : 'bi-upload'" aria-hidden="true"></i>
+            <span>{{ showUpload ? 'Close upload' : 'Upload audio' }}</span>
+          </button>
+        </div>
+
+        <div class="ap-toolbar">
+          <label class="ap-search">
+            <i class="bi bi-search" aria-hidden="true"></i>
+            <span class="visually-hidden">Search recordings</span>
+            <input
+              v-model="searchQuery"
+              type="search"
+              placeholder="Search titles, tags and summaries"
+            />
+          </label>
+          <div class="ap-selects">
+            <label v-if="isSuperadmin" class="ap-select">
+              <span>Owner</span>
+              <select v-model="ownerFilter">
+                <option value="mine">Only mine</option>
+                <option value="all">All owners (slow)</option>
+                <option v-for="email in otherOwnerEmails" :key="email" :value="email">
+                  {{ email }}
+                </option>
+              </select>
+            </label>
+            <label class="ap-select">
+              <span>Sort</span>
+              <select v-model="sortBy">
+                <option value="date-desc">Newest first</option>
+                <option value="date-asc">Oldest first</option>
+                <option value="name-asc">Name A–Z</option>
+                <option value="name-desc">Name Z–A</option>
+                <option value="duration">Longest first</option>
+                <option value="category">Category</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div v-if="categoryCounts.length > 1" class="ap-chips" role="group" aria-label="Filter by category">
+          <button
+            type="button"
+            class="ap-chip"
+            :class="{ active: selectedCategory === null }"
+            :aria-pressed="selectedCategory === null"
+            @click="selectedCategory = null"
+          >
+            All <span class="ap-chip-count">{{ recordings.length }}</span>
+          </button>
+          <button
+            v-for="c in categoryCounts"
+            :key="c.name"
+            type="button"
+            class="ap-chip"
+            :class="{ active: selectedCategory === c.name }"
+            :aria-pressed="selectedCategory === c.name"
+            @click="selectedCategory = selectedCategory === c.name ? null : c.name"
+          >
+            {{ c.name }} <span class="ap-chip-count">{{ c.count }}</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Upload -->
+      <section v-if="showUpload" class="ap-panel ap-upload" aria-label="Upload audio">
+        <div class="ap-upload-grid">
+          <label class="ap-field ap-field-file">
+            <span>Audio file</span>
+            <input
+              ref="directUploadInput"
+              type="file"
+              accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg"
+              @change="handleDirectUploadFileSelect"
+            />
+            <small v-if="directUploadFile" class="ap-muted">
+              {{ directUploadFile.name }} · {{ formatFileSize(directUploadFile.size) }}
+            </small>
+          </label>
+          <label class="ap-field">
+            <span>Title</span>
+            <input v-model="directUploadDisplayName" type="text" placeholder="Uses the file name if empty" />
+          </label>
+          <label class="ap-field">
+            <span>Category</span>
+            <select v-model="directUploadCategory">
+              <option value="other">Other</option>
+              <option value="music">Music</option>
+              <option value="podcast">Podcast</option>
+              <option value="general">General</option>
+              <option value="Norwegian Transcription">Norwegian Transcription</option>
+              <option value="Norwegian Transcription (Chunked)">Norwegian Transcription (Chunked)</option>
+              <option value="Sanskrit Letter Audio">Sanskrit Letter Audio</option>
+            </select>
+          </label>
+          <label class="ap-field">
+            <span>Tags</span>
+            <input v-model="directUploadTags" type="text" placeholder="Comma-separated, e.g. interview, draft" />
+          </label>
+        </div>
+        <div class="ap-upload-actions">
+          <p v-if="!userStore.loggedIn" class="ap-muted mb-0">Log in to upload audio.</p>
+          <button
+            type="button"
+            class="ap-btn ap-btn-primary"
+            :disabled="!directUploadFile || directUploading || !userStore.loggedIn"
+            @click="uploadAudioDirectly"
+          >
+            <span v-if="directUploading" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+            {{ directUploading ? 'Uploading…' : 'Upload' }}
+          </button>
+        </div>
+        <p v-if="directUploadMessage" class="ap-alert ap-alert-info">{{ directUploadMessage }}</p>
+        <p v-if="directUploadError" class="ap-alert ap-alert-error">{{ directUploadError }}</p>
+      </section>
+
+      <!-- Notice (replaces alert dialogs for action results) -->
+      <div v-if="notice" class="ap-alert" :class="notice.type === 'error' ? 'ap-alert-error' : 'ap-alert-info'" role="status">
+        <span>{{ notice.text }}</span>
+        <button type="button" class="ap-icon-btn" aria-label="Dismiss" @click="notice = null">
+          <i class="bi bi-x-lg" aria-hidden="true"></i>
+        </button>
+      </div>
+
+      <!-- Loading -->
+      <div v-if="loading" class="ap-list" aria-busy="true">
+        <div v-for="n in 5" :key="n" class="ap-row ap-skeleton">
+          <div class="ap-play-btn"></div>
+          <div class="ap-row-main">
+            <div class="ap-skel-line w-60"></div>
+            <div class="ap-skel-line w-40"></div>
+          </div>
+        </div>
+        <span class="visually-hidden">Loading recordings…</span>
+      </div>
+
+      <!-- Error -->
+      <div v-else-if="error" class="ap-empty">
+        <h2>Couldn't load your recordings</h2>
+        <p class="ap-muted">{{ error }}</p>
+        <button type="button" class="ap-btn" @click="fetchRecordings">Try again</button>
+      </div>
+
+      <!-- Empty: no recordings at all -->
+      <div v-else-if="recordings.length === 0" class="ap-empty">
+        <i class="bi bi-mic ap-empty-icon" aria-hidden="true"></i>
+        <h2>No recordings yet</h2>
+        <p class="ap-muted">Upload an audio file, or record one in a graph's audio node.</p>
+        <button type="button" class="ap-btn ap-btn-primary" @click="showUpload = true">
+          <i class="bi bi-upload" aria-hidden="true"></i> Upload audio
+        </button>
+      </div>
+
+      <!-- Empty: filters hide everything -->
+      <div v-else-if="filteredRecordings.length === 0" class="ap-empty">
+        <h2>No recordings match</h2>
+        <p class="ap-muted">Try a different search or category.</p>
+        <button type="button" class="ap-btn" @click="clearFilters">Clear filters</button>
+      </div>
+
+      <!-- List -->
+      <template v-else>
+        <ul class="ap-list">
+          <li
+            v-for="recording in visibleRecordings"
+            :key="recId(recording)"
+            class="ap-row"
+            :class="{ 'is-playing': nowPlaying && recId(nowPlaying) === recId(recording) }"
+          >
+            <!-- Edit mode -->
+            <form
+              v-if="editingRecordingId === recId(recording)"
+              class="ap-edit"
+              @submit.prevent="saveEdit(recording)"
+            >
+              <label class="ap-field">
+                <span>Title</span>
+                <input v-model="editingRecording.displayName" type="text" />
+              </label>
+              <label class="ap-field">
+                <span>Category</span>
+                <input v-model="editingRecording.metadata.category" type="text" placeholder="e.g. Meeting, Interview" />
+              </label>
+              <label class="ap-field">
+                <span>Tags</span>
                 <input
                   type="text"
-                  v-model="searchQuery"
-                  class="form-control"
-                  placeholder="Search recordings, transcriptions, tags..."
-                  @input="filterRecordings"
+                  :value="(editingRecording.metadata?.tags || []).join(', ')"
+                  placeholder="Comma-separated"
+                  @input="updateTags"
                 />
+              </label>
+              <div class="ap-edit-actions">
+                <button type="button" class="ap-btn" @click="cancelEdit">Cancel</button>
+                <button type="submit" class="ap-btn ap-btn-primary">Save changes</button>
               </div>
-              <div class="view-options d-flex align-items-center" style="gap: 0.5rem">
-                <div v-if="userStore.role === 'Superadmin'" class="d-flex align-items-center">
-                  <label class="mb-0 me-2">Eier:</label>
-                  <select
-                    v-model="selectedOwnerEmail"
-                    class="form-select"
-                    :disabled="showOnlyOwn"
-                  >
-                    <option value="all">Alle</option>
-                    <option
-                      v-for="ownerEmail in availableOwnerEmails"
-                      :key="ownerEmail"
-                      :value="ownerEmail"
-                    >
-                      {{ ownerEmail }}
-                    </option>
-                  </select>
-                </div>
-                <label class="mb-0">Sort:</label>
-                <select v-model="sortBy" class="form-select" @change="sortRecordings">
-                  <option value="date-desc">Date (Newest First)</option>
-                  <option value="date-asc">Date (Oldest First)</option>
-                  <option value="name-asc">Name (A-Z)</option>
-                  <option value="name-desc">Name (Z-A)</option>
-                  <option value="duration">Duration</option>
-                  <option value="category">Category</option>
-                </select>
-                <div v-if="userStore.role === 'Superadmin'" class="form-check ms-2">
-                  <input
-                    id="show-only-own"
-                    v-model="showOnlyOwn"
-                    class="form-check-input"
-                    type="checkbox"
-                    @change="fetchRecordings"
-                  />
-                  <label class="form-check-label" for="show-only-own">Vis bare mine</label>
-                </div>
-              </div>
-            </div>
-            <!-- Category Filter -->
-            <div class="category-filter mb-3">
-              <div class="btn-group" role="group">
-                <button
-                  type="button"
-                  class="btn btn-outline-primary"
-                  :class="{ active: selectedCategory === null }"
-                  @click="selectedCategory = null"
-                >
-                  All Categories
-                </button>
-                <button
-                  v-for="category in availableCategories"
-                  :key="category"
-                  type="button"
-                  class="btn btn-outline-primary"
-                  :class="{ active: selectedCategory === category }"
-                  @click="selectedCategory = category"
-                >
-                  {{ category }}
-                </button>
-              </div>
-            </div>
+            </form>
 
-            <!-- Direct Audio Upload -->
-            <div class="direct-upload-card mb-3">
-              <div class="row g-2 align-items-end">
-                <div class="col-lg-4">
-                  <label class="form-label mb-1">🎵 Audio file</label>
-                  <input
-                    ref="directUploadInput"
-                    type="file"
-                    accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg"
-                    class="form-control"
-                    @change="handleDirectUploadFileSelect"
-                  />
-                </div>
-                <div class="col-lg-3">
-                  <label class="form-label mb-1">Display name</label>
-                  <input
-                    v-model="directUploadDisplayName"
-                    type="text"
-                    class="form-control"
-                    placeholder="Optional title"
-                  />
-                </div>
-                <div class="col-lg-2">
-                  <label class="form-label mb-1">Category</label>
-                  <select v-model="directUploadCategory" class="form-select">
-                    <option value="other">other</option>
-                    <option value="music">music</option>
-                    <option value="podcast">podcast</option>
-                    <option value="general">general</option>
-                    <option value="Norwegian Transcription">Norwegian Transcription</option>
-                    <option value="Norwegian Transcription (Chunked)">Norwegian Transcription (Chunked)</option>
-                    <option value="Sanskrit Letter Audio">Sanskrit Letter Audio</option>
-                  </select>
-                </div>
-                <div class="col-lg-2">
-                  <label class="form-label mb-1">Tags</label>
-                  <input
-                    v-model="directUploadTags"
-                    type="text"
-                    class="form-control"
-                    placeholder="tag1,tag2"
-                  />
-                </div>
-                <div class="col-lg-1 d-grid">
-                  <button
-                    class="btn btn-primary"
-                    :disabled="!directUploadFile || directUploading || !userStore.loggedIn"
-                    @click="uploadAudioDirectly"
-                  >
-                    {{ directUploading ? '...' : 'Upload' }}
-                  </button>
-                </div>
-              </div>
-
-              <div v-if="directUploadFile" class="small text-muted mt-2">
-                Selected: {{ directUploadFile.name }} ({{ formatFileSize(directUploadFile.size) }})
-              </div>
-              <div v-if="directUploadMessage" class="alert alert-info mt-2 mb-0 py-2">
-                {{ directUploadMessage }}
-              </div>
-              <div v-if="directUploadError" class="alert alert-danger mt-2 mb-0 py-2">
-                {{ directUploadError }}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Loading State -->
-        <div v-if="loading" class="text-center mt-5">
-          <div class="spinner-border" role="status">
-            <span class="visually-hidden">Loading...</span>
-          </div>
-          <p class="mt-2">Loading your audio recordings...</p>
-        </div>
-
-        <!-- Error State -->
-        <div v-if="error" class="alert alert-danger mt-3" role="alert">
-          {{ error }}
-        </div>
-
-        <!-- No Results State -->
-        <div v-if="!loading && !error && filteredRecordings.length === 0" class="text-center mt-5">
-          <div v-if="recordings.length === 0">
-            <h3>📼 No Audio Recordings Yet</h3>
-            <p class="text-muted">
-              Start by transcribing some audio in the Audio Transcription node!
-            </p>
-            <router-link to="/gnew" class="btn btn-primary">
-              Go to Audio Transcription
-            </router-link>
-          </div>
-          <div v-else>
-            <h3>🔍 No recordings match your search</h3>
-            <p class="text-muted">Try adjusting your search terms or category filter.</p>
-          </div>
-        </div>
-
-        <!-- Recordings Grid -->
-        <div v-if="!loading && !error && filteredRecordings.length > 0">
-          <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 row-cols-xl-4 g-4">
-            <div v-for="recording in filteredRecordings" :key="recording.recordingId || recording.id" class="col">
-              <div
-                class="card h-100"
-                :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
+            <!-- View mode -->
+            <template v-else>
+              <button
+                type="button"
+                class="ap-play-btn"
+                :disabled="!recordingAudioUrl(recording)"
+                :aria-label="(isPlaying(recording) ? 'Pause ' : 'Play ') + recordingTitle(recording)"
+                @click="togglePlay(recording)"
               >
-                <div class="card-body">
-                  <!-- Edit Mode -->
-                  <div v-if="editingRecordingId === (recording.recordingId || recording.id)" class="edit-form">
-                    <div class="mb-3">
-                      <label class="form-label">Display Name</label>
-                      <input
-                        type="text"
-                        class="form-control"
-                        v-model="editingRecording.displayName"
-                        placeholder="Enter display name"
-                      />
-                    </div>
-                    <div class="mb-3">
-                      <label class="form-label">Category</label>
-                      <input
-                        type="text"
-                        class="form-control"
-                        v-model="editingRecording.metadata.category"
-                        placeholder="e.g., Meeting, Interview, Notes"
-                      />
-                    </div>
-                    <div class="mb-3">
-                      <label class="form-label">Tags (comma-separated)</label>
-                      <input
-                        type="text"
-                        class="form-control"
-                        :value="(editingRecording.metadata?.tags || []).join(', ')"
-                        @input="updateTags"
-                        placeholder="e.g., work, project, important"
-                      />
-                    </div>
-                    <div class="d-flex justify-content-end gap-2">
-                      <button class="btn btn-secondary btn-sm" @click="cancelEdit">Cancel</button>
-                      <button class="btn btn-primary btn-sm" @click="saveEdit(recording)">
-                        Save
-                      </button>
-                    </div>
-                  </div>
+                <i class="bi" :class="isPlaying(recording) ? 'bi-pause-fill' : 'bi-play-fill'" aria-hidden="true"></i>
+              </button>
 
-                  <!-- View Mode -->
-                  <template v-else>
-                    <div class="d-flex justify-content-between align-items-start mb-2">
-                      <div class="flex-grow-1">
-                        <h5 class="card-title mb-0">{{ recording.displayName }}</h5>
-                        <!-- Publication State Badge (Superadmin only) -->
-                        <span
-                          v-if="userStore.role === 'Superadmin'"
-                          class="badge publication-state-badge"
-                          :class="recording.publicationState === 'published' ? 'bg-success' : 'bg-warning text-dark'"
-                        >
-                          {{ recording.publicationState === 'published' ? '✅ Published' : '📝 Draft' }}
-                        </span>
-                      </div>
-                      <div class="btn-group btn-group-sm flex-shrink-0" role="group" style="margin-left: 8px;">
-                        <button
-                          class="btn btn-outline-secondary"
-                          type="button"
-                          @click="startEdit(recording)"
-                          title="Edit recording"
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          v-if="recordingAudioUrl(recording)"
-                          class="btn btn-outline-primary"
-                          type="button"
-                          @click="clippingRecording = recording"
-                          title="Create audio clip"
-                        >
-                          &#9986;
-                        </button>
-                        <button
-                          class="btn btn-outline-danger"
-                          type="button"
-                          @click="confirmDelete(recording)"
-                          title="Delete recording"
-                        >
-                          🗑️
-                        </button>
-                        <button
-                          v-if="userStore.role === 'Superadmin'"
-                          class="btn btn-outline-info"
-                          type="button"
-                          @click="showRawData(recording)"
-                          title="View RAW KV data"
-                        >
-                          🔍
-                        </button>
-                        <!-- Toggle Publication State (Superadmin only) -->
-                        <button
-                          v-if="userStore.role === 'Superadmin'"
-                          class="btn"
-                          :class="recording.publicationState === 'published' ? 'btn-outline-warning' : 'btn-outline-success'"
-                          type="button"
-                          @click="togglePublicationState(recording)"
-                          :title="recording.publicationState === 'published' ? 'Unpublish (make draft)' : 'Publish'"
-                        >
-                          {{ recording.publicationState === 'published' ? '📝 Draft' : '✅ Publish' }}
-                        </button>
-                      </div>
-                    </div>
-
-                    <!-- Audio Player -->
-                    <div class="audio-player mt-3 mb-3">
-                      <div v-if="recordingAudioUrl(recording)" class="audio-container">
-                        <audio
-                          controls
-                          class="w-100"
-                          :src="recordingAudioUrl(recording)"
-                          @error="handleAudioError($event, recording)"
-                          @loadstart="console.log('Audio loading started for:', recordingAudioUrl(recording))"
-                          @loadedmetadata="handleAudioMetadata($event, recording)"
-                          @loadeddata="console.log('Audio loaded successfully for:', recording.recordingId || recording.id)"
-                          preload="none"
-                        >
-                          Your browser does not support the audio element.
-                        </audio>
-                        <small
-                          v-if="audioErrors[recording.recordingId || recording.id]"
-                          class="text-danger d-block mt-1"
-                        >
-                          {{ audioErrors[recording.recordingId || recording.id] }}
-                        </small>
-                        <small class="text-muted d-block mt-1">
-                          Audio URL:
-                          <a
-                            :href="recordingAudioUrl(recording)"
-                            target="_blank"
-                            class="text-truncate d-inline-block"
-                            style="max-width: 200px"
-                            >{{ recordingAudioUrl(recording) }}</a
-                          >
-                        </small>
-                      </div>
-                      <div v-else class="alert alert-warning">
-                        <strong>⚠️ Audio Unavailable:</strong> No audio URL found for this
-                        recording.
-                        <small class="d-block">Recording ID: {{ recording.recordingId || recording.id }}</small>
-                      </div>
-                    </div>
-
-                    <!-- Recording Info -->
-                    <div class="recording-info">
-                      <div class="d-flex justify-content-between text-muted small mb-2">
-                        <span
-                          >🕐
-                          {{
-                            formatDuration(recording.estimatedDuration || recording.duration)
-                          }}</span
-                        >
-                        <span>📁 {{ formatFileSize(recording.fileSize) }}</span>
-                      </div>
-                      <div class="mb-2">
-                        <small class="text-muted">
-                          <strong>Recording ID:</strong> <code>{{ recording.recordingId || recording.id }}</code>
-                        </small>
-                      </div>
-                      <span class="badge bg-primary">{{
-                        recording.metadata?.category || recording.category || 'Uncategorized'
-                      }}</span>
-                      <span
-                        v-for="tag in recording.metadata?.tags || recording.tags || []"
-                        :key="tag"
-                        class="badge bg-secondary ms-1"
-                      >
-                        {{ tag }}
-                      </span>
-                    </div>
-
-                    <!-- Transcription Excerpt -->
-                    <div class="transcription-excerpt mt-3">
-                      <h6 class="text-muted">Transcription:</h6>
-
-                      <!-- Norwegian Transcription Display -->
-                      <div v-if="recording.norwegianTranscription" class="norwegian-transcription">
-                        <div class="transcription-badges mb-2">
-                          <span class="badge bg-danger">🇳🇴 Norwegian</span>
-                          <span
-                            v-if="recording.norwegianTranscription.improved_text"
-                            class="badge bg-success"
-                          >
-                            ✨ AI Enhanced
-                          </span>
-                          <span
-                            v-if="recording.norwegianTranscription.chunks"
-                            class="badge bg-info"
-                          >
-                            📊 {{ recording.norwegianTranscription.chunks }} chunks
-                          </span>
-                          <span
-                            v-if="recording.conversationAnalysis"
-                            class="badge bg-primary"
-                          >
-                            🤖 AI Analysis
-                          </span>
-                        </div>
-
-                        <!-- Show improved text if available, otherwise raw text -->
-                        <p class="small transcription-text mb-2">
-                          {{
-                            recording.norwegianTranscription.improved_text?.substring(0, 200) +
-                              (recording.norwegianTranscription.improved_text?.length > 200
-                                ? '...'
-                                : '') ||
-                            recording.norwegianTranscription.raw_text?.substring(0, 200) +
-                              (recording.norwegianTranscription.raw_text?.length > 200
-                                ? '...'
-                                : '') ||
-                            'No transcription available'
-                          }}
-                        </p>
-                      </div>
-
-                      <!-- Regular Transcription Display -->
-                      <div v-else class="regular-transcription">
-                        <p class="small text-muted mb-2">
-                          {{
-                            recording.transcription?.excerpt ||
-                            recording.transcriptionText?.substring(0, 200) + '...' ||
-                            'No transcription available'
-                          }}
-                        </p>
-                      </div>
-
-                      <button
-                        class="btn btn-outline-info btn-sm"
-                        @click="showFullTranscription(recording)"
-                      >
-                        View Full Transcription
-                      </button>
-                      <button
-                        v-if="recording.conversationAnalysis"
-                        class="btn btn-outline-primary btn-sm ms-2"
-                        @click="viewAnalysis(recording)"
-                      >
-                        🤖 View Analysis
-                      </button>
-                      <button
-                        v-if="recordingAudioUrl(recording)"
-                        class="btn btn-outline-success btn-sm ms-2"
-                        @click="reTranscribe(recording)"
-                        title="Re-transcribe or analyze this recording"
-                      >
-                        🔄 Re-transcribe
-                      </button>
-                    </div>
-
-                    <!-- Connected Graphs -->
-                    <div
-                      v-if="(recording.metadata?.connectedGraphIds || []).length > 0"
-                      class="connected-graphs mt-3"
-                    >
-                      <h6 class="text-muted">Connected Graphs:</h6>
-                      <div class="d-flex flex-wrap gap-1">
-                        <span
-                          v-for="graphId in recording.metadata?.connectedGraphIds || []"
-                          :key="graphId"
-                          class="badge bg-success"
-                        >
-                          📊 {{ graphId }}
-                        </span>
-                      </div>
-                    </div>
-
-                    <!-- Metadata -->
-                    <div class="metadata mt-3">
-                      <small class="text-muted">
-                        📅 Uploaded:
-                        {{ formatDate(recording.metadata?.uploadedAt || recording.createdAt)
-                        }}<br />
-                        🤖 Service:
-                        {{ recording.transcription?.service || recording.aiService || 'Unknown'
-                        }}<br />
-                        🎯 Model:
-                        {{ recording.transcription?.model || recording.aiModel || 'Unknown' }}
-                      </small>
-                    </div>
-                  </template>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Full Transcription Modal -->
-        <div
-          class="modal fade"
-          id="transcriptionModal"
-          tabindex="-1"
-          aria-labelledby="transcriptionModalLabel"
-          aria-hidden="true"
-        >
-          <div class="modal-dialog modal-lg">
-            <div
-              class="modal-content"
-              :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
-            >
-              <div class="modal-header">
-                <h5 class="modal-title" id="transcriptionModalLabel">
-                  Full Transcription: {{ selectedRecording?.displayName }}
-                </h5>
-                <button
-                  type="button"
-                  class="btn-close"
-                  data-bs-dismiss="modal"
-                  aria-label="Close"
-                ></button>
-              </div>
-              <div class="modal-body">
-                <div class="d-flex justify-content-between mb-3">
-                  <div>
-                    <span class="badge bg-info">{{
-                      selectedRecording?.transcription?.service ||
-                      selectedRecording?.aiService ||
-                      'Unknown'
-                    }}</span>
-                    <span class="badge bg-info ms-1">{{
-                      selectedRecording?.transcription?.model ||
-                      selectedRecording?.aiModel ||
-                      'Unknown'
-                    }}</span>
-                    <span
-                      v-if="selectedRecording?.norwegianTranscription"
-                      class="badge bg-danger ms-1"
-                    >
-                      🇳🇴 Norwegian
-                    </span>
-                  </div>
-                  <button class="btn btn-outline-primary btn-sm" @click="copyTranscription">
-                    📋 Copy Text
-                  </button>
-                </div>
-
-                <!-- Norwegian Transcription Display -->
-                <div v-if="selectedRecording?.norwegianTranscription" class="transcription-text">
-                  <div v-if="selectedRecording.norwegianTranscription.improved_text" class="mb-4">
-                    <h6 class="text-success">✨ AI Enhanced Text:</h6>
-                    <div class="enhanced-text p-3 bg-light border-start border-success border-3">
-                      <p class="text-break mb-0">
-                        {{ selectedRecording.norwegianTranscription.improved_text }}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div class="mb-3">
-                    <h6 class="text-muted">🎤 Raw Transcription:</h6>
-                    <div class="raw-text p-3 bg-light border-start border-secondary border-3">
-                      <p class="text-break mb-0">
-                        {{
-                          selectedRecording.norwegianTranscription.raw_text ||
-                          'No raw text available'
-                        }}
-                      </p>
-                    </div>
-                  </div>
-
-                  <!-- Processing Info -->
-                  <div
-                    v-if="selectedRecording.norwegianTranscription.processing_time"
-                    class="processing-info mt-3"
+              <div class="ap-row-main">
+                <div class="ap-row-head">
+                  <h3 class="ap-row-title" :title="recordingTitle(recording)">{{ recordingTitle(recording) }}</h3>
+                  <span
+                    v-if="isSuperadmin"
+                    class="ap-badge"
+                    :class="recording.publicationState === 'published' ? 'ap-badge-ok' : 'ap-badge-warn'"
                   >
-                    <small class="text-muted">
-                      <strong>Processing Time:</strong>
-                      {{ selectedRecording.norwegianTranscription.processing_time }}ms
-                      <span v-if="selectedRecording.norwegianTranscription.improvement_time">
-                        | <strong>Enhancement Time:</strong>
-                        {{ selectedRecording.norwegianTranscription.improvement_time }}ms
-                      </span>
-                      <span v-if="selectedRecording.norwegianTranscription.chunks">
-                        | <strong>Chunks:</strong>
-                        {{ selectedRecording.norwegianTranscription.chunks }}
-                      </span>
-                    </small>
-                  </div>
+                    {{ recording.publicationState === 'published' ? 'Published' : 'Draft' }}
+                  </span>
                 </div>
-
-                <!-- Regular Transcription Display -->
-                <div v-else class="transcription-text" style="max-height: 400px; overflow-y: auto">
-                  <p class="text-break">
-                    {{
-                      selectedRecording?.transcription?.text ||
-                      selectedRecording?.transcriptionText ||
-                      'No transcription available'
-                    }}
-                  </p>
+                <p class="ap-meta">
+                  <span>{{ formatShortDate(recording.metadata?.uploadedAt || recording.createdAt) }}</span>
+                  <!-- Many older recordings were saved with duration 0; it is filled in when played. -->
+                  <span v-if="recording.estimatedDuration || recording.duration">
+                    {{ formatDuration(recording.estimatedDuration || recording.duration) }}
+                  </span>
+                  <span v-if="recording.fileSize">{{ formatFileSize(recording.fileSize) }}</span>
+                  <span v-if="showOwnerColumn" class="ap-owner">{{ recording.userEmail }}</span>
+                </p>
+                <p v-if="recording.transcriptionExcerpt" class="ap-excerpt">{{ recording.transcriptionExcerpt }}</p>
+                <div class="ap-tags">
+                  <span class="ap-tag ap-tag-cat">{{ recordingCategory(recording) }}</span>
+                  <span v-if="recording.has_norwegianTranscription" class="ap-tag">Norwegian</span>
+                  <span v-if="recording.has_conversationAnalysis" class="ap-tag">AI analysis</span>
+                  <span v-for="tag in recordingTags(recording).slice(0, 3)" :key="tag" class="ap-tag">{{ tag }}</span>
+                  <span v-if="recordingTags(recording).length > 3" class="ap-tag ap-tag-more">
+                    +{{ recordingTags(recording).length - 3 }}
+                  </span>
                 </div>
               </div>
-              <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
 
-        <!-- RAW Data Modal (Superadmin only) -->
-        <div
-          class="modal fade"
-          id="rawDataModal"
-          tabindex="-1"
-          aria-labelledby="rawDataModalLabel"
-          aria-hidden="true"
-        >
-          <div class="modal-dialog modal-xl">
-            <div
-              class="modal-content"
-              :class="{ 'bg-dark': theme === 'dark', 'text-white': theme === 'dark' }"
-            >
-              <div class="modal-header">
-                <h5 class="modal-title" id="rawDataModalLabel">
-                  🔍 RAW KV Data: {{ selectedRecording?.displayName }}
-                </h5>
+              <div class="ap-row-actions">
                 <button
+                  v-if="hasTranscript(recording)"
                   type="button"
-                  class="btn-close"
-                  data-bs-dismiss="modal"
-                  aria-label="Close"
-                ></button>
-              </div>
-              <div class="modal-body">
-                <div class="d-flex justify-content-between mb-3">
-                  <div>
-                    <span class="badge bg-warning text-dark">🔒 Superadmin Only</span>
-                    <span class="badge bg-info ms-1">Cloudflare KV Data</span>
-                  </div>
-                  <button class="btn btn-outline-primary btn-sm" @click="copyRawData">
-                    📋 Copy JSON
-                  </button>
-                </div>
-
-                <div class="raw-data-container">
-                  <pre class="raw-data-pre"><code>{{ formatRawData(selectedRecording) }}</code></pre>
-                </div>
-
-                <div class="mt-3">
-                  <h6 class="text-muted">Quick Info:</h6>
-                  <div class="info-grid">
-                    <div><strong>Recording ID:</strong> {{ selectedRecording?.recordingId }}</div>
-                    <div><strong>User Email:</strong> {{ selectedRecording?.userEmail }}</div>
-                    <div><strong>File Size:</strong> {{ formatFileSize(selectedRecording?.fileSize || 0) }}</div>
-                    <div><strong>Duration:</strong> {{ selectedRecording?.duration }} seconds</div>
-                    <div><strong>Created At:</strong> {{ selectedRecording?.createdAt }}</div>
-                    <div><strong>R2 Key:</strong> {{ selectedRecording?.r2Key }}</div>
-                  </div>
-                </div>
-              </div>
-              <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                  Close
+                  class="ap-btn ap-btn-sm ap-hide-sm"
+                  @click="showFullTranscription(recording)"
+                >
+                  Transcript
                 </button>
+                <div class="ap-menu-wrap">
+                  <button
+                    type="button"
+                    class="ap-icon-btn"
+                    aria-haspopup="menu"
+                    :aria-expanded="openMenuId === recId(recording)"
+                    :aria-label="'More actions for ' + recordingTitle(recording)"
+                    @click.stop="toggleMenu(recording)"
+                  >
+                    <i class="bi bi-three-dots-vertical" aria-hidden="true"></i>
+                  </button>
+                  <div v-if="openMenuId === recId(recording)" class="ap-menu" role="menu" @click.stop>
+                    <button v-if="hasTranscript(recording)" class="ap-menu-item" role="menuitem" type="button" @click="menuAction(() => showFullTranscription(recording))">
+                      <i class="bi bi-file-text" aria-hidden="true"></i> View transcript
+                    </button>
+                    <button v-if="recording.has_conversationAnalysis || recording.conversationAnalysis" class="ap-menu-item" role="menuitem" type="button" @click="menuAction(() => viewAnalysis(recording))">
+                      <i class="bi bi-graph-up" aria-hidden="true"></i> View analysis
+                    </button>
+                    <button class="ap-menu-item" role="menuitem" type="button" @click="menuAction(() => startEdit(recording))">
+                      <i class="bi bi-pencil" aria-hidden="true"></i> Edit details
+                    </button>
+                    <button v-if="recordingAudioUrl(recording)" class="ap-menu-item" role="menuitem" type="button" @click="menuAction(() => (clippingRecording = recording))">
+                      <i class="bi bi-scissors" aria-hidden="true"></i> Create clip
+                    </button>
+                    <button v-if="recordingAudioUrl(recording)" class="ap-menu-item" role="menuitem" type="button" @click="menuAction(() => reTranscribe(recording))">
+                      <i class="bi bi-arrow-repeat" aria-hidden="true"></i> Transcribe again
+                    </button>
+                    <button v-if="recordingAudioUrl(recording)" class="ap-menu-item" role="menuitem" type="button" @click="menuAction(() => copyAudioLink(recording))">
+                      <i class="bi bi-link-45deg" aria-hidden="true"></i> Copy audio link
+                    </button>
+                    <template v-if="isSuperadmin">
+                      <hr class="ap-menu-sep" />
+                      <button class="ap-menu-item" role="menuitem" type="button" @click="menuAction(() => requestTogglePublication(recording))">
+                        <i class="bi" :class="recording.publicationState === 'published' ? 'bi-eye-slash' : 'bi-globe'" aria-hidden="true"></i>
+                        {{ recording.publicationState === 'published' ? 'Unpublish' : 'Publish' }}
+                      </button>
+                      <button class="ap-menu-item" role="menuitem" type="button" @click="menuAction(() => showRawData(recording))">
+                        <i class="bi bi-code-slash" aria-hidden="true"></i> Raw data
+                      </button>
+                    </template>
+                    <hr class="ap-menu-sep" />
+                    <button class="ap-menu-item ap-menu-danger" role="menuitem" type="button" @click="menuAction(() => confirmDelete(recording))">
+                      <i class="bi bi-trash" aria-hidden="true"></i> Delete
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            </template>
+          </li>
+        </ul>
+
+        <div class="ap-list-footer">
+          <p class="ap-muted mb-0">
+            Showing {{ visibleRecordings.length }} of {{ filteredRecordings.length }}
+            <span v-if="loadingMore"> · loading more…</span>
+          </p>
+          <button
+            v-if="visibleRecordings.length < filteredRecordings.length"
+            type="button"
+            class="ap-btn"
+            @click="visibleCount += PAGE_SIZE"
+          >
+            Show more
+          </button>
         </div>
+      </template>
+    </div>
+
+    <!-- Docked player: one audio element for the whole page -->
+    <div v-if="nowPlaying" class="ap-player" role="region" aria-label="Now playing">
+      <div class="ap-player-info">
+        <strong :title="recordingTitle(nowPlaying)">{{ recordingTitle(nowPlaying) }}</strong>
+        <small v-if="playerError" class="ap-player-error">{{ playerError }}</small>
+      </div>
+      <audio
+        ref="playerEl"
+        :src="recordingAudioUrl(nowPlaying)"
+        controls
+        autoplay
+        preload="metadata"
+        @play="playerPaused = false"
+        @pause="playerPaused = true"
+        @error="handleAudioError($event, nowPlaying)"
+        @loadedmetadata="handleAudioMetadata($event, nowPlaying)"
+      ></audio>
+      <button type="button" class="ap-icon-btn" aria-label="Close player" @click="closePlayer">
+        <i class="bi bi-x-lg" aria-hidden="true"></i>
+      </button>
+    </div>
+
+    <!-- Transcript dialog -->
+    <div v-if="transcriptOpen" class="ap-modal-backdrop" @click.self="transcriptOpen = false">
+      <div class="ap-modal" role="dialog" aria-modal="true" aria-labelledby="ap-transcript-title">
+        <header class="ap-modal-head">
+          <h2 id="ap-transcript-title">{{ recordingTitle(selectedRecording) }}</h2>
+          <button type="button" class="ap-icon-btn" aria-label="Close" @click="transcriptOpen = false">
+            <i class="bi bi-x-lg" aria-hidden="true"></i>
+          </button>
+        </header>
+        <div class="ap-modal-body">
+          <p v-if="detailLoading" class="ap-muted">Loading transcript…</p>
+          <p v-else-if="detailError" class="ap-alert ap-alert-error">{{ detailError }}</p>
+          <template v-else-if="fullRecording">
+            <p class="ap-meta">
+              <span>{{ fullRecording.transcription?.service || fullRecording.aiService || 'Unknown service' }}</span>
+              <span>{{ fullRecording.transcription?.model || fullRecording.aiModel || 'Unknown model' }}</span>
+            </p>
+            <template v-if="fullRecording.norwegianTranscription">
+              <section v-if="fullRecording.norwegianTranscription.improved_text" class="ap-transcript">
+                <h3>AI-improved text</h3>
+                <p>{{ fullRecording.norwegianTranscription.improved_text }}</p>
+              </section>
+              <section class="ap-transcript">
+                <h3>Original transcription</h3>
+                <p>{{ fullRecording.norwegianTranscription.raw_text || 'No original text saved.' }}</p>
+              </section>
+            </template>
+            <section v-else class="ap-transcript">
+              <p>{{ fullRecording.transcription?.text || fullRecording.transcriptionText || 'This recording has no transcript.' }}</p>
+            </section>
+          </template>
+        </div>
+        <footer class="ap-modal-foot">
+          <button type="button" class="ap-btn" :disabled="!fullRecording" @click="copyTranscription">
+            {{ copied ? 'Copied' : 'Copy text' }}
+          </button>
+          <button type="button" class="ap-btn ap-btn-primary" @click="transcriptOpen = false">Close</button>
+        </footer>
       </div>
     </div>
-  </div>
 
-  <!-- Audio Clip Modal -->
-  <AudioClipModal
-    :recording="clippingRecording"
-    @close="clippingRecording = null"
-    @clip-saved="clippingRecording = null; fetchRecordings()"
-  />
+    <!-- Raw data dialog (Superadmin) -->
+    <div v-if="rawOpen" class="ap-modal-backdrop" @click.self="rawOpen = false">
+      <div class="ap-modal ap-modal-wide" role="dialog" aria-modal="true" aria-labelledby="ap-raw-title">
+        <header class="ap-modal-head">
+          <h2 id="ap-raw-title">Raw data · {{ recordingTitle(selectedRecording) }}</h2>
+          <button type="button" class="ap-icon-btn" aria-label="Close" @click="rawOpen = false">
+            <i class="bi bi-x-lg" aria-hidden="true"></i>
+          </button>
+        </header>
+        <div class="ap-modal-body">
+          <p v-if="detailLoading" class="ap-muted">Loading…</p>
+          <p v-else-if="detailError" class="ap-alert ap-alert-error">{{ detailError }}</p>
+          <pre v-else class="ap-raw">{{ formatRawData(fullRecording) }}</pre>
+        </div>
+        <footer class="ap-modal-foot">
+          <button type="button" class="ap-btn" :disabled="!fullRecording" @click="copyRawData">
+            {{ copied ? 'Copied' : 'Copy JSON' }}
+          </button>
+          <button type="button" class="ap-btn ap-btn-primary" @click="rawOpen = false">Close</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Confirm dialog -->
+    <div v-if="confirmState" class="ap-modal-backdrop" @click.self="confirmState = null">
+      <div class="ap-modal ap-modal-narrow" role="alertdialog" aria-modal="true" aria-labelledby="ap-confirm-title">
+        <header class="ap-modal-head">
+          <h2 id="ap-confirm-title">{{ confirmState.title }}</h2>
+        </header>
+        <div class="ap-modal-body">
+          <p class="mb-0">{{ confirmState.body }}</p>
+        </div>
+        <footer class="ap-modal-foot">
+          <button type="button" class="ap-btn" @click="confirmState = null">{{ confirmState.cancelLabel }}</button>
+          <button
+            type="button"
+            class="ap-btn"
+            :class="confirmState.danger ? 'ap-btn-danger' : 'ap-btn-primary'"
+            @click="runConfirm"
+          >
+            {{ confirmState.confirmLabel }}
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Audio Clip Modal -->
+    <AudioClipModal
+      :recording="clippingRecording"
+      @close="clippingRecording = null"
+      @clip-saved="clippingRecording = null; fetchRecordings()"
+    />
+  </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/userStore'
 import { apiUrls } from '@/config/api'
 import AudioClipModal from '../components/AudioClipModal.vue'
 
-// Bootstrap is imported globally in main.js and attached to window
-// No need to import it here
-
-// Props
-const props = defineProps({
+defineProps({
   theme: {
     type: String,
     default: 'light',
   },
 })
 
-// Store
 const userStore = useUserStore()
 const router = useRouter()
+
+const PAGE_SIZE = 25
 
 // Reactive data
 const recordings = ref([])
 const loading = ref(false)
+const loadingMore = ref(false)
 const error = ref(null)
 const searchQuery = ref('')
 const sortBy = ref('date-desc')
 const selectedCategory = ref(null)
+const visibleCount = ref(PAGE_SIZE)
 const editingRecordingId = ref(null)
 const editingRecording = ref(null)
 const selectedRecording = ref(null)
-const showOnlyOwn = ref(false)
-const selectedOwnerEmail = ref('all')
+const fullRecording = ref(null)
+const detailLoading = ref(false)
+const detailError = ref('')
+const transcriptOpen = ref(false)
+const rawOpen = ref(false)
+const copied = ref(false)
+const confirmState = ref(null)
+const notice = ref(null)
+// Superadmin owner view: 'mine' (fast, paged), 'all' (every owner, slow), or one owner's email.
+const ownerFilter = ref('mine')
 const adminOwnerEmails = ref([])
+const showUpload = ref(false)
 const directUploadInput = ref(null)
 const directUploadFile = ref(null)
 const directUploadDisplayName = ref('')
@@ -699,10 +503,31 @@ const directUploading = ref(false)
 const directUploadMessage = ref('')
 const directUploadError = ref('')
 const clippingRecording = ref(null)
-// Per-recording playback errors, shown inline on the card. These used to be alert() dialogs;
-// with hundreds of players on the page, Chrome's per-page media-player cap made every player past
-// ~238 fail with code 4 and each one opened a blocking dialog (2026-11-14).
-const audioErrors = ref({})
+// One shared player. The page used to render an <audio> per recording; with hundreds on one
+// page Chrome's per-page media-player cap failed every player past ~238 (code 4) — 2026-11-14.
+// Row actions menu (Vue-controlled; Bootstrap's data-api dropdown does not bind on this page).
+const openMenuId = ref(null)
+const toggleMenu = (r) => {
+  openMenuId.value = openMenuId.value === recId(r) ? null : recId(r)
+}
+const menuAction = (fn) => {
+  openMenuId.value = null
+  fn()
+}
+const closeMenu = () => {
+  openMenuId.value = null
+}
+const onKeydown = (e) => {
+  if (e.key !== 'Escape') return
+  if (openMenuId.value) openMenuId.value = null
+  else if (confirmState.value) confirmState.value = null
+  else if (transcriptOpen.value) transcriptOpen.value = false
+  else if (rawOpen.value) rawOpen.value = false
+}
+const nowPlaying = ref(null)
+const playerEl = ref(null)
+const playerPaused = ref(false)
+const playerError = ref('')
 
 // audio-portfolio-worker authenticates per-user routes with X-API-Token (emailVerificationToken).
 const authHeaders = (extra = {}) => ({
@@ -710,99 +535,126 @@ const authHeaders = (extra = {}) => ({
   'X-API-Token': userStore.emailVerificationToken || '',
 })
 
-const NORWEGIAN_WORKER_URL ='https://norwegian-transcription-worker.torarnehave.workers.dev'
+const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
 const AUDIO_PORTFOLIO_WORKER_URL = 'https://audio-portfolio-worker.torarnehave.workers.dev'
 
-// Computed properties
+const isSuperadmin = computed(() => userStore.role === 'Superadmin')
+
+// Field helpers (records come in several historical shapes)
+const recId = (r) => r?.recordingId || r?.id
+const recordingTitle = (r) => r?.displayName || r?.fileName || 'Untitled recording'
+const recordingCategory = (r) => r?.metadata?.category || r?.category || 'Uncategorized'
+const recordingTags = (r) => r?.metadata?.tags || r?.tags || []
+const recordingOwner = (r) => r?.userEmail || r?.ownerEmail || r?.metadata?.userEmail || ''
+const recordingDate = (r) => new Date(r?.metadata?.uploadedAt || r?.createdAt || 0)
+const hasTranscript = (r) =>
+  Boolean(
+    r?.hasTranscript ||
+      r?.has_norwegianTranscription ||
+      r?.transcriptionText ||
+      r?.transcription?.text ||
+      r?.norwegianTranscription ||
+      r?.transcriptionExcerpt,
+  )
+
+const showOwnerColumn = computed(() => isSuperadmin.value && ownerFilter.value === 'all')
+
+const countLabel = computed(() => {
+  if (loading.value) return 'Loading…'
+  const n = recordings.value.length
+  const scope = isSuperadmin.value
+    ? ownerFilter.value === 'mine'
+      ? ''
+      : ownerFilter.value === 'all'
+        ? ' across all owners'
+        : ` for ${ownerFilter.value}`
+    : ''
+  return `${n} recording${n === 1 ? '' : 's'}${scope}`
+})
+
 const filteredRecordings = computed(() => {
   let filtered = recordings.value
 
-  // Apply owner filter (Superadmin only)
-  const ownerEmail = (recording) =>
-    recording.userEmail || recording.ownerEmail || recording.metadata?.userEmail || ''
-
-  if (userStore.role === 'Superadmin') {
-    const effectiveOwnerFilter = showOnlyOwn.value ? userStore.email : selectedOwnerEmail.value
-    if (effectiveOwnerFilter && effectiveOwnerFilter !== 'all') {
-      filtered = filtered.filter((recording) => ownerEmail(recording) === effectiveOwnerFilter)
-    }
-  }
-
-  // Apply category filter
   if (selectedCategory.value) {
+    filtered = filtered.filter((r) => recordingCategory(r) === selectedCategory.value)
+  }
+
+  const query = searchQuery.value.trim().toLowerCase()
+  if (query) {
     filtered = filtered.filter((r) => {
-      const category = r.metadata?.category || r.category || 'Uncategorized'
-      return category === selectedCategory.value
+      const haystack = [
+        recordingTitle(r),
+        r.fileName || '',
+        recordingCategory(r),
+        r.transcriptionExcerpt || '',
+        r.transcription?.text || r.transcriptionText || '',
+        ...recordingTags(r),
+      ]
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(query)
     })
   }
 
-  // Apply search filter
-  if (searchQuery.value) {
-    const query = searchQuery.value.toLowerCase()
-    filtered = filtered.filter((recording) => {
-      const category = recording.metadata?.category || recording.category || 'Uncategorized'
-      const tags = recording.metadata?.tags || recording.tags || []
-      const transcriptionText = recording.transcription?.text || recording.transcriptionText || ''
-      const displayName = recording.displayName || recording.fileName || ''
-      const fileName = recording.fileName || ''
-
-      return (
-        displayName.toLowerCase().includes(query) ||
-        fileName.toLowerCase().includes(query) ||
-        transcriptionText.toLowerCase().includes(query) ||
-        category.toLowerCase().includes(query) ||
-        tags.some((tag) => tag.toLowerCase().includes(query))
-      )
-    })
-  }
-
-  // Apply sorting
-  return filtered.sort((a, b) => {
+  return [...filtered].sort((a, b) => {
     switch (sortBy.value) {
       case 'date-desc':
-        const dateB = new Date(b.metadata?.uploadedAt || b.createdAt || 0)
-        const dateA = new Date(a.metadata?.uploadedAt || a.createdAt || 0)
-        return dateB - dateA
+        return recordingDate(b) - recordingDate(a)
       case 'date-asc':
-        const dateA2 = new Date(a.metadata?.uploadedAt || a.createdAt || 0)
-        const dateB2 = new Date(b.metadata?.uploadedAt || b.createdAt || 0)
-        return dateA2 - dateB2
+        return recordingDate(a) - recordingDate(b)
       case 'name-asc':
-        return (a.displayName || a.fileName || '').localeCompare(b.displayName || b.fileName || '')
+        return recordingTitle(a).localeCompare(recordingTitle(b))
       case 'name-desc':
-        return (b.displayName || b.fileName || '').localeCompare(a.displayName || a.fileName || '')
+        return recordingTitle(b).localeCompare(recordingTitle(a))
       case 'duration':
         return (b.estimatedDuration || b.duration || 0) - (a.estimatedDuration || a.duration || 0)
       case 'category':
-        const catA = a.metadata?.category || a.category || 'Uncategorized'
-        const catB = b.metadata?.category || b.category || 'Uncategorized'
-        return catA.localeCompare(catB)
+        return recordingCategory(a).localeCompare(recordingCategory(b))
       default:
         return 0
     }
   })
 })
 
-const availableCategories = computed(() => {
-  const categories = new Set()
-  recordings.value.forEach((recording) => {
-    // Add null checks for metadata and category
-    const category = recording.metadata?.category || recording.category || 'Uncategorized'
-    categories.add(category)
-  })
-  return Array.from(categories).sort()
+const visibleRecordings = computed(() => filteredRecordings.value.slice(0, visibleCount.value))
+
+watch([searchQuery, selectedCategory, sortBy], () => {
+  visibleCount.value = PAGE_SIZE
 })
 
-const availableOwnerEmails = computed(() => {
-  const emails = new Set()
-  adminOwnerEmails.value.forEach((email) => emails.add(email))
-  recordings.value.forEach((recording) => {
-    const email =
-      recording.userEmail || recording.ownerEmail || recording.metadata?.userEmail || null
-    if (email) emails.add(email)
+const categoryCounts = computed(() => {
+  const counts = new Map()
+  recordings.value.forEach((r) => {
+    const c = recordingCategory(r)
+    counts.set(c, (counts.get(c) || 0) + 1)
   })
-  return Array.from(emails).sort()
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
 })
+
+const otherOwnerEmails = computed(() => {
+  const emails = new Set(adminOwnerEmails.value)
+  recordings.value.forEach((r) => {
+    const e = recordingOwner(r)
+    if (e) emails.add(e)
+  })
+  emails.delete(userStore.email)
+  return [...emails].sort()
+})
+
+const clearFilters = () => {
+  searchQuery.value = ''
+  selectedCategory.value = null
+}
+
+const showNotice = (text, type = 'info') => {
+  notice.value = { text, type }
+  const current = notice.value
+  setTimeout(() => {
+    if (notice.value === current) notice.value = null
+  }, 6000)
+}
 
 const recordingAudioUrl = (recording) => {
   if (!recording) return ''
@@ -818,26 +670,43 @@ const recordingAudioUrl = (recording) => {
     return null
   })()
 
-  if (recording.r2Key && baseOrigin) {
-    const encodedKey = String(recording.r2Key)
+  const encodeKey = (key) =>
+    String(key)
       .split('/')
       .map((segment) => encodeURIComponent(segment))
       .join('/')
-    return `${baseOrigin}/${encodedKey}`
-  }
 
+  if (recording.r2Key && baseOrigin) return `${baseOrigin}/${encodeKey(recording.r2Key)}`
   if (recording.r2Url) return recording.r2Url
-  if (recording.r2Key) {
-    const encodedKey = String(recording.r2Key)
-      .split('/')
-      .map((segment) => encodeURIComponent(segment))
-      .join('/')
-    return `https://audio.vegvisr.org/${encodedKey}`
-  }
-
+  if (recording.r2Key) return `https://audio.vegvisr.org/${encodeKey(recording.r2Key)}`
   return ''
 }
 
+// ── Player ──────────────────────────────────────────────
+const isPlaying = (r) => nowPlaying.value && recId(nowPlaying.value) === recId(r) && !playerPaused.value
+
+const togglePlay = async (recording) => {
+  if (nowPlaying.value && recId(nowPlaying.value) === recId(recording)) {
+    const el = playerEl.value
+    if (!el) return
+    if (el.paused) el.play().catch(() => {})
+    else el.pause()
+    return
+  }
+  playerError.value = ''
+  playerPaused.value = false
+  nowPlaying.value = recording
+  await nextTick()
+  playerEl.value?.play().catch(() => {})
+}
+
+const closePlayer = () => {
+  playerEl.value?.pause()
+  nowPlaying.value = null
+  playerError.value = ''
+}
+
+// ── Upload ─────────────────────────────────────────────
 const handleDirectUploadFileSelect = (event) => {
   const file = event.target?.files?.[0]
   directUploadFile.value = file || null
@@ -872,7 +741,7 @@ const uploadAudioDirectly = async () => {
 
   directUploading.value = true
   directUploadError.value = ''
-  directUploadMessage.value = 'Uploading audio...'
+  directUploadMessage.value = 'Uploading audio…'
 
   try {
     const file = directUploadFile.value
@@ -887,7 +756,7 @@ const uploadAudioDirectly = async () => {
     })
 
     if (!uploadResponse.ok) {
-      let msg = `Upload failed: ${uploadResponse.status}`
+      let msg = `Upload failed (${uploadResponse.status}).`
       try {
         const data = await uploadResponse.json()
         msg = data.error || msg
@@ -930,7 +799,7 @@ const uploadAudioDirectly = async () => {
     })
 
     if (!saveResponse.ok) {
-      let msg = `Save failed: ${saveResponse.status}`
+      let msg = `Saving failed (${saveResponse.status}).`
       try {
         const data = await saveResponse.json()
         msg = data.error || msg
@@ -940,7 +809,7 @@ const uploadAudioDirectly = async () => {
       throw new Error(msg)
     }
 
-    directUploadMessage.value = '✅ Audio uploaded and saved to portfolio'
+    directUploadMessage.value = `Uploaded "${recordingData.displayName}".`
     directUploadFile.value = null
     directUploadDisplayName.value = ''
     directUploadCategory.value = 'other'
@@ -949,116 +818,144 @@ const uploadAudioDirectly = async () => {
     await fetchRecordings()
   } catch (err) {
     console.error('Direct upload failed:', err)
-    directUploadError.value = err.message || 'Direct upload failed'
+    directUploadMessage.value = ''
+    directUploadError.value = `Upload failed. ${err.message || ''} Check the file and try again.`
   } finally {
     directUploading.value = false
   }
 }
 
-watch(showOnlyOwn, (value) => {
-  if (value) {
-    selectedOwnerEmail.value = userStore.email || 'all'
-  } else if (selectedOwnerEmail.value === userStore.email) {
-    selectedOwnerEmail.value = 'all'
-  }
-})
+// ── Loading ────────────────────────────────────────────
+// Each fetch gets a run number; a later fetch (owner switch, upload) abandons older ones.
+let fetchRun = 0
 
-// Methods
+const listUrl = (params) => `${AUDIO_PORTFOLIO_WORKER_URL}/list-recordings?${new URLSearchParams(params).toString()}`
+
+const fetchJson = async (url) => {
+  const response = await fetch(url, { headers: authHeaders() })
+  if (!response.ok) {
+    let detail = response.statusText
+    try {
+      detail = (await response.json()).error || detail
+    } catch {
+      // ignore
+    }
+    throw new Error(`The server answered ${response.status}: ${detail}`)
+  }
+  return response.json()
+}
+
+// One owner, newest first, light records (no transcript bodies). The first page renders on its
+// own; the rest streams in behind it so search and category counts cover everything.
+const fetchOwnerPaged = async (run, ownerEmail) => {
+  const base = { userEmail: userStore.email, order: 'newest', fields: 'light' }
+  if (ownerEmail && ownerEmail !== userStore.email) base.ownerEmail = ownerEmail
+
+  const first = await fetchJson(listUrl({ ...base, offset: '0', limit: String(PAGE_SIZE) }))
+  if (run !== fetchRun) return
+  recordings.value = first.recordings || []
+  loading.value = false
+
+  let offset = first.nextOffset ?? recordings.value.length
+  let hasMore = Boolean(first.hasMore)
+  loadingMore.value = hasMore
+  while (hasMore) {
+    const page = await fetchJson(listUrl({ ...base, offset: String(offset), limit: '500' }))
+    if (run !== fetchRun) return
+    recordings.value = [...recordings.value, ...(page.recordings || [])]
+    offset = page.nextOffset ?? offset + (page.recordings || []).length
+    hasMore = Boolean(page.hasMore) && (page.recordings || []).length > 0
+  }
+  loadingMore.value = false
+}
+
+// Every owner (Superadmin only). The worker has no paged form for this, so it is one slow call.
+const fetchAllOwners = async (run) => {
+  const data = await fetchJson(listUrl({ userEmail: userStore.email, limit: '500' }))
+  if (run !== fetchRun) return
+  recordings.value = data.recordings || []
+}
+
 const fetchRecordings = async () => {
   if (!userStore.email) {
-    error.value = 'User not logged in'
+    error.value = 'Log in to see your recordings.'
     return
   }
 
+  const run = ++fetchRun
   loading.value = true
+  loadingMore.value = false
   error.value = null
+  visibleCount.value = PAGE_SIZE
 
   try {
-    // Pass user role to backend for filtering
-    const isAdminUser = userStore.role === 'Superadmin' || userStore.role === 'Admin'
-    const userRole = isAdminUser ? 'Superadmin' : 'user'
-    const params = new URLSearchParams({
-      userEmail: userStore.email,
-      userRole,
-    })
-
-    if (isAdminUser) {
-      const ownerEmail = showOnlyOwn.value
-        ? userStore.email
-        : selectedOwnerEmail.value !== 'all'
-          ? selectedOwnerEmail.value
-          : null
-      if (ownerEmail) {
-        params.set('ownerEmail', ownerEmail)
-      }
-      params.set('limit', '500')
+    if (isSuperadmin.value && ownerFilter.value === 'all') {
+      await fetchAllOwners(run)
+    } else {
+      const owner = isSuperadmin.value && ownerFilter.value !== 'mine' ? ownerFilter.value : userStore.email
+      await fetchOwnerPaged(run, owner)
     }
-
-    const response = await fetch(
-      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?${params.toString()}`,
-      { headers: authHeaders() },
-    )
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch recordings: ${response.statusText}`)
-    }
-
-    const data = await response.json()
-    recordings.value = data.recordings || []
-
-    // === AUDIO PORTFOLIO DEBUG ANALYSIS ===
-    console.log('=== AUDIO PORTFOLIO DATA ANALYSIS ===')
-    console.log('Current User Role:', userStore.role)
-    console.log('Is Superadmin?:', userStore.role === 'Superadmin')
-    console.log('Raw API Response:', JSON.stringify(data, null, 2))
-    console.log('Number of recordings:', recordings.value.length)
-
-    if (recordings.value.length > 0) {
-      console.log('First recording structure:', JSON.stringify(recordings.value[0], null, 2))
-      console.log('r2Url check for first recording:', recordings.value[0]?.r2Url)
-      console.log('Transcription data for first recording:', recordings.value[0]?.transcription)
-      console.log('Alternative transcription field:', recordings.value[0]?.transcriptionText)
-    }
-
-    recordings.value.forEach((recording, index) => {
-      console.log(`Recording ${index + 1}:`)
-      console.log('  - ID:', recording.recordingId || recording.id)
-      console.log('  - Display Name:', recording.displayName || recording.fileName)
-      console.log('  - R2 URL:', recording.r2Url)
-      console.log('  - Duration:', recording.duration)
-      console.log('  - Estimated Duration:', recording.estimatedDuration)
-      console.log('  - Publication State:', recording.publicationState || 'N/A')
-      console.log('  - Has transcription object:', !!recording.transcription)
-      console.log('  - Has transcriptionText:', !!recording.transcriptionText)
-      console.log(
-        '  - Metadata structure:',
-        recording.metadata ? Object.keys(recording.metadata) : 'No metadata',
-      )
-    })
-    console.log('=======================================')
   } catch (err) {
+    if (run !== fetchRun) return
     console.error('Error fetching recordings:', err)
     error.value = err.message
   } finally {
-    loading.value = false
+    if (run === fetchRun) {
+      loading.value = false
+      loadingMore.value = false
+    }
   }
 }
 
-const filterRecordings = () => {
-  // Filtering is handled by computed property
+watch(ownerFilter, () => {
+  selectedCategory.value = null
+  fetchRecordings()
+})
+
+// Full record (transcript, analysis) for one recording — list rows are light.
+const fetchFullRecording = async (recording) => {
+  const owner = recordingOwner(recording)
+  const params = { userEmail: userStore.email, recordingId: recId(recording) }
+  if (owner && owner !== userStore.email) params.ownerEmail = owner
+  const data = await fetchJson(
+    `${AUDIO_PORTFOLIO_WORKER_URL}/get-recording?${new URLSearchParams(params).toString()}`,
+  )
+  return data.recording
 }
 
-const sortRecordings = () => {
-  // Sorting is handled by computed property
+const openDetail = async (recording) => {
+  selectedRecording.value = recording
+  fullRecording.value = null
+  detailError.value = ''
+  copied.value = false
+  detailLoading.value = true
+  try {
+    fullRecording.value = await fetchFullRecording(recording)
+  } catch (err) {
+    detailError.value = `Couldn't load this recording. ${err.message}`
+  } finally {
+    detailLoading.value = false
+  }
 }
 
+const showFullTranscription = (recording) => {
+  transcriptOpen.value = true
+  openDetail(recording)
+}
+
+const showRawData = (recording) => {
+  rawOpen.value = true
+  openDetail(recording)
+}
+
+// ── Edit ──────────────────────────────────────────────
 const startEdit = (recording) => {
-  editingRecordingId.value = recording.recordingId || recording.id
+  editingRecordingId.value = recId(recording)
   editingRecording.value = {
-    displayName: recording.displayName || recording.fileName || '',
+    displayName: recordingTitle(recording),
     metadata: {
-      category: recording.metadata?.category || recording.category || 'Uncategorized',
-      tags: [...(recording.metadata?.tags || recording.tags || [])],
+      category: recordingCategory(recording),
+      tags: [...recordingTags(recording)],
     },
   }
 }
@@ -1069,8 +966,7 @@ const cancelEdit = () => {
 }
 
 const updateTags = (event) => {
-  const tagsString = event.target.value
-  editingRecording.value.metadata.tags = tagsString
+  editingRecording.value.metadata.tags = event.target.value
     .split(',')
     .map((tag) => tag.trim())
     .filter((tag) => tag.length > 0)
@@ -1078,668 +974,1135 @@ const updateTags = (event) => {
 
 const saveEdit = async (recording) => {
   try {
-    const response = await fetch(
-      `https://audio-portfolio-worker.torarnehave.workers.dev/update-recording`,
-      {
-        method: 'POST',
-        headers: authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({
-          userEmail: userStore.email,
-          recordingId: recording.recordingId || recording.id,
-          updates: editingRecording.value,
-        }),
-      },
-    )
+    const response = await fetch(`${AUDIO_PORTFOLIO_WORKER_URL}/update-recording`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        userEmail: recordingOwner(recording) || userStore.email,
+        recordingId: recId(recording),
+        updates: editingRecording.value,
+      }),
+    })
 
     if (!response.ok) {
-      throw new Error(`Failed to update recording: ${response.statusText}`)
+      throw new Error(`The server answered ${response.status}.`)
     }
 
-    // Update local data
-    const recordingIndex = recordings.value.findIndex((r) => (r.recordingId || r.id) === (recording.recordingId || recording.id))
-    if (recordingIndex !== -1) {
-      recordings.value[recordingIndex].displayName = editingRecording.value.displayName
-      // Ensure metadata object exists
-      if (!recordings.value[recordingIndex].metadata) {
-        recordings.value[recordingIndex].metadata = {}
-      }
-      recordings.value[recordingIndex].metadata.category = editingRecording.value.metadata.category
-      recordings.value[recordingIndex].metadata.tags = editingRecording.value.metadata.tags
+    const target = recordings.value.find((r) => recId(r) === recId(recording))
+    if (target) {
+      target.displayName = editingRecording.value.displayName
+      if (!target.metadata) target.metadata = {}
+      target.metadata.category = editingRecording.value.metadata.category
+      target.metadata.tags = editingRecording.value.metadata.tags
     }
 
     cancelEdit()
-    console.log('Recording updated successfully')
+    showNotice('Changes saved.')
   } catch (err) {
     console.error('Error updating recording:', err)
-    alert('Failed to update recording: ' + err.message)
+    showNotice(`Couldn't save changes. ${err.message} Try again.`, 'error')
   }
 }
 
+// ── Confirm-backed actions ──────────────────────────────
+const runConfirm = async () => {
+  const action = confirmState.value?.action
+  confirmState.value = null
+  if (action) await action()
+}
+
 const confirmDelete = (recording) => {
-  if (
-    confirm(
-      `Are you sure you want to delete "${recording.displayName}"? This action cannot be undone.`,
-    )
-  ) {
-    deleteRecording(recording)
+  confirmState.value = {
+    title: `Delete "${recordingTitle(recording)}"?`,
+    body: 'This removes the recording and its transcript from your portfolio. It can\'t be undone.',
+    confirmLabel: 'Delete recording',
+    cancelLabel: 'Keep it',
+    danger: true,
+    action: () => deleteRecording(recording),
   }
 }
 
 const deleteRecording = async (recording) => {
   try {
-    const recordingId = recording.recordingId || recording.id
-    const response = await fetch(
-      `https://audio-portfolio-worker.torarnehave.workers.dev/delete-recording?userEmail=${encodeURIComponent(userStore.email)}&recordingId=${encodeURIComponent(recordingId)}`,
-      {
-        method: 'DELETE',
-        headers: authHeaders({ 'Content-Type': 'application/json' }),
-      },
-    )
+    const recordingId = recId(recording)
+    const params = new URLSearchParams({
+      userEmail: recordingOwner(recording) || userStore.email,
+      recordingId,
+    })
+    const response = await fetch(`${AUDIO_PORTFOLIO_WORKER_URL}/delete-recording?${params.toString()}`, {
+      method: 'DELETE',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+    })
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: response.statusText }))
       throw new Error(errorData.error || response.statusText)
     }
 
-    // Remove from local data
-    recordings.value = recordings.value.filter((r) => (r.recordingId || r.id) !== recordingId)
-    console.log('Recording deleted successfully')
+    if (nowPlaying.value && recId(nowPlaying.value) === recordingId) closePlayer()
+    recordings.value = recordings.value.filter((r) => recId(r) !== recordingId)
+    showNotice(`Deleted "${recordingTitle(recording)}".`)
   } catch (err) {
     console.error('Error deleting recording:', err)
-    alert('Failed to delete recording: ' + err.message)
+    showNotice(`Couldn't delete "${recordingTitle(recording)}". ${err.message}`, 'error')
   }
 }
 
-// Toggle publication state (Superadmin only)
+const requestTogglePublication = (recording) => {
+  const publishing = recording.publicationState !== 'published'
+  confirmState.value = publishing
+    ? {
+        title: `Publish "${recordingTitle(recording)}"?`,
+        body: 'Everyone will be able to find and play it.',
+        confirmLabel: 'Publish',
+        cancelLabel: 'Cancel',
+        danger: false,
+        action: () => togglePublicationState(recording),
+      }
+    : {
+        title: `Unpublish "${recordingTitle(recording)}"?`,
+        body: 'Only its owner and Superadmins will see it.',
+        confirmLabel: 'Unpublish',
+        cancelLabel: 'Cancel',
+        danger: false,
+        action: () => togglePublicationState(recording),
+      }
+}
+
 const togglePublicationState = async (recording) => {
-  if (userStore.role !== 'Superadmin') {
-    alert('Only Superadmin can change publication state')
-    return
-  }
+  if (!isSuperadmin.value) return
 
   const newState = recording.publicationState === 'published' ? 'draft' : 'published'
-  const confirmMessage = newState === 'published'
-    ? 'Publish this recording? It will be visible to all users.'
-    : 'Unpublish this recording? It will only be visible to Superadmin.'
-
-  if (!confirm(confirmMessage)) {
-    return
-  }
-
   try {
-    const response = await fetch(
-      'https://audio-portfolio-worker.torarnehave.workers.dev/update-publication-state',
-      {
-        method: 'POST',
-        headers: authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({
-          userEmail: recording.userEmail || userStore.email,
-          recordingId: recording.recordingId || recording.id,
-          publicationState: newState,
-          requestingUserRole: 'Superadmin',
-        }),
-      },
-    )
+    const response = await fetch(`${AUDIO_PORTFOLIO_WORKER_URL}/update-publication-state`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        userEmail: recordingOwner(recording) || userStore.email,
+        recordingId: recId(recording),
+        publicationState: newState,
+        requestingUserRole: 'Superadmin',
+      }),
+    })
 
     if (!response.ok) {
-      throw new Error(`Failed to update publication state: ${response.statusText}`)
+      throw new Error(`The server answered ${response.status}.`)
     }
 
-    // Update local data
     recording.publicationState = newState
     recording.publishedAt = newState === 'published' ? new Date().toISOString() : null
-
-    console.log(`Recording ${newState === 'published' ? 'published' : 'unpublished'} successfully`)
+    showNotice(newState === 'published' ? 'Published.' : 'Moved back to draft.')
   } catch (err) {
     console.error('Error updating publication state:', err)
-    alert('Failed to update publication state: ' + err.message)
+    showNotice(`Couldn't change publication state. ${err.message}`, 'error')
   }
 }
 
-const showFullTranscription = (recording) => {
-  console.log('=== MODAL DEBUG: showFullTranscription called ===')
-  console.log('Recording data:', JSON.stringify(recording, null, 2))
-  console.log('Transcription text:', recording.transcription?.text || recording.transcriptionText)
-  console.log('Modal element exists:', !!document.getElementById('transcriptionModal'))
-
-  selectedRecording.value = recording
-
-  try {
-    // Check if Bootstrap is available
-    const Bootstrap = window.bootstrap || bootstrap
-    if (typeof Bootstrap !== 'undefined' && Bootstrap.Modal) {
-      console.log('Bootstrap Modal available, attempting to show modal')
-      const modalElement = document.getElementById('transcriptionModal')
-      if (modalElement) {
-        const modal = new Bootstrap.Modal(modalElement)
-        modal.show()
-        console.log('Bootstrap modal shown successfully')
-      } else {
-        console.error('Modal element not found in DOM')
-        throw new Error('Modal element not found')
-      }
-    } else {
-      console.warn('Bootstrap not available, using fallback')
-      throw new Error('Bootstrap not available')
-    }
-  } catch (error) {
-    console.error('Modal error:', error)
-    // Fallback: Create a simple alert with transcription text
-    const transcriptionText =
-      recording.transcription?.text || recording.transcriptionText || 'No transcription available'
-    const truncatedText =
-      transcriptionText.length > 500
-        ? transcriptionText.substring(0, 500) + '...\n\n[Full text copied to clipboard]'
-        : transcriptionText
-
-    // Copy full text to clipboard
-    if (transcriptionText !== 'No transcription available') {
-      navigator.clipboard
-        .writeText(transcriptionText)
-        .then(() => console.log('Transcription copied to clipboard as fallback'))
-        .catch((err) => console.error('Failed to copy to clipboard:', err))
-    }
-
-    alert(`Full Transcription: ${recording.displayName || recording.fileName}\n\n${truncatedText}`)
-  }
-
-  console.log('=== END MODAL DEBUG ===')
-}
-
+// ── Navigation actions ─────────────────────────────────
 const viewAnalysis = (recording) => {
-  // Navigate to the conversation analysis page with this recording
-  const recordingId = recording.recordingId || recording.id
-
-  console.log('=== VIEW ANALYSIS DEBUG ===')
-  console.log('Recording object:', recording)
-  console.log('Recording ID:', recordingId)
-  console.log('Recording has conversationAnalysis:', !!recording.conversationAnalysis)
-  console.log('==========================')
-
+  const recordingId = recId(recording)
   if (!recordingId) {
-    alert('Error: Recording ID is missing. Cannot navigate to analysis page.')
+    showNotice('This recording has no ID, so its analysis can\'t be opened.', 'error')
     return
   }
-
-  router.push({
-    name: 'conversation-analysis',
-    query: { recordingId: recordingId }
-  }).catch(err => {
+  router.push({ name: 'conversation-analysis', query: { recordingId } }).catch((err) => {
     console.error('Navigation error:', err)
-    alert('Failed to navigate to analysis page. Please check console for details.')
+    showNotice('Couldn\'t open the analysis page.', 'error')
   })
 }
 
 const reTranscribe = (recording) => {
-  // Navigate to Norwegian Transcription page with this recording's audio URL
-  console.log('=== RE-TRANSCRIBE DEBUG ===')
-  console.log('Recording:', recording.displayName || recording.fileName)
-  console.log('R2 URL:', recording.r2Url)
-  console.log('Resolved audio URL:', recordingAudioUrl(recording))
-  console.log('Recording ID:', recording.recordingId || recording.id)
-  console.log('==========================')
-
   const audioUrl = recordingAudioUrl(recording)
   if (!audioUrl) {
-    alert('Error: No audio URL available for this recording.')
+    showNotice('This recording has no audio file to transcribe.', 'error')
     return
   }
-
-  // Navigate to Norwegian Transcription Test page with audio URL as query parameter
-  router.push({
-    path: '/norwegian-transcription-test',
-    query: {
-      audioUrl,
-      fileName: recording.fileName || recording.displayName,
-      recordingId: recording.recordingId || recording.id,
-      fromPortfolio: 'true'
-    }
-  }).then(() => {
-    console.log('✅ Navigated to Norwegian Transcription page')
-  }).catch(err => {
-    console.error('❌ Navigation error:', err)
-    alert('Failed to navigate to transcription page. Please check console for details.')
-  })
+  router
+    .push({
+      path: '/norwegian-transcription-test',
+      query: {
+        audioUrl,
+        fileName: recording.fileName || recording.displayName,
+        recordingId: recId(recording),
+        fromPortfolio: 'true',
+      },
+    })
+    .catch((err) => {
+      console.error('Navigation error:', err)
+      showNotice('Couldn\'t open the transcription page.', 'error')
+    })
 }
 
-const showRawData = (recording) => {
-  console.log('=== SHOW RAW DATA (Superadmin) ===')
-  console.log('Full recording object:', recording)
-
-  selectedRecording.value = recording
-
+const copyAudioLink = async (recording) => {
   try {
-    const Bootstrap = window.bootstrap
-    if (typeof Bootstrap !== 'undefined' && Bootstrap.Modal) {
-      const modalElement = document.getElementById('rawDataModal')
-      if (modalElement) {
-        const modal = new Bootstrap.Modal(modalElement)
-        modal.show()
-        console.log('RAW data modal shown')
-      } else {
-        console.error('RAW data modal element not found')
-      }
-    } else {
-      // Fallback: copy to clipboard and alert
-      const rawJson = JSON.stringify(recording, null, 2)
-      navigator.clipboard.writeText(rawJson)
-        .then(() => alert('RAW data copied to clipboard!\n\n' + rawJson.substring(0, 500) + '...'))
-        .catch(() => alert('RAW data:\n\n' + rawJson.substring(0, 500) + '...'))
-    }
-  } catch (error) {
-    console.error('Error showing RAW data modal:', error)
-    alert('Error displaying RAW data. Check console for details.')
+    await navigator.clipboard.writeText(recordingAudioUrl(recording))
+    showNotice('Audio link copied.')
+  } catch {
+    showNotice('Couldn\'t copy the link. Your browser blocked clipboard access.', 'error')
   }
 }
 
-const formatRawData = (recording) => {
-  if (!recording) return '{}'
-  return JSON.stringify(recording, null, 2)
+// ── Copy ──────────────────────────────────────────────
+const formatRawData = (recording) => (recording ? JSON.stringify(recording, null, 2) : '{}')
+
+const flashCopied = () => {
+  copied.value = true
+  setTimeout(() => (copied.value = false), 2000)
 }
 
 const copyRawData = () => {
-  if (!selectedRecording.value) return
-
-  const rawJson = JSON.stringify(selectedRecording.value, null, 2)
-  navigator.clipboard.writeText(rawJson)
-    .then(() => {
-      console.log('RAW data copied to clipboard')
-      alert('✅ RAW JSON data copied to clipboard!')
-    })
-    .catch((err) => {
-      console.error('Failed to copy RAW data:', err)
-      alert('❌ Failed to copy to clipboard')
-    })
+  if (!fullRecording.value) return
+  navigator.clipboard
+    .writeText(formatRawData(fullRecording.value))
+    .then(flashCopied)
+    .catch(() => showNotice('Couldn\'t copy. Your browser blocked clipboard access.', 'error'))
 }
 
 const copyTranscription = () => {
-  if (!selectedRecording.value) return
-
-  let textToCopy = ''
-
-  // Handle Norwegian transcription
-  if (selectedRecording.value.norwegianTranscription) {
-    const improved = selectedRecording.value.norwegianTranscription.improved_text
-    const raw = selectedRecording.value.norwegianTranscription.raw_text
-
-    if (improved) {
-      textToCopy = `✨ AI Enhanced Text:\n${improved}\n\n🎤 Raw Transcription:\n${raw || 'No raw text available'}`
-    } else {
-      textToCopy = raw || 'No transcription available'
-    }
+  const r = fullRecording.value
+  if (!r) return
+  let text
+  if (r.norwegianTranscription) {
+    const { improved_text: improved, raw_text: raw } = r.norwegianTranscription
+    text = improved
+      ? `AI-improved text:\n${improved}\n\nOriginal transcription:\n${raw || ''}`
+      : raw || ''
   } else {
-    // Handle regular transcription
-    textToCopy =
-      selectedRecording.value.transcription?.text ||
-      selectedRecording.value.transcriptionText ||
-      'No transcription available'
+    text = r.transcription?.text || r.transcriptionText || ''
   }
-
   navigator.clipboard
-    .writeText(textToCopy)
-    .then(() => {
-      // Could add a toast notification here
-      console.log('Transcription copied to clipboard')
-    })
-    .catch((err) => {
-      console.error('Failed to copy transcription:', err)
-    })
+    .writeText(text)
+    .then(flashCopied)
+    .catch(() => showNotice('Couldn\'t copy. Your browser blocked clipboard access.', 'error'))
 }
 
+// ── Formatting ────────────────────────────────────────
 const formatFileSize = (bytes) => {
-  if (bytes === 0) return '0 Bytes'
+  if (!bytes) return '0 B'
   const k = 1024
-  const sizes = ['Bytes', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  const sizes = ['B', 'KB', 'MB', 'GB']
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1)
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
 }
 
 const formatDuration = (seconds) => {
-  if (!seconds || seconds === 0) return '0:00'
-
+  if (!seconds) return '0:00'
   const hours = Math.floor(seconds / 3600)
   const mins = Math.floor((seconds % 3600) / 60)
   const secs = Math.floor(seconds % 60)
-
   if (hours > 0) {
     return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
-const formatDate = (dateString) => {
-  if (!dateString) return 'Unknown'
+const formatShortDate = (dateString) => {
+  if (!dateString) return 'Unknown date'
   const date = new Date(dateString)
-  return date.toLocaleString('en-US', {
-    year: 'numeric',
-    month: 'short',
+  const sameYear = date.getFullYear() === new Date().getFullYear()
+  return date.toLocaleDateString('en-GB', {
     day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+    month: 'short',
+    ...(sameYear ? {} : { year: 'numeric' }),
   })
 }
 
+// Backfill a missing duration once the docked player has read the file's metadata.
 const handleAudioMetadata = async (event, recording) => {
-  const audioElement = event.target
-  const duration = Math.floor(audioElement.duration)
-
-  console.log('=== AUDIO METADATA LOADED ===')
-  console.log('Recording:', recording.displayName || recording.fileName)
-  console.log('Current duration in data:', recording.duration)
-  console.log('Actual audio duration:', duration)
-
-  // If duration is missing or 0, update it
-  if (!recording.duration || recording.duration === 0) {
-    console.log('⚠️ Duration missing or 0, updating...')
-
-    try {
-      const response = await fetch(
-        'https://audio-portfolio-worker.torarnehave.workers.dev/update-recording',
-        {
-          method: 'POST',
-          headers: authHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify({
-            userEmail: userStore.email,
-            recordingId: recording.recordingId || recording.id,
-            updates: {
-              duration: duration
-            },
-          }),
-        },
-      )
-
-      if (response.ok) {
-        console.log('✅ Duration updated successfully to', duration, 'seconds')
-        // Update local data
-        recording.duration = duration
-
-        // Force re-render by updating the recordings array
-        const index = recordings.value.findIndex(r =>
-          (r.recordingId || r.id) === (recording.recordingId || recording.id)
-        )
-        if (index !== -1) {
-          recordings.value[index].duration = duration
-        }
-      } else {
-        console.error('❌ Failed to update duration:', response.statusText)
-      }
-    } catch (err) {
-      console.error('❌ Error updating duration:', err)
-    }
-  } else {
-    console.log('✓ Duration already set:', recording.duration, 'seconds')
+  const duration = Math.floor(event.target.duration)
+  if (!recording || !Number.isFinite(duration) || recording.duration) return
+  try {
+    const response = await fetch(`${AUDIO_PORTFOLIO_WORKER_URL}/update-recording`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        userEmail: recordingOwner(recording) || userStore.email,
+        recordingId: recId(recording),
+        updates: { duration },
+      }),
+    })
+    if (response.ok) recording.duration = duration
+  } catch (err) {
+    console.error('Error updating duration:', err)
   }
-  console.log('============================')
 }
 
 const handleAudioError = (event, recording) => {
-  console.error('=== AUDIO ERROR DEBUG ===')
-  console.error('Audio error event:', event)
-  console.error('Error target:', event.target)
-  console.error('Error code:', event.target?.error?.code)
-  console.error('Error message:', event.target?.error?.message)
-  console.error('Recording r2Url:', recording.r2Url)
-  console.error('Resolved audio URL:', recordingAudioUrl(recording))
-  console.error('Recording ID:', recording.recordingId || recording.id)
-
-  // Provide specific error messages based on error code
-  let errorMessage = 'Failed to load audio.'
-  const errorCode = event.target?.error?.code
-
-  switch (errorCode) {
-    case 1: // MEDIA_ERR_ABORTED
-      errorMessage = 'Audio loading was aborted.'
-      break
-    case 2: // MEDIA_ERR_NETWORK
-      errorMessage = 'Network error while loading audio. Check your connection.'
-      break
-    case 3: // MEDIA_ERR_DECODE
-      errorMessage = 'Audio file is corrupted or in an unsupported format.'
-      break
-    case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
-      errorMessage = 'Audio format not supported or file not found.'
-      break
-    default:
-      errorMessage = 'Unknown audio error occurred.'
+  const messages = {
+    1: 'Playback was stopped.',
+    2: 'A network error interrupted the download. Check your connection and press play again.',
+    3: 'The file is damaged or in a format this browser can\'t play.',
+    4: 'The file is missing or in a format this browser can\'t play.',
   }
-
-  console.error('Processed error message:', errorMessage)
-  console.error('========================')
-
-  // Show the error on the card itself — never a blocking dialog.
-  audioErrors.value = {
-    ...audioErrors.value,
-    [recording.recordingId || recording.id]: `Can't play this recording. ${errorMessage}`,
-  }
+  const code = event.target?.error?.code
+  console.error('Audio error', code, recordingAudioUrl(recording))
+  playerError.value = `Can't play this recording. ${messages[code] || 'Try again later.'}`
 }
 
 const fetchAdminOwnerEmails = async () => {
-  if (userStore.role !== 'Superadmin') return
-
+  if (!isSuperadmin.value) return
   try {
     const response = await fetch(apiUrls.listUsersByRole(['Superadmin', 'Admin']))
-    if (!response.ok) {
-      throw new Error(`Failed to fetch admin users: ${response.statusText}`)
-    }
+    if (!response.ok) throw new Error(response.statusText)
     const data = await response.json()
-    adminOwnerEmails.value = (data.users || [])
-      .map((user) => user.email)
-      .filter(Boolean)
+    adminOwnerEmails.value = (data.users || []).map((user) => user.email).filter(Boolean)
   } catch (err) {
     console.error('Error fetching admin users:', err)
   }
 }
 
-// Lifecycle
-onMounted(async () => {
-  await fetchAdminOwnerEmails()
-  await fetchRecordings()
+onMounted(() => {
+  fetchRecordings()
+  fetchAdminOwnerEmails()
+  document.addEventListener('click', closeMenu)
+  document.addEventListener('keydown', onKeydown)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', closeMenu)
+  document.removeEventListener('keydown', onKeydown)
 })
 </script>
 
 <style scoped>
-.audio-portfolio-page {
+.ap-page {
+  --ap-bg: #f6f7f9;
+  --ap-surface: #ffffff;
+  --ap-surface-2: #f1f3f5;
+  --ap-border: #e3e6ea;
+  --ap-text: #1b1f24;
+  --ap-muted: #626b75;
+  --ap-accent: #2f5bd3;
+  --ap-accent-soft: #e8eefc;
+  --ap-accent-text: #ffffff;
+  --ap-danger: #c62f2f;
+  --ap-danger-soft: #fdecec;
+  --ap-ok: #1f7a46;
+  --ap-ok-soft: #e5f4ec;
+  --ap-warn: #8a5a00;
+  --ap-warn-soft: #fff4dc;
+  --ap-radius: 12px;
+  --ap-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+
+  background: var(--ap-bg);
+  color: var(--ap-text);
   min-height: 100vh;
-  padding: 20px 0;
+  padding: 24px 16px 48px;
 }
 
-.search-box {
-  min-width: 300px;
+.ap-page.is-dark {
+  --ap-bg: #121417;
+  --ap-surface: #1b1e23;
+  --ap-surface-2: #23272d;
+  --ap-border: #2e333a;
+  --ap-text: #e8eaed;
+  --ap-muted: #9aa3ad;
+  --ap-accent: #7c9cf2;
+  --ap-accent-soft: #23304f;
+  --ap-accent-text: #0e1220;
+  --ap-danger: #f07b7b;
+  --ap-danger-soft: #3a2224;
+  --ap-ok: #6fcf97;
+  --ap-ok-soft: #1d3326;
+  --ap-warn: #f2c46d;
+  --ap-warn-soft: #382f1c;
+  --ap-shadow: none;
 }
 
-.direct-upload-card {
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  padding: 12px;
-  background: rgba(0, 123, 255, 0.03);
+.ap-page.has-player {
+  padding-bottom: 120px;
 }
 
-.card {
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
+.ap-wrap {
+  max-width: 1040px;
+  margin: 0 auto;
 }
 
-.card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.card .btn-group {
-  position: relative;
-  z-index: 10;
-}
-
-.card-body {
-  position: relative;
-  z-index: 1;
-}
-
-.audio-player audio {
-  border-radius: 8px;
-}
-
-.transcription-excerpt {
-  border-left: 3px solid #007bff;
-  padding-left: 10px;
-  background-color: rgba(0, 123, 255, 0.05);
-  border-radius: 0 4px 4px 0;
-}
-
-.transcription-text {
-  background-color: #f8f9fa;
-  padding: 15px;
-  border-radius: 8px;
-  border: 1px solid #dee2e6;
-}
-
-.bg-dark .transcription-text {
-  background-color: #343a40;
-  border-color: #495057;
-}
-
-.recording-info .badge {
-  font-size: 0.75rem;
-}
-
-.connected-graphs .badge {
-  font-size: 0.7rem;
-}
-
-.metadata {
-  border-top: 1px solid #dee2e6;
-  padding-top: 10px;
-}
-
-.bg-dark .metadata {
-  border-top-color: #495057;
-}
-
-.category-filter .btn {
-  font-size: 0.875rem;
-}
-
-.edit-form {
-  background-color: rgba(0, 123, 255, 0.05);
-  padding: 15px;
-  border-radius: 8px;
-  border: 1px solid rgba(0, 123, 255, 0.2);
-}
-
-.bg-dark .edit-form {
-  background-color: rgba(0, 123, 255, 0.1);
-}
-
-/* Norwegian Transcription Styles */
-.transcription-badges {
+/* Header */
+.ap-header {
   display: flex;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.ap-title-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
-.transcription-badges .badge {
+.ap-title h1 {
+  font-size: 1.75rem;
+  font-weight: 650;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.ap-subtitle {
+  margin: 2px 0 0;
+  color: var(--ap-muted);
+  font-size: 0.9rem;
+}
+
+.ap-toolbar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ap-search {
+  flex: 1 1 280px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--ap-surface);
+  border: 1px solid var(--ap-border);
+  border-radius: 10px;
+  padding: 0 12px;
+  margin: 0;
+}
+
+.ap-search:focus-within {
+  border-color: var(--ap-accent);
+  box-shadow: 0 0 0 3px var(--ap-accent-soft);
+}
+
+.ap-search i {
+  color: var(--ap-muted);
+}
+
+.ap-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ap-text);
+  height: 42px;
+  font-size: 1rem;
+}
+
+.ap-selects {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ap-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  background: var(--ap-surface);
+  border: 1px solid var(--ap-border);
+  border-radius: 10px;
+  padding: 0 4px 0 12px;
+  font-size: 0.85rem;
+  color: var(--ap-muted);
+}
+
+.ap-select select {
+  min-width: 0;
+  text-overflow: ellipsis;
+  border: 0;
+  background: transparent;
+  color: var(--ap-text);
+  height: 42px;
+  font-size: 0.95rem;
+  max-width: 220px;
+  outline: none;
+}
+
+.ap-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ap-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--ap-border);
+  background: var(--ap-surface);
+  color: var(--ap-text);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ap-chip:hover {
+  border-color: var(--ap-accent);
+}
+
+.ap-chip.active {
+  background: var(--ap-accent);
+  border-color: var(--ap-accent);
+  color: var(--ap-accent-text);
+}
+
+.ap-chip-count {
   font-size: 0.75rem;
-  padding: 0.25rem 0.5rem;
+  opacity: 0.7;
 }
 
-.norwegian-transcription .transcription-text {
-  color: #333;
-  line-height: 1.5;
+/* Buttons */
+.ap-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid var(--ap-border);
+  background: var(--ap-surface);
+  color: var(--ap-text);
+  font-weight: 550;
+  font-size: 0.95rem;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
-.enhanced-text {
-  background-color: #f8fff8 !important;
-  border-radius: 0.375rem;
+.ap-btn:hover:not(:disabled) {
+  border-color: var(--ap-accent);
 }
 
-.raw-text {
-  background-color: #f8f9fa !important;
-  border-radius: 0.375rem;
+.ap-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-.processing-info {
-  padding: 0.5rem;
-  background-color: #f8f9fa;
-  border-radius: 0.375rem;
-  border: 1px solid #e9ecef;
+.ap-btn-primary {
+  background: var(--ap-accent);
+  border-color: var(--ap-accent);
+  color: var(--ap-accent-text);
 }
 
-.transcription-text h6 {
-  margin-bottom: 0.5rem;
+.ap-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.ap-btn-danger {
+  background: var(--ap-danger);
+  border-color: var(--ap-danger);
+  color: #fff;
+}
+
+.ap-btn-sm {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 0.85rem;
+}
+
+.ap-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--ap-muted);
+  cursor: pointer;
+}
+
+.ap-icon-btn:hover {
+  background: var(--ap-surface-2);
+  color: var(--ap-text);
+}
+
+/* Panels, fields, alerts */
+.ap-panel {
+  background: var(--ap-surface);
+  border: 1px solid var(--ap-border);
+  border-radius: var(--ap-radius);
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: var(--ap-shadow);
+}
+
+.ap-upload-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.ap-upload-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.ap-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  min-width: 0;
+}
+
+.ap-field > span {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ap-muted);
+}
+
+.ap-field input,
+.ap-field select {
+  height: 42px;
+  border: 1px solid var(--ap-border);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: var(--ap-surface);
+  color: var(--ap-text);
+  font-size: 0.95rem;
+  min-width: 0;
+}
+
+.ap-field input[type='file'] {
+  padding: 8px;
+  height: auto;
+}
+
+.ap-field input:focus,
+.ap-field select:focus {
+  outline: none;
+  border-color: var(--ap-accent);
+  box-shadow: 0 0 0 3px var(--ap-accent-soft);
+}
+
+.ap-muted {
+  color: var(--ap-muted);
+}
+
+.ap-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-radius: 10px;
+  padding: 8px 8px 8px 14px;
+  margin: 12px 0 0;
+  font-size: 0.9rem;
+}
+
+.ap-alert-info {
+  background: var(--ap-accent-soft);
+  color: var(--ap-text);
+}
+
+.ap-alert-error {
+  background: var(--ap-danger-soft);
+  color: var(--ap-danger);
+}
+
+.ap-page > .ap-wrap > .ap-alert {
+  margin: 0 0 12px;
+}
+
+/* List */
+.ap-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ap-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: var(--ap-surface);
+  border: 1px solid var(--ap-border);
+  border-radius: var(--ap-radius);
+  padding: 14px;
+  box-shadow: var(--ap-shadow);
+}
+
+.ap-row.is-playing {
+  border-color: var(--ap-accent);
+  box-shadow: 0 0 0 1px var(--ap-accent);
+}
+
+.ap-play-btn {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--ap-accent-soft);
+  color: var(--ap-accent);
+  font-size: 1.3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.ap-play-btn:hover:not(:disabled),
+.ap-row.is-playing .ap-play-btn {
+  background: var(--ap-accent);
+  color: var(--ap-accent-text);
+}
+
+.ap-play-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ap-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.ap-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ap-row-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.ap-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 2px 0 0;
+  font-size: 0.85rem;
+  color: var(--ap-muted);
+}
+
+.ap-owner {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.ap-excerpt {
+  margin: 6px 0 0;
+  font-size: 0.9rem;
+  color: var(--ap-text);
+  opacity: 0.85;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ap-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ap-tag {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--ap-surface-2);
+  color: var(--ap-muted);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ap-tag-cat {
+  background: var(--ap-accent-soft);
+  color: var(--ap-accent);
   font-weight: 600;
 }
 
-.border-start {
-  border-left-width: 0.25rem !important;
+.ap-badge {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
 }
 
-.border-3 {
-  border-width: 3px !important;
+.ap-badge-ok {
+  background: var(--ap-ok-soft);
+  color: var(--ap-ok);
 }
 
-.border-success {
-  border-color: #198754 !important;
+.ap-badge-warn {
+  background: var(--ap-warn-soft);
+  color: var(--ap-warn);
 }
 
-.border-secondary {
-  border-color: #6c757d !important;
+.ap-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
-/* RAW Data Modal Styles */
-.raw-data-container {
-  background-color: #1e1e1e;
-  border-radius: 0.5rem;
-  padding: 1rem;
-  max-height: 500px;
+.ap-menu-wrap {
+  position: relative;
+}
+
+.ap-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 1030;
+  min-width: 200px;
+  padding: 6px;
+  background: var(--ap-surface);
+  border: 1px solid var(--ap-border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(16, 24, 40, 0.16);
+}
+
+.ap-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ap-text);
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ap-menu-item:hover,
+.ap-menu-item:focus-visible {
+  background: var(--ap-surface-2);
+  outline: none;
+}
+
+.ap-menu-danger {
+  color: var(--ap-danger);
+}
+
+.ap-menu-sep {
+  margin: 6px 4px;
+  border: 0;
+  border-top: 1px solid var(--ap-border);
+  opacity: 1;
+}
+
+.ap-list-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  font-size: 0.9rem;
+}
+
+/* Edit form */
+.ap-edit {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.ap-edit-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Empty, loading */
+.ap-empty {
+  text-align: center;
+  padding: 56px 16px;
+  background: var(--ap-surface);
+  border: 1px dashed var(--ap-border);
+  border-radius: var(--ap-radius);
+}
+
+.ap-empty h2 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.ap-empty-icon {
+  font-size: 2rem;
+  color: var(--ap-muted);
+  display: block;
+  margin-bottom: 8px;
+}
+
+.ap-skeleton .ap-play-btn {
+  background: var(--ap-surface-2);
+}
+
+.ap-skel-line {
+  height: 12px;
+  border-radius: 6px;
+  background: var(--ap-surface-2);
+  margin: 6px 0;
+  animation: ap-pulse 1.4s ease-in-out infinite;
+}
+
+.ap-skel-line.w-60 {
+  width: 60%;
+}
+
+.ap-skel-line.w-40 {
+  width: 40%;
+}
+
+@keyframes ap-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Docked player */
+.ap-player {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1040;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  background: var(--ap-surface);
+  border-top: 1px solid var(--ap-border);
+  box-shadow: 0 -4px 16px rgba(16, 24, 40, 0.08);
+}
+
+.ap-player-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 0 1 280px;
+}
+
+.ap-player-info strong {
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ap-player-error {
+  color: var(--ap-danger);
+}
+
+.ap-player audio {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+}
+
+/* Dialogs */
+.ap-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1060;
+  background: rgba(10, 12, 16, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.ap-modal {
+  background: var(--ap-surface);
+  color: var(--ap-text);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 680px;
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.25);
+}
+
+.ap-modal-wide {
+  max-width: 960px;
+}
+
+.ap-modal-narrow {
+  max-width: 440px;
+}
+
+.ap-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 8px 20px;
+}
+
+.ap-modal-head h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ap-modal-body {
+  padding: 8px 20px;
   overflow-y: auto;
 }
 
-.raw-data-pre {
+.ap-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px 16px;
+}
+
+.ap-transcript {
+  margin-top: 12px;
+}
+
+.ap-transcript h3 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ap-muted);
+  margin: 0 0 6px;
+}
+
+.ap-transcript p {
+  white-space: pre-wrap;
+  line-height: 1.6;
   margin: 0;
+}
+
+.ap-raw {
+  background: #15181d;
   color: #d4d4d4;
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 0.875rem;
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 0.8rem;
   line-height: 1.5;
   white-space: pre-wrap;
-  word-wrap: break-word;
+  word-break: break-word;
+  margin: 0;
 }
 
-.raw-data-pre code {
-  color: #ce9178;
-}
+/* Phones */
+@media (max-width: 640px) {
+  .ap-page {
+    padding: 16px 12px 40px;
+  }
 
-/* Publication State Badge */
-.publication-state-badge {
-  font-size: 0.75rem;
-  margin-left: 0.5rem;
-  vertical-align: middle;
-  animation: fadeIn 0.3s ease-in;
-}
+  .ap-title h1 {
+    font-size: 1.4rem;
+  }
 
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-5px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+  .ap-title-row .ap-btn span {
+    display: none;
+  }
 
-.info-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 0.75rem;
-  padding: 1rem;
-  background-color: #f8f9fa;
-  border-radius: 0.5rem;
-  border: 1px solid #dee2e6;
-}
+  .ap-title-row .ap-btn {
+    width: 42px;
+    padding: 0;
+  }
 
-.bg-dark .info-grid {
-  background-color: #343a40;
-  border-color: #495057;
-  color: #ffffff;
-}
+  .ap-selects,
+  .ap-select {
+    width: 100%;
+  }
 
-.info-grid div {
-  padding: 0.5rem;
-  border-left: 3px solid #007bff;
-  padding-left: 0.75rem;
+  .ap-select {
+    min-width: 0;
+  }
+
+  .ap-select select {
+    flex: 1;
+    width: 100%;
+    max-width: none;
+  }
+
+  /* Two lines of title instead of an early ellipsis on narrow screens */
+  .ap-row-head {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+
+  .ap-row-title {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  /* One scrolling row of chips instead of a tall wrapped block */
+  .ap-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0 -12px;
+    padding: 0 12px 4px;
+    scrollbar-width: none;
+  }
+
+  .ap-chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .ap-row {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .ap-hide-sm {
+    display: none;
+  }
+
+  .ap-player {
+    flex-wrap: wrap;
+    gap: 6px 8px;
+  }
+
+  .ap-player-info {
+    flex: 1 1 calc(100% - 56px);
+  }
+
+  .ap-player audio {
+    flex: 1 1 100%;
+    order: 3;
+  }
+
+  .ap-modal-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .ap-modal {
+    border-radius: 16px 16px 0 0;
+    max-height: 90vh;
+  }
 }
 </style>
