@@ -7,6 +7,7 @@
  * over REST. So the rules live here, once, and both doors call them:
  *
  *   MCP  register_node_type / set_node_type_renderer / approve_node_type_renderer  (with world)
+ *   MCP  promote_node_type — a World's type lifted to the platform in one write (2026-11-14)
  *   REST GET /node-types/world/mine · POST /node-types/world/{create,look,use}     (index.js)
  *
  * Every function returns { ok: true, ... } or a graph-service failure { ok: false, code, message }.
@@ -20,10 +21,10 @@
  *   metadata.renderer { version, impl, status: pending|approved, scope, approvedBy, ... }
  */
 import * as gs from './graph-service.js'
-import { mayManageWorld, worldsFoundedBy } from './graph-store.js'
+import { mayManageWorld, worldsFoundedBy, worldStoresFor } from './graph-store.js'
 import { NODE_TYPES } from './node-types.js'
 import {
-  REGISTRY_NODE_TYPE, TYPE_NAME, WORLD_TYPES_TAG, normalizeWorld, registeredNodeTypes,
+  REGISTRY_GRAPH_ID, REGISTRY_NODE_TYPE, TYPE_NAME, WORLD_TYPES_TAG, normalizeWorld, registeredNodeTypes,
   worldRegistryGraph, invalidateNodeTypeCache,
 } from './node-type-registry.js'
 
@@ -276,4 +277,157 @@ export async function listWorldTypes(env, actor, { world } = {}) {
     .filter((n) => n?.type === REGISTRY_NODE_TYPE && TYPE_NAME.test(String(n.label || '').trim()) && !taken.has(String(n.label).trim()))
     .map((n) => describe(n, where.world))
   return { ok: true, world: where.world, registryGraphId: reg.graphId, types }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// One type for every World — promotion, and the guard that makes it the only way (2026-11-14)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// What happened: sodesign.no had its own type "oppgave" with an approved renderer. A second World
+// (NIBI) needed the same type, so "oppgave" was registered on the platform with register_node_type.
+// The platform always wins a name (no shadowing, D2 A), and a freshly registered platform type has
+// no title, no fields and no renderer — so from that request on, every "oppgave" node in sodesign.no
+// was drawn without its look. Nothing warned: the tool answered "Registered".
+//
+// Two rules follow, and both live here so MCP and REST cannot disagree:
+//   1. A platform type may not be registered under a name a World already uses (worldsHoldingType).
+//   2. The way to share a World's type is promoteWorldType: its description, title, fields and
+//      renderer are written to the platform registry in ONE write, so there is never a request
+//      that sees the name without the look. The World's own node is left untouched — the platform
+//      entry hides it, and it is the way back.
+
+/**
+ * Which Worlds already have a type named `name` in their own registry: { holding, unreachable }.
+ * A store that does not answer is reported, not skipped — "nobody uses this name" must not be
+ * concluded from a World that could not be asked.
+ */
+export async function worldsHoldingType(env, actor, name) {
+  const holding = []
+  const unreachable = []
+  for (const store of await worldStoresFor(env, actor)) {
+    try {
+      const reg = await worldRegistryGraph(env, store.world)
+      if (reg?.graphId && typeEntryIn(reg.graph?.nodes || [], name)) holding.push(store.world)
+    } catch (e) {
+      console.error(`[node-types] ${store.world} registry could not be read for "${name}":`, e.message)
+      unreachable.push(store.world)
+    }
+  }
+  return { holding, unreachable }
+}
+
+/**
+ * The refusal for registering platform type `name` while a World uses that name, or null when the
+ * name is free. `except` is the World being promoted from.
+ */
+export async function platformNameRefusal(env, actor, name, { except = null } = {}) {
+  const { holding, unreachable } = await worldsHoldingType(env, actor, name)
+  const others = holding.filter((w) => w !== except)
+  if (others.length) {
+    return fail(ERR.INVALID_INPUT,
+      `"${name}" is already a node type of ${others.join(', ')}. A platform type of the same name would hide ` +
+      `that World's type — its fields and its renderer — in every graph there. ` +
+      (except
+        ? `Only one World's "${name}" can become the platform's; settle which before promoting.`
+        : `To make it one type for every World, use promote_node_type({ type: "${name}", world: "${others[0]}" }).`),
+      { worlds: others })
+  }
+  if (unreachable.length) {
+    return fail(ERR.INVALID_INPUT,
+      `Could not check whether "${name}" is already a node type of ${unreachable.join(', ')}: the graph store did not answer. ` +
+      'Nothing was registered. Try again when it is reachable.', { unreachable })
+  }
+  return null
+}
+
+/**
+ * Lift a World's own type to the platform so every World can use it. Superadmin only.
+ * One write to graph_system_registry carrying the World node's description, title, fields and
+ * renderer; an approved renderer stays approved (the code is byte-identical, and the Superadmin
+ * calling this is the platform's approver), a pending one stays pending. The World's node is not
+ * changed. A leftover registry node with the type's id that is NOT a live type (for example one
+ * neutralised by hand) is taken over rather than colliding.
+ */
+export async function promoteWorldType(env, actor, { world, type }) {
+  if (!actor || actor.anonymous) return fail(ERR.UNAUTHENTICATED, 'Sign in to promote a node type.')
+  if (!actor.isSuperadmin) return fail(ERR.FORBIDDEN_GRAPH, 'Promoting a node type to the platform is for the Superadmin only.')
+  const domain = normalizeWorld(world)
+  if (!domain) return fail(ERR.INVALID_INPUT, 'Say which World the type is promoted from, e.g. world: "sodesign.no".')
+  const name = String(type || '').trim()
+  if (!TYPE_NAME.test(name)) return fail(ERR.INVALID_INPUT, `"${name}" is not a valid type name.`)
+
+  const reg = await registryOf(env, domain)
+  if (!reg.ok) return reg
+  const source = reg.graphId ? typeEntryIn(reg.nodes, name) : null
+  if (!source) return fail(ERR.INVALID_INPUT, `"${name}" is not a node type of ${domain}, so there is nothing to promote.`)
+
+  invalidateNodeTypeCache() // the checks below must see the registries as they are now
+  if ((await platformNames(env)).has(name)) {
+    return fail(ERR.INVALID_INPUT, `"${name}" is already a platform node type. Nothing was changed.`)
+  }
+  const refusal = await platformNameRefusal(env, actor, name, { except: domain })
+  if (refusal) return refusal
+
+  const now = new Date().toISOString()
+  const who = actor.email || actor.userId
+  const m = source.metadata || {}
+  const from = m.renderer && (m.renderer.impl || m.renderer.component) ? m.renderer : null
+  const approved = from?.status === 'approved'
+  const renderer = from
+    ? {
+        version: Number(from.version) || 1,
+        ...(typeof from.impl === 'string' && from.impl.trim() ? { impl: from.impl } : { component: String(from.component).trim() }),
+        status: approved ? 'approved' : 'pending',
+        scope: 'platform',
+        updatedBy: who,
+        updatedAt: now,
+        ...(approved
+          ? {
+              approvedBy: who,
+              approvedAt: now,
+              verify: {
+                method: `Promoted unchanged from ${domain} (renderer v${Number(from.version) || 1})`,
+                observed: `Approved in ${domain} by ${from.approvedBy || 'its founder'}${from.approvedAt ? ` at ${from.approvedAt}` : ''}` +
+                  (from.verify?.method ? `; checked there by: ${String(from.verify.method).slice(0, 300)}` : ''),
+              },
+            }
+          : {}),
+      }
+    : null
+  const node = {
+    id: `nodetype-${name}`,
+    label: name,
+    type: REGISTRY_NODE_TYPE,
+    info: String(source.info || '').trim(),
+    metadata: {
+      title: m.title || name,
+      fields: Array.isArray(m.fields) ? m.fields : [],
+      consumer: String(m.consumer || 'vegvisr-node').trim(),
+      renders: false,
+      registeredAt: now,
+      promotedFrom: { world: domain, at: now, by: who, rendererVersion: from ? Number(from.version) || 1 : null },
+      ...(renderer ? { renderer } : {}),
+    },
+  }
+
+  const platform = await gs.getGraph(env, REGISTRY_GRAPH_ID)
+  if (!platform.ok) return platform
+  const leftover = (platform.graph?.nodes || []).find((n) => n?.id === node.id)
+  const { id: _id, ...fields } = node
+  const written = leftover
+    ? await gs.updateNode(env, { graphId: REGISTRY_GRAPH_ID, nodeId: node.id, fields, expectedVersion: platform.version, actor })
+    : await gs.addNode(env, { graphId: REGISTRY_GRAPH_ID, node, actor })
+  if (!written.ok) return written
+  invalidateNodeTypeCache()
+  return {
+    ok: true,
+    type: name,
+    world: domain,
+    registryNodeId: node.id,
+    replacedLeftover: Boolean(leftover),
+    title: node.metadata.title,
+    description: node.info,
+    fields: node.metadata.fields,
+    renderer: renderer ? { version: renderer.version, status: renderer.status } : null,
+  }
 }

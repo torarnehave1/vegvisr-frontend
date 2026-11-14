@@ -512,7 +512,9 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         'Renderable types cannot be added here: those follow the viewer\'s renderers. Without ' +
         'world: a platform type, Superadmin only. With world (e.g. "sodesign.no"): a type of that ' +
         'World only, stored in the World\'s own storage and usable only in its graphs — for its ' +
-        'founder (or a Superadmin); a name the platform already has is refused. Requires the graph:write scope.',
+        'founder (or a Superadmin); a name the platform already has is refused. A platform type is ' +
+        'likewise refused when a World already has a type of that name, because the platform name ' +
+        'would hide that World\'s type and its renderer: use promote_node_type for that. Requires the graph:write scope.',
       inputSchema: {
         type: z.string().min(2).max(40).describe('The type name: lowercase letters, digits, - or _, starting with a letter, e.g. "work-context".'),
         description: z.string().min(10).describe('What a node of this type holds, in a sentence or two.'),
@@ -546,6 +548,11 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         return ok({ success: true, type: name, registryNodeId: '', alreadyRegistered: true },
           `"${name}" is already a renderable type; nothing to register.`)
       }
+      // A World that already has a type of this name would lose it — fields and renderer — the
+      // moment the platform takes the name (2026-11-14: "oppgave" of sodesign.no). Refused here;
+      // promote_node_type is the way to make a World's type everybody's.
+      const taken = await nts.platformNameRefusal(env, actor, name)
+      if (taken) return fromService(taken)
       const registryNodeId = `nodetype-${name}`
       const result = await gs.addNode(env, {
         graphId: REGISTRY_GRAPH_ID,
@@ -712,6 +719,67 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
       const q = reg.world ? `?world=${reg.world}` : ''
       return ok({ success: true, type, version, status: 'approved' },
         `Renderer v${version} for "${type}" approved${reg.world ? ` in ${reg.world}` : ''}. <vegvisr-node> serves it from GET /node-types/${type}/renderer${q} within a minute.`)
+    },
+  )
+
+  // ── promote_node_type ─────────────────────────────────────────────────────
+  //
+  // One type for every World. A type starts in the World that needed it; when a second World
+  // needs the same thing, it has to become a platform type — and the platform always wins a name,
+  // so doing that in steps (register, then set a renderer, then approve) leaves every existing
+  // node of the type without its look in between. On 2026-11-14 exactly that hid the renderer of
+  // sodesign.no's "oppgave". This is the one-write version; the rules are in node-type-service.js.
+  server.registerTool(
+    'promote_node_type',
+    {
+      title: "Make a World's node type a platform type",
+      description:
+        "Lift one World's own node type to the platform, so graphs in EVERY World (and on the " +
+        'platform) can use it. Its description, title, fields and renderer are copied to the ' +
+        'platform registry in ONE write, so there is never a moment when the type has a name but ' +
+        'no renderer: an approved renderer stays approved (the code is unchanged), a pending one ' +
+        "stays pending. The World's own type node is not changed — the platform entry takes over " +
+        'the name, and that node remains as the record of where it came from. Refused when the ' +
+        'platform already has a type of that name, or when another World has its own type of that ' +
+        'name (theirs would be hidden). Existing nodes of the type keep working. Superadmin only. ' +
+        'Requires the graph:write scope.',
+      inputSchema: {
+        type: z.string().min(2).max(40).describe('The World type to promote, e.g. "oppgave".'),
+        world: z.string().min(3).describe('The World that has it today, e.g. "sodesign.no".'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        type: z.string(),
+        world: z.string(),
+        registryNodeId: z.string(),
+        replacedLeftover: z.boolean().describe('True when a registry node with this id existed but was not a live type, and was taken over.'),
+        title: z.string(),
+        description: z.string(),
+        fields: z.array(z.object({ key: z.string(), label: z.string(), kind: z.string() })),
+        renderer: z.object({ version: z.number(), status: z.string() }).nullable(),
+      },
+      annotations: ADDITIVE_WRITE,
+    },
+    async ({ type, world }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await nts.promoteWorldType(env, actor, { world, type })
+      if (!r.ok) return fromService(r)
+      const look = r.renderer
+        ? `renderer v${r.renderer.version} ${r.renderer.status}` +
+          (r.renderer.status === 'approved' ? '' : ' — it runs nowhere until approve_node_type_renderer')
+        : `no renderer (it had none in ${r.world})`
+      const fields = r.fields.length ? r.fields.map((f) => `${f.key} (${f.kind})`).join(', ') : 'none declared'
+      return ok(
+        { success: true, type: r.type, world: r.world, registryNodeId: r.registryNodeId, replacedLeftover: r.replacedLeftover,
+          title: r.title, description: r.description, fields: r.fields, renderer: r.renderer },
+        `"${r.type}" is now a platform node type (${r.registryNodeId} in ${REGISTRY_GRAPH_ID}), promoted from ${r.world} with ${look}. ` +
+        `Fields: ${fields}. Graphs in every World accept it within a minute; ${r.world}'s own type node is unchanged.` +
+        (r.replacedLeftover ? ' A leftover registry node with the same id was taken over.' : ''))
     },
   )
 
@@ -7615,6 +7683,7 @@ export const TOOL_NAMES = [
   'register_node_type',
   'set_node_type_renderer',
   'approve_node_type_renderer',
+  'promote_node_type',
   'list_node_types',
   'get_node_types',
   'save_node_template',

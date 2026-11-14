@@ -365,3 +365,161 @@ describe('list_node_types with world', () => {
     assert.equal(sc(await call(stranger, 'list_node_types', { world: OTHER })).registered.some((x) => x.type === 'test-card'), false)
   })
 })
+
+// ── One type for every World (2026-11-14) ───────────────────────────────────────────────────────
+//
+// sodesign.no had "oppgave" with an approved renderer; NIBI needed the same type. Registering
+// "oppgave" on the platform took the name at once and — a new platform type having no renderer —
+// every oppgave node in sodesign.no lost its look. These tests are that evening, in order.
+describe('a platform type may not take a name a World already uses', () => {
+  /** WORLD's test-card with an approved renderer and two fields, as a founder would have it. */
+  async function worldCardInUse() {
+    const f = await connect(FOUNDER)
+    await registerTestCard(f)
+    const look = await nts.setWorldTypeLook(env, actorOf(FOUNDER), {
+      world: WORLD, type: 'test-card', impl: IMPL, title: 'Testkort',
+      fields: [{ label: 'Ansvarlig', kind: 'text' }, { label: 'Frist', kind: 'date' }],
+    })
+    assert.equal(look.ok, true, JSON.stringify(look))
+    await call(f, 'approve_node_type_renderer', { type: 'test-card', version: 1, verifyMethod: 'Playwright screenshot', world: WORLD })
+    invalidateNodeTypeCache()
+  }
+  const platformRegistry = () => JSON.parse(env.vegvisr_org.db.prepare('SELECT data FROM knowledge_graphs WHERE id = ?').get(REGISTRY_GRAPH_ID).data)
+
+  test('register_node_type without world is refused, names the World and the tool to use; the World keeps its look', async () => {
+    await worldCardInUse()
+    const admin = await connect(SUPER)
+    const r = await call(admin, 'register_node_type', { type: 'test-card', description: 'The same card, for everybody.', consumer: 'vegvisr-node' })
+    assert.equal(r.isError, true)
+    assert.equal(code(r), gs.ERR.INVALID_INPUT)
+    assert.match(r.content[0].text, new RegExp(WORLD.replace(/\./g, '\\.')))
+    assert.match(r.content[0].text, /promote_node_type/)
+    assert.equal(platformRegistry().nodes.some((n) => n.label === 'test-card'), false, 'nothing was written')
+    invalidateNodeTypeCache()
+    assert.equal((await approvedRenderer(env, 'test-card', { world: WORLD })).impl, IMPL, "the World's renderer is still served")
+  })
+
+  test('a free name registers as before', async () => {
+    await worldCardInUse()
+    const r = await call(await connect(SUPER), 'register_node_type', { type: 'free-name', description: 'Nobody uses this name.', consumer: 'vegvisr-node' })
+    assert.notEqual(r.isError, true, JSON.stringify(sc(r)))
+    assert.equal(sc(r).alreadyRegistered, false)
+  })
+
+  test('a World store that does not answer blocks the registration instead of being skipped', async () => {
+    await worldCardInUse()
+    const admin = await connect(SUPER)
+    globalThis.fetch = async () => { throw new Error('connect ECONNREFUSED') }
+    const r = await call(admin, 'register_node_type', { type: 'test-card', description: 'Cannot know who uses it.', consumer: 'vegvisr-node' })
+    assert.equal(r.isError, true)
+    assert.match(r.content[0].text, /did not answer/)
+    assert.equal(platformRegistry().nodes.some((n) => n.label === 'test-card'), false)
+  })
+})
+
+describe('promote_node_type: a World type becomes the platform type in one write', () => {
+  async function worldCardInUse(world = WORLD, who = FOUNDER) {
+    const f = await connect(who)
+    await registerTestCard(f, world)
+    const look = await nts.setWorldTypeLook(env, actorOf(who), {
+      world, type: 'test-card', impl: IMPL, title: 'Testkort',
+      fields: [{ label: 'Ansvarlig', kind: 'text' }, { label: 'Frist', kind: 'date' }],
+    })
+    assert.equal(look.ok, true, JSON.stringify(look))
+    await call(f, 'approve_node_type_renderer', { type: 'test-card', version: 1, verifyMethod: 'Playwright screenshot', world })
+    invalidateNodeTypeCache()
+  }
+  const platformRegistry = () => JSON.parse(env.vegvisr_org.db.prepare('SELECT data FROM knowledge_graphs WHERE id = ?').get(REGISTRY_GRAPH_ID).data)
+  const platformEntry = () => platformRegistry().nodes.find((n) => n.id === 'nodetype-test-card')
+
+  test('description, title, fields and the approved renderer arrive together; every World and the platform can use it', async () => {
+    await worldCardInUse()
+    const worldBefore = worldGraphs(WORLD)[0].data
+    const nodesBefore = platformRegistry().nodes.length
+    const r = await call(await connect(SUPER), 'promote_node_type', { type: 'test-card', world: WORLD })
+    assert.notEqual(r.isError, true, JSON.stringify(sc(r)))
+    assert.deepEqual(sc(r).renderer, { version: 1, status: 'approved' })
+    assert.deepEqual(sc(r).fields.map((f) => f.key), ['ansvarlig', 'frist'])
+    assert.equal(sc(r).replacedLeftover, false)
+
+    assert.equal(platformRegistry().nodes.length, nodesBefore + 1, 'one node added to the platform registry, complete')
+    const e = platformEntry()
+    assert.equal(e.type, REGISTRY_NODE_TYPE)
+    assert.equal(e.label, 'test-card')
+    assert.equal(e.info, 'A card for the phase-2 proof.')
+    assert.equal(e.metadata.title, 'Testkort')
+    assert.equal(e.metadata.renderer.impl, IMPL, 'the code is byte-identical')
+    assert.equal(e.metadata.renderer.status, 'approved')
+    assert.equal(e.metadata.renderer.scope, 'platform')
+    assert.equal(e.metadata.renderer.approvedBy, 'owner@example.com', "the platform's approver is the Superadmin who promoted")
+    assert.match(e.metadata.renderer.verify.observed, /founder@example\.com/, 'who approved it in the World is kept')
+    assert.deepEqual([e.metadata.promotedFrom.world, e.metadata.promotedFrom.rendererVersion], [WORLD, 1])
+    assert.equal(worldGraphs(WORLD)[0].data, worldBefore, "the World's own registry is untouched")
+
+    // Served everywhere, with no gap: the same code with and without a World.
+    for (const opts of [{}, { world: WORLD }, { world: OTHER }]) {
+      const served = await approvedRenderer(env, 'test-card', opts)
+      assert.deepEqual([served?.version, served?.impl], [1, IMPL], JSON.stringify(opts))
+    }
+    // …and writable everywhere.
+    const admin = await connect(SUPER)
+    for (const world of [undefined, WORLD, OTHER]) {
+      const g = sc(await call(admin, 'create_graph', { title: 'Oppgaver', metaArea: '#TEST', ...(world ? { world } : {}) }))
+      const added = await call(admin, 'add_node', { graphId: g.graphId, node: { label: 'En oppgave', type: 'test-card' } })
+      assert.notEqual(added.isError, true, `${world || 'platform'}: ${JSON.stringify(sc(added))}`)
+    }
+    const listed = sc(await call(admin, 'list_node_types', { world: WORLD })).registered.filter((x) => x.type === 'test-card')
+    assert.deepEqual(listed.map((x) => [x.scope, x.renderer?.status]), [['platform', 'approved']], 'listed once, as a platform type with its look')
+  })
+
+  test('a pending World renderer is carried as pending: promotion never approves code nobody approved', async () => {
+    const f = await connect(FOUNDER)
+    await registerTestCard(f)
+    await call(f, 'set_node_type_renderer', { type: 'test-card', impl: IMPL, world: WORLD })
+    const r = sc(await call(await connect(SUPER), 'promote_node_type', { type: 'test-card', world: WORLD }))
+    assert.deepEqual(r.renderer, { version: 1, status: 'pending' })
+    assert.equal(platformEntry().metadata.renderer.approvedBy, undefined)
+    invalidateNodeTypeCache()
+    assert.equal(await approvedRenderer(env, 'test-card'), null)
+  })
+
+  test('a neutralised leftover with the same node id is taken over, still in one write', async () => {
+    await worldCardInUse()
+    // What 2026-11-14 left behind: nodetype-<name> exists in the platform registry but is no longer a type.
+    const reg = platformRegistry()
+    reg.nodes.push({ id: 'nodetype-test-card', label: 'ANGRET – ikke i bruk', type: 'fulltext', info: 'Kan slettes.' })
+    env.vegvisr_org.db.prepare('UPDATE knowledge_graphs SET data = ? WHERE id = ?').run(JSON.stringify(reg), REGISTRY_GRAPH_ID)
+    invalidateNodeTypeCache()
+    const r = sc(await call(await connect(SUPER), 'promote_node_type', { type: 'test-card', world: WORLD }))
+    assert.equal(r.replacedLeftover, true)
+    const after = platformRegistry()
+    assert.equal(after.nodes.filter((n) => n.id === 'nodetype-test-card').length, 1)
+    assert.equal(after.metadata.version, reg.metadata.version + 1)
+    assert.deepEqual([platformEntry().type, platformEntry().label, platformEntry().metadata.renderer.status], [REGISTRY_NODE_TYPE, 'test-card', 'approved'])
+    assert.equal((await approvedRenderer(env, 'test-card', { world: OTHER })).impl, IMPL)
+  })
+
+  test('refused: not a Superadmin, an unknown type, a name the platform has, a second World with its own type of that name', async () => {
+    await worldCardInUse()
+    assert.equal(code(await call(await connect(FOUNDER), 'promote_node_type', { type: 'test-card', world: WORLD })), gs.ERR.FORBIDDEN_GRAPH)
+    const admin = await connect(SUPER)
+    assert.equal(code(await call(admin, 'promote_node_type', { type: 'no-such-type', world: WORLD })), gs.ERR.INVALID_INPUT)
+    assert.equal((await call(admin, 'promote_node_type', { type: 'test-card', world: 'no-store.example' })).isError, true)
+
+    await worldCardInUse(OTHER, OTHER_FOUNDER) // OTHER has its own, different test-card
+    const clash = await call(admin, 'promote_node_type', { type: 'test-card', world: WORLD })
+    assert.equal(code(clash), gs.ERR.INVALID_INPUT)
+    assert.match(clash.content[0].text, new RegExp(OTHER.replace(/\./g, '\\.')))
+    assert.equal(platformEntry(), undefined, 'nothing was written')
+
+    // Once promoted, a second promotion finds the platform name taken.
+    const otherRow = worldGraphs(OTHER)[0]
+    worldDbs[OTHER].db.prepare('UPDATE knowledge_graphs SET data = ? WHERE id = ?')
+      .run(JSON.stringify({ ...JSON.parse(otherRow.data), nodes: [] }), otherRow.id) // OTHER gives up its own test-card
+    invalidateNodeTypeCache()
+    assert.notEqual((await call(admin, 'promote_node_type', { type: 'test-card', world: WORLD })).isError, true)
+    const again = await call(admin, 'promote_node_type', { type: 'test-card', world: WORLD })
+    assert.equal(code(again), gs.ERR.INVALID_INPUT)
+    assert.match(again.content[0].text, /already a platform node type/)
+  })
+})
