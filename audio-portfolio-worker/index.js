@@ -1354,6 +1354,15 @@ var index_default = {
           recordingId = body.id || body.recordingId;
           updates = body.updates || body;
         }
+        // Publication state changes ONLY through /update-publication-state (Superadmin). Without
+        // this, any caller could publish a recording — i.e. put it in /list-recordings-public —
+        // by sending publicationState here. Stripped silently rather than rejected, because
+        // AudioPortfolio.vue's edit form sends back its whole copy of the recording.
+        if (updates && typeof updates === "object") {
+          updates = { ...updates };
+          delete updates.publicationState;
+          delete updates.publishedAt;
+        }
         console.log("\u{1F4DD} Updating recording:", {
           userEmail,
           recordingId,
