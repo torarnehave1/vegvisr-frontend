@@ -106,7 +106,7 @@ export class D1GraphStore {
    *   casVersion   when an integer, the UPDATE only lands if the stored JSON still carries this
    *                version. Zero rows changed returns { ok: false, conflict: true } and writes
    *                NO history — the caller reports VERSION_CONFLICT.
-   *   title, description, createdBy, userId, sourceApp
+   *   title, description, createdBy, userId, sourceApp, createdDate
    *                column values. On UPDATE each is COALESCE(?, column): null leaves the column
    *                alone. That is what lets one statement stand in for the four that existed —
    *                saveGraph set all five, updateMetadata set two, addNode and updateNode set
@@ -133,7 +133,7 @@ export class D1GraphStore {
   }
 
   /** The INSERT (create) or UPDATE (with optional compare-and-swap) of the graph row. */
-  #rowStatement({ id, create = false, data, casVersion = null, now, title = null, description = null, createdBy = null, userId = null, sourceApp = null }) {
+  #rowStatement({ id, create = false, data, casVersion = null, now, title = null, description = null, createdBy = null, userId = null, sourceApp = null, createdDate = null }) {
     if (create) {
       return this.db
         .prepare(
@@ -145,10 +145,12 @@ export class D1GraphStore {
     const cas = Number.isInteger(casVersion)
     const sql = `UPDATE knowledge_graphs
          SET data = ?, title = COALESCE(?, title), description = COALESCE(?, description), created_by = COALESCE(?, created_by), updated_at = ?,
-             user_id = COALESCE(?, user_id), source_app = COALESCE(?, source_app)
+             user_id = COALESCE(?, user_id), source_app = COALESCE(?, source_app), created_date = COALESCE(?, created_date)
          WHERE id = ?${cas ? `
            AND ${VERSION_SQL} = ?` : ''}`
-    const args = [data, title, description, createdBy, now, userId, sourceApp, id]
+    // createdDate: null leaves created_date alone, like the other COALESCE columns. Only
+    // updateMetadata passes one (a graph that stands for something published earlier).
+    const args = [data, title, description, createdBy, now, userId, sourceApp, createdDate, id]
     if (cas) args.push(casVersion)
     return this.db.prepare(sql).bind(...args)
   }

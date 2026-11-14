@@ -4399,14 +4399,15 @@ ${result.warnings.join('\n')}` : ''),
   server.registerTool(
     'update_graph_metadata',
     {
-      title: 'Update a graph\'s title, description, meta areas or category',
+      title: 'Update a graph\'s title, description, meta areas, category or created date',
       description:
         "Change a graph's metadata without touching its nodes or edges. THE FIELDS YOU PASS " +
         'REPLACE THE OLD VALUES ENTIRELY — metaArea is a single space-separated string, so to ' +
         'ADD a tag you must read the current value with get_graph and send the whole new string ' +
         'including the tags that were already there. Sending only the new tag silently deletes ' +
         'the rest. Meta-area tags are written #LIKETHIS, uppercase, separated by spaces. ' +
-        'Anything you omit is left untouched. This cannot publish a graph (unpublish_graph takes one back to private) and ' +
+        'Anything you omit is left untouched. createdDate moves the graph\'s created date (see the field). ' +
+        'This cannot publish a graph (unpublish_graph takes one back to private) and ' +
         'cannot change who created it. Requires the graph:write scope.',
       inputSchema: {
         graphId: z.string().min(1).describe('The graph to update.'),
@@ -4423,6 +4424,16 @@ ${result.warnings.join('\n')}` : ''),
                   'tag you want to keep.',
               ),
             category: z.string().optional().describe('New category, e.g. "#Uncategorized".'),
+            createdDate: z
+              .string()
+              .optional()
+              .describe(
+                'New created date, "YYYY-MM-DD" or an ISO date-time (UTC). For a graph that stands ' +
+                  'for something published earlier — a journal article, an old lecture — so it sits ' +
+                  'at that date in timelines and in graph_index. This OVERWRITES the record of when ' +
+                  'the graph was first saved; nothing keeps the old value. Not in the future, not ' +
+                  'before 1900, and only for graphs stored on the platform.',
+              ),
           })
           .describe('The metadata fields to change. Omit a field to leave it alone.'),
         expectedVersion: z
@@ -4439,6 +4450,7 @@ ${result.warnings.join('\n')}` : ''),
         success: z.boolean(),
         graphId: z.string(),
         newVersion: z.number(),
+        createdAt: z.string().nullable().describe("The graph's created date after this update (UTC)."),
         title: z.string().nullable(),
         metaArea: z.string().nullable(),
         publicationState: z.string(),
@@ -4483,6 +4495,7 @@ ${result.warnings.join('\n')}` : ''),
         { success: true, ...payload, updatedFields },
         `Updated ${updatedFields.join(', ')} on graph ${graphId}.` +
           (result.metaArea ? `\nMeta areas are now: ${result.metaArea}` : '') +
+          (fields.createdDate ? `\nCreated date is now: ${String(result.createdAt).slice(0, 10)}` : '') +
           `\nVersion is now ${result.newVersion}.\nViewer: ${result.viewerUrl}`,
       )
     },

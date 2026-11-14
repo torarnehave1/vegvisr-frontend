@@ -795,6 +795,24 @@ export async function addEdge(env, { graphId, edge, expectedVersion = null, acto
  * `allowPublicationState` gates the one field that must go through publishGraph() instead,
  * so publishing cannot happen as a side effect of an ordinary metadata edit (rule 2).
  */
+/**
+ * A caller's created date as the ISO string stored in created_date, or null when it is not a
+ * usable date. A bare YYYY-MM-DD becomes noon UTC that day, so it reads as the same calendar day
+ * in every time zone the apps run in.
+ */
+export function normalizeCreatedDate(value) {
+  if (typeof value !== 'string') return null
+  const v = value.trim()
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T12:00:00.000Z` : v
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(iso)) return null
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return null
+  const d = new Date(t)
+  if (d.toISOString().slice(0, 10) !== iso.slice(0, 10) && /^\d{4}-\d{2}-\d{2}$/.test(v)) return null
+  if (d.getUTCFullYear() < 1900 || t > Date.now()) return null
+  return d.toISOString()
+}
+
 export async function updateMetadata(env, { graphId, fields, expectedVersion, actor = null, allowPublicationState = false , caller = undefined}) {
   if (!graphId || !fields || typeof fields !== 'object' || !Number.isInteger(expectedVersion)) {
     return fail(ERR.INVALID_INPUT, 'graphId, fields (object), and expectedVersion (integer) are required.')
@@ -819,7 +837,21 @@ export async function updateMetadata(env, { graphId, fields, expectedVersion, ac
   if (!graphData.metadata) graphData.metadata = {}
 
   // createdBy is never client-settable (rule 3).
-  const { createdBy: _ignoredCreatedBy, version: _ignoredVersion, ...safeFields } = fields
+  // createdDate is the row's created_date column, not a metadata key: it is lifted out here and
+  // handed to the store. Added 2026-11-14 so a graph that stands for something published earlier
+  // (a journal article) can sit at that date in timelines. A World's store is a separate
+  // deployment that may not know the field yet and would drop it silently, so it is refused there.
+  const { createdBy: _ignoredCreatedBy, version: _ignoredVersion, createdDate: rawCreatedDate, ...safeFields } = fields
+  let createdDate = null
+  if (rawCreatedDate !== undefined && rawCreatedDate !== null) {
+    createdDate = normalizeCreatedDate(rawCreatedDate)
+    if (!createdDate) {
+      return fail(ERR.INVALID_INPUT, 'createdDate must be a date (YYYY-MM-DD) or an ISO date-time, not in the future and not before 1900.')
+    }
+    if (store.kind !== 'platform') {
+      return fail(ERR.INVALID_INPUT, 'createdDate can only be changed on graphs stored on the platform, not in a World\'s own storage.')
+    }
+  }
   Object.assign(graphData.metadata, safeFields)
 
   const newVersion = current + 1
@@ -832,12 +864,14 @@ export async function updateMetadata(env, { graphId, fields, expectedVersion, ac
     now: new Date().toISOString(),
     title: graphData.metadata.title || null,
     description: graphData.metadata.description || null,
+    createdDate,
   })
 
   return {
     ok: true,
     graphId,
     newVersion,
+    createdAt: createdDate || row.created_date || null,
     title: graphData.metadata.title || null,
     metaArea: graphData.metadata.metaArea || null,
     publicationState: graphData.metadata.publicationState || 'private',

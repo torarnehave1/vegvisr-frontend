@@ -1402,6 +1402,44 @@ describe('update_graph_metadata gives updateMetadata its first caller', () => {
     assert.equal(after.nodeCount, 1, 'nodes untouched')
   })
 
+  test('createdDate moves the created date, and only that', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', {
+      title: 'An article from 2018',
+      metaArea: '#JOURNAL',
+      nodes: [{ id: 'n1', label: 'Intro', type: 'fulltext', info: 'body' }],
+    })
+
+    const r = await callOk(client, 'update_graph_metadata', { graphId: g.graphId, fields: { createdDate: '2018-02-01' } })
+    assert.equal(r.createdAt, '2018-02-01T12:00:00.000Z')
+    assert.deepEqual(r.updatedFields, ['createdDate'])
+
+    const after = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(String(after.createdAt).slice(0, 10), '2018-02-01')
+    assert.equal(after.title, 'An article from 2018', 'title untouched')
+    assert.equal(after.metaArea, '#JOURNAL', 'meta area untouched')
+    assert.equal(after.nodeCount, 1, 'nodes untouched')
+
+    const index = await callOk(client, 'graph_index', { metaArea: '#JOURNAL' })
+    assert.equal(String(index.graphs[0].createdAt).slice(0, 10), '2018-02-01')
+
+    // A later write that names no created date leaves it where it was put.
+    await callOk(client, 'update_graph_metadata', { graphId: g.graphId, fields: { metaArea: '#JOURNAL #X' } })
+    const later = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(String(later.createdAt).slice(0, 10), '2018-02-01')
+  })
+
+  test('createdDate refuses what is not a past date', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#A' })
+    for (const bad of ['2018', 'last year', '2018-02-31', '1850-01-01', '2999-01-01']) {
+      const e = await callErr(client, 'update_graph_metadata', { graphId: g.graphId, fields: { createdDate: bad } })
+      assert.equal(e.code, 'INVALID_INPUT', `${bad} should be refused`)
+    }
+  })
+
   test('omitting expectedVersion works — it defaults to the source the service compares', async () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RW)
@@ -1433,7 +1471,7 @@ describe('update_graph_metadata gives updateMetadata its first caller', () => {
     const { tools } = await client.listTools()
     const t = tools.find((x) => x.name === 'update_graph_metadata')
     const fieldNames = Object.keys(t.inputSchema.properties.fields.properties).sort()
-    assert.deepEqual(fieldNames, ['category', 'description', 'metaArea', 'title'])
+    assert.deepEqual(fieldNames, ['category', 'createdDate', 'description', 'metaArea', 'title'])
     assert.ok(!fieldNames.includes('publicationState'), 'publishing is its own action')
     assert.ok(!fieldNames.includes('createdBy'), 'a model cannot reassign authorship')
     assert.ok(!fieldNames.includes('version'))
