@@ -534,6 +534,35 @@ describe('graph_index: the whole collection in one call', () => {
     assert.equal(refused.code, gs.ERR.INVALID_INPUT)
   })
 
+  test('nodeType keeps the graphs holding that type, in any meta area, and returns their nodes whole', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const a = await callOk(client, 'create_graph', { title: 'Med historie', metaArea: '#A' })
+    const b = await callOk(client, 'create_graph', { title: 'Uten', metaArea: '#A' })
+    const c = await callOk(client, 'create_graph', { title: 'Også med, annet område', metaArea: '#B' })
+    await callOk(client, 'add_node', { graphId: a.graphId, node: { label: 'historien', type: 'info', info: 'HEMMELIG TEKST' } })
+    await callOk(client, 'add_node', { graphId: a.graphId, node: { label: 'ved siden av', type: 'fulltext' } })
+    await callOk(client, 'add_node', { graphId: b.graphId, node: { label: 'bare tekst', type: 'fulltext' } })
+    await callOk(client, 'add_node', { graphId: c.graphId, node: { label: 'en til', type: 'info' } })
+
+    // No meta area: both graphs with a info, and ALL nodes of each, not only the info.
+    const withType = await callOk(client, 'graph_index', { nodeType: 'info', includeNodes: true })
+    assert.equal(withType.nodeType, 'info')
+    assert.deepEqual(withType.graphs.map((g) => g.title).sort(), ['Med historie', 'Også med, annet område'])
+    const whole = withType.graphs.find((g) => g.title === 'Med historie')
+    assert.deepEqual(whole.nodes.map((n) => n.label).sort(), ['historien', 'ved siden av'])
+    assert.ok(!JSON.stringify(withType).includes('HEMMELIG'), 'node content must not be in the index')
+
+    // Together with a meta area both filters apply.
+    const both = await callOk(client, 'graph_index', { metaArea: '#B', nodeType: 'info', includeNodes: true })
+    assert.deepEqual(both.graphs.map((g) => g.title), ['Også med, annet område'])
+
+    // Without includeNodes it narrows the plain index too; a type nobody has matches nothing.
+    assert.equal((await callOk(client, 'graph_index', { nodeType: 'fulltext' })).total, 2)
+    assert.equal((await callOk(client, 'graph_index', { nodeType: 'finnes-ikke', includeNodes: true })).total, 0)
+    assert.equal((await callOk(client, 'graph_index', {})).nodeType, null)
+  })
+
   test('scope "mine" never returns another user\'s graph, and "all" only their published ones', async () => {
     const { env } = freshDb()
     const { client: alice } = await connect(env, ALICE_RW)

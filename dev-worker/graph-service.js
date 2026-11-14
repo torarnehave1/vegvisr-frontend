@@ -1747,12 +1747,17 @@ const INDEX_NODES_MAX_GRAPHS = 600
  * domains of each graph are affordable here — and skips the description.
  *
  * includeNodes adds each graph's nodes (id, label, type) and edges (source, target) — never node
- * content. It needs a metaArea and is refused above INDEX_NODES_MAX_GRAPHS graphs, so one call
- * cannot pull the node lists of the whole collection.
+ * content. It needs a metaArea or a nodeType and is refused above INDEX_NODES_MAX_GRAPHS graphs, so
+ * one call cannot pull the node lists of the whole collection.
+ *
+ * nodeType (2026-11-14) keeps only the graphs that contain a node of that type, across all meta
+ * areas. With includeNodes it returns ALL nodes of those graphs, not only the nodes of that type:
+ * a map asked for "graphs with a micro-story" still draws each such graph whole. Before it, a map
+ * had to make one includeNodes call per meta area to get there.
  *
  * Who sees what is exactly listMyGraphs' rule ('mine') or searchGraphs' rule ('all').
  */
-export async function graphIndex(env, { scope = 'mine', metaArea = null, includeNodes = false, actor }) {
+export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeType = null, includeNodes = false, actor }) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   const all = scope === 'all'
   if (!all && !actor.email) {
@@ -1764,11 +1769,16 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, include
   const edgesSql = `COALESCE(json_extract(${dataSql}, '$.edges'), '[]')`
 
   const areaFilter = metaAreaTagFilter(dataSql, metaArea)
-  if (includeNodes && !areaFilter) {
-    return fail(ERR.INVALID_INPUT, 'includeNodes needs a metaArea: node lists are returned for one meta area at a time.')
+  const typeFilter = String(nodeType ?? '').trim()
+  if (includeNodes && !areaFilter && !typeFilter) {
+    return fail(ERR.INVALID_INPUT, 'includeNodes needs a metaArea or a nodeType: node lists are returned for one meta area or one node type at a time.')
   }
-  const areaClause = areaFilter ? [areaFilter.sql] : []
-  const areaBind = areaFilter ? [areaFilter.binding] : []
+  // The same test search_graphs uses for its nodeType filter.
+  const areaClause = [
+    ...(areaFilter ? [areaFilter.sql] : []),
+    ...(typeFilter ? [`EXISTS (SELECT 1 FROM json_each(${nodesSql}) WHERE json_extract(value, '$.type') = ?)`] : []),
+  ]
+  const areaBind = [...(areaFilter ? [areaFilter.binding] : []), ...(typeFilter ? [typeFilter] : [])]
 
   let whereFor
   if (all) {
@@ -1834,7 +1844,7 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, include
     for (const r of page) rows.push({ ...r, _world: store.world })
   }
   if (includeNodes && rows.length > INDEX_NODES_MAX_GRAPHS) {
-    return fail(ERR.INVALID_INPUT, `That meta area covers more than ${INDEX_NODES_MAX_GRAPHS} graphs; node lists are returned for at most ${INDEX_NODES_MAX_GRAPHS} graphs at a time.`)
+    return fail(ERR.INVALID_INPUT, `That ${areaFilter ? 'meta area' : 'node type'}${areaFilter && typeFilter ? ' and node type' : ''} covers more than ${INDEX_NODES_MAX_GRAPHS} graphs; node lists are returned for at most ${INDEX_NODES_MAX_GRAPHS} graphs at a time.`)
   }
   rows.sort((a, b) => String(a.created_date || '').localeCompare(String(b.created_date || '')))
 
@@ -1871,5 +1881,5 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, include
       : {}),
   }))
 
-  return { ok: true, scope: all ? 'all' : 'mine', metaArea: areaFilter ? String(metaArea) : null, total: graphs.length, graphs }
+  return { ok: true, scope: all ? 'all' : 'mine', metaArea: areaFilter ? String(metaArea) : null, nodeType: typeFilter || null, total: graphs.length, graphs }
 }

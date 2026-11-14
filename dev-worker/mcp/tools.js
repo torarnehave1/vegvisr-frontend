@@ -6943,20 +6943,24 @@ ${result.warnings.join('\n')}` : ''),
         'created and updated dates (UTC) and World. No description ' +
         'and no content. scope "mine" (default) is the graphs you own, as list_my_graphs counts ' +
         'them; scope "all" is everything you can see, as search_graphs counts it. metaArea narrows ' +
-        'to one tag. includeNodes (needs a metaArea, at most 600 graphs) adds each graph\'s nodes ' +
-        '(id, label, type) and edges (source, target) — never node text. Made for maps, timelines ' +
+        'to one tag. nodeType keeps only the graphs that contain a node of that type, in any meta ' +
+        'area. includeNodes (needs a metaArea or a nodeType, at most 600 graphs) adds each graph\'s nodes ' +
+        '(id, label, type) and edges (source, target) — never node text; with nodeType it is ALL ' +
+        'nodes of each matching graph, not only the nodes of that type. Made for maps, timelines ' +
         'and counts over the whole collection; the rows are in the structured result, and the text ' +
         'is only a summary — to read graphs as lines use list_my_graphs, to read one use get_graph. ' +
         'Requires the graph:read scope.',
       inputSchema: {
         scope: z.enum(['mine', 'all']).optional().describe('"mine" (default): graphs you own. "all": every graph you can see, in every World you can use.'),
         metaArea: z.string().optional().describe('Narrow to a meta-area tag, e.g. "#NINE".'),
-        includeNodes: z.boolean().optional().describe('Also return each graph\'s nodes (id, label, type) and edges. Needs metaArea.'),
+        nodeType: z.string().optional().describe('Only graphs containing a node of this type, e.g. "micro-story". Exact match, as list_node_types spells it.'),
+        includeNodes: z.boolean().optional().describe('Also return each graph\'s nodes (id, label, type) and edges. Needs metaArea or nodeType.'),
       },
       outputSchema: {
         success: z.boolean(),
         scope: z.string(),
         metaArea: z.string().nullable(),
+        nodeType: z.string().nullable().describe('The node type the index was narrowed to, or null.'),
         total: z.number(),
         graphs: z.array(
           z.object({
@@ -6977,14 +6981,14 @@ ${result.warnings.join('\n')}` : ''),
       },
       annotations: READ_ONLY,
     },
-    async ({ scope, metaArea, includeNodes }) => {
+    async ({ scope, metaArea, nodeType, includeNodes }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:read')
       if (scopeErr) return scopeErr
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
-      const r = await gs.graphIndex(env, { scope, metaArea, includeNodes: Boolean(includeNodes), actor })
+      const r = await gs.graphIndex(env, { scope, metaArea, nodeType, includeNodes: Boolean(includeNodes), actor })
       if (!r.ok) return fromService(r)
 
       const { ok: _o, graphs: rawGraphs, ...rest } = r
@@ -6999,7 +7003,7 @@ ${result.warnings.join('\n')}` : ''),
       const head = r.total === 0
         ? 'No graphs matched.'
         : `${r.total} graph${r.total === 1 ? '' : 's'} (${r.scope === 'all' ? 'everything you can see' : 'your own'}` +
-          `${r.metaArea ? `, meta area ${r.metaArea}` : ''})` +
+          `${r.metaArea ? `, meta area ${r.metaArea}` : ''}${r.nodeType ? `, with a ${r.nodeType} node` : ''})` +
           (dated.length ? `, created ${String(dated[0].createdAt).slice(0, 10)} to ${String(dated[dated.length - 1].createdAt).slice(0, 10)}.` : '.')
       const years = [...byYear.entries()].map(([y, n]) => `${y}: ${n}`).join(' · ')
       // A short collection is listed; a long one would flood a chat, so the text says where the rows are.
