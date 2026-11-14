@@ -229,6 +229,163 @@ async function enqueueStreamRecordings(email, env, opts = {}) {
   }
 }
 
+// ── RealtimeKit meeting recordings → R2 (shared core) ─────────────────────────
+// Used by POST /realtime/recordings/sync (one owner, button), the nightly cron
+// and POST /realtime/recordings/sync-all (every owner). RealtimeKit deletes a
+// recording's file 7 days after upload, so anything not copied in that window
+// is lost; the nightly run keeps every owner well inside it.
+//
+// opts.recordingIds — Set of RTK recording ids to restrict to (button use)
+// opts.cache        — Map shared across owners within one run, so owners on the
+//                     same RealtimeKit app / R2 target list them only once.
+const RTK_SYNC_INFLIGHT = ['queued', 'downloading', 'uploading']
+
+async function listRtkRecordingsAllPages(accountId, appId, apiToken) {
+  // The list endpoint pages (default 25). Walk newest-first until a page holds
+  // nothing younger than 8 days — everything older has expired in RTK anyway.
+  const out = []
+  const cutoff = Date.now() - 8 * 24 * 3600 * 1000
+  for (let page = 1; page <= 20; page += 1) {
+    const resp = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/realtime/kit/${appId}/recordings?page_no=${page}&per_page=100&sort_by=invokedTime&sort_order=DESC`,
+      { headers: { Authorization: `Bearer ${apiToken}` } }
+    )
+    if (!resp.ok) throw new Error(`rtk_list_failed http=${resp.status}`)
+    const json = await resp.json()
+    const data = json.data || []
+    out.push(...data)
+    const total = json.paging?.total_count ?? 0
+    if (data.length === 0 || out.length >= total) break
+    const anyRecent = data.some(r => Date.parse(r.stopped_time || r.started_time || r.invoked_time || 0) >= cutoff)
+    if (!anyRecent) break
+  }
+  return out
+}
+
+async function listExistingR2Recordings(useOwnR2, creds, env) {
+  const existing = new Set()
+  if (useOwnR2) {
+    const res = await r2List(creds.r2Bucket, 'recordings/', creds.r2AccessKeyId, creds.r2Secret, creds.r2AccountId)
+    if (!res.ok) throw new Error(`r2_list_failed http=${res.status}`)
+    const xml = await res.text()
+    ;[...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].forEach(m => existing.add(m[1].replace('recordings/', '')))
+  } else {
+    let cursor
+    do {
+      const page = await env.MEETING_RECORDINGS.list({ prefix: 'recordings/', limit: 1000, cursor })
+      for (const obj of page.objects || []) existing.add(obj.key.replace('recordings/', ''))
+      cursor = page.truncated ? page.cursor : undefined
+    } while (cursor)
+  }
+  return existing
+}
+
+async function enqueueRealtimeRecordings(email, env, opts = {}) {
+  if (!env.R2_SYNC_QUEUE) return { error: 'R2_SYNC_QUEUE binding not configured' }
+  const cache = opts.cache || new Map()
+  const creds = await getUserCloudflareCredentials(email, env)
+  const { appId, accountId, apiToken, r2AccountId, r2Bucket, r2AccessKeyId, r2Secret } = creds
+  const useOwnR2 = !!(r2AccessKeyId && r2Secret && r2Bucket && r2AccountId)
+  if (!useOwnR2 && !env.MEETING_RECORDINGS) return { error: 'Recordings bucket not configured' }
+  if (!appId || !accountId || !apiToken) return { error: 'RealtimeKit not configured' }
+
+  const rtkKey = `rtk:${accountId}/${appId}`
+  if (!cache.has(rtkKey)) cache.set(rtkKey, listRtkRecordingsAllPages(accountId, appId, apiToken))
+  const rtkRecordings = await cache.get(rtkKey)
+
+  // Ownership is always enforced: only meetings this owner owns. Owning none
+  // means syncing nothing (never copy the shared app into one user's bucket).
+  const ownedMeetingIds = new Set()
+  const ownedRows = await env.vegvisr_org.prepare('SELECT meeting_id FROM meeting_ownership WHERE lower(owner_email) = lower(?)').bind(email).all()
+  for (const r of ownedRows.results || []) ownedMeetingIds.add(String(r.meeting_id).toLowerCase())
+
+  // A failed R2 listing must abort, not read as "nothing synced yet" (Lesson 22).
+  const r2Key = useOwnR2 ? `r2:own:${r2AccountId}/${r2Bucket}` : 'r2:shared'
+  if (!cache.has(r2Key)) cache.set(r2Key, listExistingR2Recordings(useOwnR2, creds, env))
+  const existingR2 = await cache.get(r2Key)
+
+  const now = Date.now()
+  const jobs = []
+  for (const rec of rtkRecordings) {
+    if (opts.recordingIds && !opts.recordingIds.has(rec.id)) continue
+    if (!ownedMeetingIds.has(String(rec.meeting_id || '').toLowerCase())) {
+      jobs.push({ recordingId: rec.id, status: 'skipped', reason: 'not owned by user' }); continue
+    }
+    if (rec.status !== 'UPLOADED') { jobs.push({ recordingId: rec.id, status: 'skipped', reason: `rtk_status_${rec.status}` }); continue }
+    if (!rec.download_url) { jobs.push({ recordingId: rec.id, status: 'skipped', reason: 'no download_url' }); continue }
+    const fileName = rec.output_file_name || `${rec.id}.mp4`
+    if (existingR2.has(fileName)) { jobs.push({ recordingId: rec.id, name: fileName, status: 'already_exists' }); continue }
+    const expiry = Date.parse(rec.download_url_expiry || '')
+    if (expiry && expiry <= now) { jobs.push({ recordingId: rec.id, name: fileName, status: 'skipped', reason: 'expired_in_realtimekit' }); continue }
+
+    // Do not double-enqueue a recording that already has a live job (a job
+    // stuck for >6h is treated as dead and re-enqueued).
+    const inflight = await env.vegvisr_org.prepare(
+      `SELECT job_id FROM r2_sync_jobs WHERE rtk_recording_id = ? AND status IN (${RTK_SYNC_INFLIGHT.map(() => '?').join(',')})
+         AND updated_at >= datetime('now', '-6 hours') LIMIT 1`
+    ).bind(rec.id, ...RTK_SYNC_INFLIGHT).first()
+    if (inflight) { jobs.push({ recordingId: rec.id, name: fileName, status: 'in_progress', jobId: inflight.job_id }); continue }
+
+    const jobId = crypto.randomUUID()
+    try {
+      await env.vegvisr_org.prepare(
+        `INSERT INTO r2_sync_jobs (job_id, owner_email, rtk_recording_id, meeting_id, file_name, status, message, bytes_total, r2_target)
+         VALUES (?, ?, ?, ?, ?, 'queued', NULL, ?, ?)`
+      ).bind(jobId, email, rec.id, rec.meeting_id || null, fileName, rec.file_size || null, useOwnR2 ? 'own' : 'shared').run()
+      await env.R2_SYNC_QUEUE.send({
+        jobId,
+        ownerEmail: email,
+        recordingId: rec.id,
+        meetingId: rec.meeting_id || null,
+        meetingTitle: rec.meeting?.title || null,
+        fileName,
+        downloadUrl: rec.download_url,
+        fileSize: rec.file_size || null,
+        recordingDuration: rec.recording_duration || null,
+      })
+      // Mark as present so a second owner in the same run never enqueues it again.
+      existingR2.add(fileName)
+      jobs.push({ jobId, recordingId: rec.id, name: fileName, status: 'queued' })
+    } catch (err) {
+      jobs.push({ recordingId: rec.id, name: fileName, status: 'enqueue_failed', error: err.message })
+    }
+  }
+
+  return {
+    ok: true,
+    target: useOwnR2 ? 'own' : 'shared',
+    queued: jobs.filter(j => j.status === 'queued').length,
+    inProgress: jobs.filter(j => j.status === 'in_progress').length,
+    expired: jobs.filter(j => j.reason === 'expired_in_realtimekit').length,
+    skipped: jobs.filter(j => j.status === 'already_exists' || j.status === 'skipped').length,
+    failed: jobs.filter(j => j.status === 'enqueue_failed').length,
+    total: jobs.length,
+    jobs,
+  }
+}
+
+// Every owner in meeting_ownership, one at a time, sharing list caches.
+async function enqueueRealtimeRecordingsAllOwners(env) {
+  const rows = await env.vegvisr_org.prepare('SELECT DISTINCT lower(owner_email) AS email FROM meeting_ownership WHERE owner_email IS NOT NULL').all()
+  const cache = new Map()
+  const owners = []
+  for (const { email } of rows.results || []) {
+    try {
+      const r = await enqueueRealtimeRecordings(email, env, { cache })
+      owners.push(r.error
+        ? { email, error: r.error }
+        : { email, target: r.target, queued: r.queued, inProgress: r.inProgress, expired: r.expired, failed: r.failed })
+    } catch (e) {
+      owners.push({ email, error: e && e.message })
+    }
+  }
+  return {
+    owners,
+    queued: owners.reduce((n, o) => n + (o.queued || 0), 0),
+    errors: owners.filter(o => o.error).length,
+  }
+}
+
 // Resolve the RealtimeKit credentials of the app that OWNS a given meeting.
 // Meetings live in their creator's app; ownership is tracked in meeting_ownership.
 // Falls back to the shared/default app when ownership is unknown (legacy meetings
@@ -2276,90 +2433,27 @@ export default {
         if (!eff.ok) return createResponse(JSON.stringify({ error: eff.error }), eff.status)
         const effectiveEmail = eff.email
 
-        const creds = await getUserCloudflareCredentials(effectiveEmail, env)
-        const { appId, accountId, apiToken, r2AccountId, r2Bucket, r2AccessKeyId, r2Secret } = creds
-        const useOwnR2 = !!(r2AccessKeyId && r2Secret && r2Bucket && r2AccountId)
-        if (!useOwnR2 && !env.MEETING_RECORDINGS) return createResponse(JSON.stringify({ error: 'Recordings bucket not configured' }), 500)
-        if (!appId || !accountId || !apiToken) return createResponse(JSON.stringify({ error: 'RealtimeKit not configured' }), 500)
-
-        let filterIds = null
-        if (bodyJson.recordingIds && Array.isArray(bodyJson.recordingIds)) filterIds = new Set(bodyJson.recordingIds)
-
-        const rtkResp = await fetch(
-          `https://api.cloudflare.com/client/v4/accounts/${accountId}/realtime/kit/${appId}/recordings`,
-          { headers: { Authorization: `Bearer ${apiToken}` } }
-        )
-        if (!rtkResp.ok) return createResponse(JSON.stringify({ error: 'Failed to fetch RealtimeKit recordings' }), 502)
-        const rtkData = await rtkResp.json()
-        const rtkRecordings = rtkData.data || []
-
-        const ownedMeetingIds = new Set()
-        try {
-          const ownedRows = await env.vegvisr_org.prepare('SELECT meeting_id FROM meeting_ownership WHERE owner_email = ?').bind(effectiveEmail).all()
-          for (const r of ownedRows.results || []) ownedMeetingIds.add(r.meeting_id)
-        } catch (e) { console.error('meeting_ownership lookup failed:', e) }
-
-        // Build set of files that are already in R2 so we can short-circuit.
-        const existingR2 = new Set()
-        if (useOwnR2) {
-          try {
-            const res = await r2List(r2Bucket, 'recordings/', r2AccessKeyId, r2Secret, r2AccountId)
-            if (res.ok) {
-              const xml = await res.text()
-              ;[...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].forEach(m => existingR2.add(m[1].replace('recordings/', '')))
-            }
-          } catch {}
-        } else {
-          try {
-            const prefixed = await env.MEETING_RECORDINGS.list({ prefix: 'recordings/', limit: 1000 })
-            for (const obj of prefixed.objects || []) existingR2.add(obj.key.replace('recordings/', ''))
-          } catch {}
-        }
-
-        const jobs = []
-        for (const rec of rtkRecordings) {
-          if (filterIds && !filterIds.has(rec.id)) continue
-          // Always enforce ownership: only sync recordings of meetings this
-          // user owns. If they own none, sync nothing (never copy the whole
-          // shared RealtimeKit account into a user's bucket).
-          if (!ownedMeetingIds.has(rec.meeting_id)) {
-            jobs.push({ recordingId: rec.id, status: 'skipped', reason: 'not owned by user' }); continue
-          }
-          if (!rec.download_url) { jobs.push({ recordingId: rec.id, status: 'skipped', reason: 'no download_url' }); continue }
-          const fileName = rec.output_file_name || `${rec.id}.mp4`
-          if (existingR2.has(fileName) || existingR2.has(`recordings/${fileName}`)) {
-            jobs.push({ recordingId: rec.id, name: fileName, status: 'already_exists' }); continue
-          }
-
-          // Create job row + enqueue
-          const jobId = crypto.randomUUID()
-          try {
-            await env.vegvisr_org.prepare(
-              `INSERT INTO r2_sync_jobs (job_id, owner_email, rtk_recording_id, meeting_id, file_name, status, message, bytes_total, r2_target)
-               VALUES (?, ?, ?, ?, ?, 'queued', NULL, ?, ?)`
-            ).bind(jobId, effectiveEmail, rec.id, rec.meeting_id || null, fileName, rec.file_size || null, useOwnR2 ? 'own' : 'shared').run()
-            await env.R2_SYNC_QUEUE.send({
-              jobId,
-              ownerEmail: effectiveEmail,
-              recordingId: rec.id,
-              meetingId: rec.meeting_id || null,
-              meetingTitle: rec.meeting?.title || null,
-              fileName,
-              downloadUrl: rec.download_url,
-              fileSize: rec.file_size || null,
-              recordingDuration: rec.recording_duration || null,
-            })
-            jobs.push({ jobId, recordingId: rec.id, name: fileName, status: 'queued' })
-          } catch (err) {
-            jobs.push({ recordingId: rec.id, name: fileName, status: 'enqueue_failed', error: err.message })
-          }
-        }
-
-        const queued = jobs.filter(j => j.status === 'queued').length
-        const skipped = jobs.filter(j => j.status === 'already_exists' || j.status === 'skipped').length
-        return createResponse(JSON.stringify({ success: true, queued, skipped, total: jobs.length, jobs }))
+        const recordingIds = Array.isArray(bodyJson.recordingIds) ? new Set(bodyJson.recordingIds) : null
+        const result = await enqueueRealtimeRecordings(effectiveEmail, env, { recordingIds })
+        if (result.error) return createResponse(JSON.stringify({ error: result.error }), 500)
+        return createResponse(JSON.stringify({ success: true, ...result }))
       } catch (e) {
         console.error('Error in /realtime/recordings/sync:', e)
+        return createResponse(JSON.stringify({ error: e.message }), 500)
+      }
+    }
+
+    // ── POST /realtime/recordings/sync-all ─────────────────────────────────────
+    // Superadmin-only manual run of the nightly sweep (every meeting owner).
+    if (pathname === '/realtime/recordings/sync-all' && request.method === 'POST') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ error: auth.error }), 401)
+        if (auth.role !== 'Superadmin') return createResponse(JSON.stringify({ error: 'Superadmin access required' }), 403)
+        const result = await enqueueRealtimeRecordingsAllOwners(env)
+        return createResponse(JSON.stringify({ success: true, ...result }))
+      } catch (e) {
+        console.error('Error in /realtime/recordings/sync-all:', e)
         return createResponse(JSON.stringify({ error: e.message }), 500)
       }
     }
@@ -4400,6 +4494,16 @@ export default {
   // world_founders here once per-founder Stream tokens exist. Reuses the same
   // proven enqueueStreamRecordings core as the manual /stream-sync route.
   async scheduled(event, env, ctx) {
+    // 1. RealtimeKit meeting recordings → R2 for every meeting owner. RTK deletes
+    //    the file 7 days after upload; this nightly run is the safety net.
+    try {
+      const r = await enqueueRealtimeRecordingsAllOwners(env)
+      console.log('[rtk-cron]', JSON.stringify(r))
+    } catch (e) {
+      console.error('[rtk-cron] error:', e && e.message)
+    }
+
+    // 2. Cloudflare Stream recordings.
     const owner = env.CF_STREAM_SWEEP_OWNER || null
     if (!owner) { console.log('[stream-cron] CF_STREAM_SWEEP_OWNER unset; skipping'); return }
     try {
