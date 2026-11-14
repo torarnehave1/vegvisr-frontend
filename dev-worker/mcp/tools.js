@@ -48,6 +48,7 @@ import * as realtime from '../realtime-service.js'
 import * as workerSource from '../worker-source-service.js'
 import * as workerTools from '../worker-tools.js'
 import * as componentPublish from '../component-publish-service.js'
+import * as mystmkra from '../mystmkra-import.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared schemas
@@ -6743,6 +6744,80 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── import_mystmkra ───────────────────────────────────────────────────────
+  //
+  // One-time: the documents of Mystmkra, the first prototype of the knowledge database, become
+  // graphs. The worker copies the text itself, so nothing is retyped by a model; see
+  // mystmkra-import.js. Superadmin only: it reads another database and writes many graphs.
+  server.registerTool(
+    'import_mystmkra',
+    {
+      title: 'Import the Mystmkra prototype\'s documents as graphs',
+      description:
+        'ONE-TIME MIGRATION, Superadmin only. Mystmkra was the first prototype of this knowledge ' +
+        'database (2024–2025): Markdown documents in the D1 database mystmkra-db. Each call turns ' +
+        'the next batch, oldest first, into private graphs owned by you, one per document: the ' +
+        'text unchanged in a fulltext node, an origin node, the created date set to the day the ' +
+        'document was written, meta area #MYSTMKRA (plus the author\'s tag when the author is not ' +
+        'you). Safe to repeat: documents already imported and exact copies of an earlier document ' +
+        'are skipped. Call it until remaining is 0. dryRun: true writes nothing and only counts. ' +
+        'Requires the graph:write scope.',
+      inputSchema: {
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(mystmkra.MYSTMKRA_BATCH_MAX)
+          .optional()
+          .describe(`How many graphs to create in this call. Default ${mystmkra.MYSTMKRA_BATCH_DEFAULT}, at most ${mystmkra.MYSTMKRA_BATCH_MAX}.`),
+        dryRun: z.boolean().optional().describe('Count and list what the next batch would be; write nothing.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        dryRun: z.boolean(),
+        total: z.number().describe('Documents in Mystmkra.'),
+        exactCopiesSkipped: z.number(),
+        emptySkipped: z.number(),
+        alreadyImported: z.number().describe('Imported before this call.'),
+        importedNow: z.number(),
+        remaining: z.number().describe('Still to import after this call.'),
+        imported: z.array(
+          z.object({
+            mystmkraId: z.string(),
+            graphId: z.string().nullable(),
+            title: z.string().nullable(),
+            createdAt: z.string().nullable(),
+            author: z.string(),
+          }),
+        ),
+        errors: z.array(z.object({ mystmkraId: z.string(), graphId: z.string().optional(), message: z.string() })),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ limit, dryRun }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      if (!actor.isSuperadmin) return err(gs.ERR.FORBIDDEN_GRAPH, 'Importing Mystmkra is for the Superadmin only.')
+
+      const result = await mystmkra.importMystmkra(env, { actor, limit, dryRun })
+      if (!result.ok) return fromService(result)
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        (result.dryRun
+          ? `Dry run: the next batch would import ${result.imported.length} documents.`
+          : `Imported ${result.importedNow} Mystmkra documents as graphs.`) +
+          `\n${result.total} documents in Mystmkra · ${result.alreadyImported} imported before · ` +
+          `${result.exactCopiesSkipped} exact copies skipped · ${result.emptySkipped} empty skipped · ${result.remaining} remaining.` +
+          (result.errors.length ? `\n${result.errors.length} with a problem: ${result.errors.slice(0, 5).map((e) => `${e.mystmkraId} (${e.message})`).join('; ')}` : '') +
+          (result.dryRun ? '' : result.imported.slice(0, 40).map((g) => `\n• ${g.title} — ${g.graphId} · ${String(g.createdAt || '').slice(0, 10)} · ${g.author}`).join('')),
+      )
+    },
+  )
+
   // ── graph_index ───────────────────────────────────────────────────────────
   //
   // The whole collection in one call. A map or timeline of every graph needs them all, and paging
@@ -7284,6 +7359,7 @@ export const TOOL_NAMES = [
   'list_my_graphs',
   'list_meta_areas',
   'graph_index',
+  'import_mystmkra',
   'search',
   'fetch',
   'move_graph_to_world',

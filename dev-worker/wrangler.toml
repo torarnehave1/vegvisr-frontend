@@ -64,6 +64,13 @@ binding = "CHAT_DB"
 database_name = "hallo_vegvisr_chat"
 database_id = "1abe2080-33ae-442b-9552-5203caa6c0e0"
 
+# Mystmkra, the first prototype of the knowledge database (2024-2025). Read by the one-time
+# import_mystmkra tool (mystmkra-import.js), which turns its documents into graphs.
+[[d1_databases]]
+binding = "MYSTMKRA_DB"
+database_name = "mystmkra-db"
+database_id = "8789d319-5ef2-4984-b6c6-8ec27cfcc4ed"
+
 [[services]]
 # user-keys-worker, for the mailbox password the sent-copy APPEND needs. Only its
 # /mailbox-password route is used, it is binding-only, and it returns imap: secrets and nothing

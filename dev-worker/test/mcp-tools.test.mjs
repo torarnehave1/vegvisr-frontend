@@ -16,7 +16,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
-import { freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike, FakeAgentWorker, FakeRegisterWorker, FakeRoleWorker } from './d1-adapter.mjs'
+import { DatabaseSync } from 'node:sqlite'
+import { D1Like, freshDb, seedUsers, FakeAI, FakePhotosWorker, PagesKVLike, FakeAgentWorker, FakeRegisterWorker, FakeRoleWorker } from './d1-adapter.mjs'
 import * as pd from '../published-domains.js'
 import * as workerSource from '../worker-source-service.js'
 import { CONNECT_SCOPES, OPT_IN_SCOPES } from '../oauth/scopes.js'
@@ -4551,5 +4552,94 @@ describe('realtime recordings, link, transcript and slugs are read tools behind 
     const r = await callOk(client, 'realtime_list_slugs', {})
     assert.equal(r.total, 1)
     assert.equal(r.slugs[0].url, 'https://realtime.vegvisr.org/momentum')
+  })
+})
+
+
+describe('import_mystmkra turns the prototype\'s documents into graphs', () => {
+  const TOR = '6665c107e4a8ea992f1ad942'
+  const MAIKEN = '666605dc63d7487c9304906e'
+  const SUPER = authFor('owner@example.com', ['graph:read', 'graph:write'], 'Superadmin')
+
+  function withMystmkra(env) {
+    const db = new DatabaseSync(':memory:')
+    db.exec(`CREATE TABLE documents (id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, user_id TEXT,
+      locked INTEGER DEFAULT 0, published INTEGER DEFAULT 0, tags TEXT, part INTEGER DEFAULT 1, total_parts INTEGER DEFAULT 1,
+      connected_assistant TEXT, url TEXT, created_at TEXT, updated_at TEXT, published_at TEXT, semantic_category TEXT)`)
+    const add = db.prepare('INSERT INTO documents (id, title, content, user_id, tags, created_at, updated_at, semantic_category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    const cat = '{"primary":"PHILOSOPHY","secondary":["EDUCATION"],"confidence":0.85}'
+    add.run('d1', 'Untitled', '![IMG](https://x/y.png)\n### Life *Energy* in Psychology\n\nBody | with a pipe.\n', TOR, '[]', '2024-08-05T09:31:15.068Z', '2024-08-05T09:31:15.068Z', cat)
+    add.run('d2', 'A real title', 'Text two\n', TOR, '["#a","#b"]', '2024-09-01T10:00:00.000Z', '2024-09-01T10:00:00.000Z', cat)
+    add.run('d3', 'Untitled', 'Text two\n', TOR, '[]', '2024-09-02T10:00:00.000Z', '2024-09-02T10:00:00.000Z', cat) // exact copy of d2
+    add.run('d4', 'Header 1', 'Bare prose with no heading at all.\n', MAIKEN, '[]', '2025-01-10T08:00:00.000Z', '2025-01-10T08:00:00.000Z', null)
+    add.run('d5', 'Untitled', '', TOR, '[]', '2025-02-01T08:00:00.000Z', '2025-02-01T08:00:00.000Z', cat) // empty
+    env.MYSTMKRA_DB = new D1Like(db)
+    return env
+  }
+
+  test('is for the Superadmin only, and says so', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(withMystmkra(env), ALICE_RW)
+    const e = await callErr(client, 'import_mystmkra', {})
+    assert.equal(e.code, 'FORBIDDEN_GRAPH')
+  })
+
+  test('a dry run counts and writes nothing', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(withMystmkra(env), SUPER)
+    const r = await callOk(client, 'import_mystmkra', { dryRun: true })
+    assert.equal(r.total, 5)
+    assert.equal(r.exactCopiesSkipped, 1)
+    assert.equal(r.emptySkipped, 1)
+    assert.equal(r.importedNow, 0)
+    assert.equal(r.remaining, 3)
+    const mine = await callOk(client, 'graph_index', {})
+    assert.equal(mine.total, 0)
+  })
+
+  test('imports in batches, text unchanged, dated when written, and never twice', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(withMystmkra(env), SUPER)
+
+    const first = await callOk(client, 'import_mystmkra', { limit: 2 })
+    assert.equal(first.importedNow, 2)
+    assert.equal(first.remaining, 1)
+    assert.deepEqual(first.imported.map((g) => g.mystmkraId), ['d1', 'd2'])
+    assert.equal(first.imported[0].title, 'Life Energy in Psychology', 'an Untitled document is named by its first heading')
+    assert.equal(first.imported[1].title, 'A real title')
+    assert.equal(String(first.imported[0].createdAt).slice(0, 10), '2024-08-05')
+    assert.deepEqual(first.errors, [])
+
+    const g = await callOk(client, 'get_graph', { graphId: first.imported[0].graphId })
+    assert.equal(g.metaArea, '#MYSTMKRA')
+    assert.equal(g.publicationState, 'private')
+    assert.equal(String(g.createdAt).slice(0, 10), '2024-08-05')
+    const doc = g.nodes.find((n) => n.id === 'document')
+    assert.equal(doc.info, '![IMG](https://x/y.png)\n### Life *Energy* in Psychology\n\nBody | with a pipe.\n', 'the text is byte for byte')
+    assert.equal(doc.metadata.mystmkraId, 'd1')
+    assert.match(g.nodes.find((n) => n.id === 'origin').info, /Tor Arne Håve/)
+
+    const second = await callOk(client, 'import_mystmkra', { limit: 2 })
+    assert.equal(second.alreadyImported, 2)
+    assert.equal(second.importedNow, 1)
+    assert.equal(second.remaining, 0)
+    assert.equal(second.imported[0].mystmkraId, 'd4')
+    assert.equal(second.imported[0].author, 'Maiken Sneeggen')
+    assert.equal(second.imported[0].title, 'Bare prose with no heading at all.')
+    const hers = await callOk(client, 'get_graph', { graphId: second.imported[0].graphId })
+    assert.equal(hers.metaArea, '#MYSTMKRA #MAIKENSNEEGGEN', 'another author\'s document carries her tag')
+
+    const third = await callOk(client, 'import_mystmkra', {})
+    assert.equal(third.importedNow, 0)
+    assert.equal(third.alreadyImported, 3)
+    const all = await callOk(client, 'graph_index', { metaArea: '#MYSTMKRA' })
+    assert.equal(all.total, 3, 'the copy and the empty document never became graphs')
+  })
+
+  test('without the database bound it refuses plainly', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, SUPER)
+    const e = await callErr(client, 'import_mystmkra', {})
+    assert.equal(e.code, 'INVALID_INPUT')
   })
 })
