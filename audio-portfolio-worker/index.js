@@ -376,6 +376,7 @@ var updateRecording = async (env, userEmail, recordingId, updates) => {
       "displayName",
       "tags",
       "category",
+      "duration",
       "publicationState",
       "publishedAt",
       "speakerTimeline",
