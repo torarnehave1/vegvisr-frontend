@@ -272,14 +272,23 @@ describe('18. tools/list', () => {
     assert.deepEqual([...sr2.inputSchema.properties.role.enum].sort(), ['admin', 'member'])
   })
 
-  test('nothing deletes content, and the one removal tool takes access rather than data', async () => {
+  test('one tool deletes content, to a 30-day trash, and the one removal tool takes access rather than data', async () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RW)
     const { tools } = await client.listTools()
 
-    // The invariant this has always protected: no graph, node or message can be destroyed
-    // through this server. Still true, and graph:delete remains a scope with no tool behind it.
-    assert.equal(tools.some((t) => /delete/i.test(t.name)), false)
+    // Until 2026-11-14 this pinned "no graph, node or message can be destroyed through this
+    // server", with graph:delete a scope that had no tool behind it. The owner then asked for
+    // graphs to be deletable from his map of the collection. What is pinned now is how narrow
+    // that is: exactly ONE tool deletes, it deletes a whole graph and nothing smaller, it is
+    // flagged destructive, and it is the only tool on graph:delete (a connection without that
+    // scope is refused — see 'delete_graph, list_deleted_graphs, restore_graph'). It moves the
+    // graph to a trash it can be restored from; list_deleted_graphs only reads that trash.
+    // Still no tool deletes a node, an edge or a message.
+    assert.deepEqual(tools.filter((t) => /delete/i.test(t.name)).map((t) => t.name).sort(), ['delete_graph', 'list_deleted_graphs'])
+    assert.equal(tools.find((t) => t.name === 'delete_graph').annotations.destructiveHint, true)
+    assert.equal(tools.find((t) => t.name === 'list_deleted_graphs').annotations.readOnlyHint, true)
+    assert.deepEqual(Object.keys(tools.find((t) => t.name === 'delete_graph').inputSchema.properties), ['graphId'])
 
     // remove_group_member arrived on 2026-09-30 and is an exception to the NAME, not the rule.
     // It removes a person's access to a group; the person stays registered, their account is
@@ -571,6 +580,78 @@ describe('graph_index: the whole collection in one call', () => {
     await callOk(bob, 'create_graph', { title: 'Bobs', metaArea: '#Z' })
     assert.deepEqual((await callOk(bob, 'graph_index', {})).graphs.map((g) => g.title), ['Bobs'])
     assert.deepEqual((await callOk(bob, 'graph_index', { scope: 'all' })).graphs.map((g) => g.title), ['Bobs'])
+  })
+})
+
+describe('delete_graph, list_deleted_graphs, restore_graph', () => {
+  const ALICE_DEL = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'graph:write', 'graph:delete'] } }
+  const BOB_DEL = { ...BOB_RW, auth: { ...BOB_RW.auth, scope: ['graph:read', 'graph:write', 'graph:delete'] } }
+
+  test('a delete goes to the trash with the history and comes back whole', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_DEL)
+    const g = await callOk(client, 'create_graph', { title: 'Skal bort', metaArea: '#A' })
+    const n = await callOk(client, 'add_node', { graphId: g.graphId, node: { label: 'en', type: 'fulltext', info: 'TEKSTEN' } })
+    const keep = await callOk(client, 'create_graph', { title: 'Skal bli', metaArea: '#A' })
+
+    const del = await callOk(client, 'delete_graph', { graphId: g.graphId })
+    assert.equal(del.title, 'Skal bort')
+    assert.equal(del.nodeCount, 1)
+    assert.match(del.trashId, /^trash_/)
+    assert.ok(new Date(del.restorableUntil).getTime() > Date.now() + 29 * 24 * 3600 * 1000)
+
+    // Gone from every read, and nothing else was touched.
+    assert.equal((await callErr(client, 'get_graph', { graphId: g.graphId })).code, gs.ERR.GRAPH_NOT_FOUND)
+    assert.deepEqual((await callOk(client, 'graph_index', {})).graphs.map((x) => x.title), ['Skal bli'])
+    assert.equal(env.vegvisr_org.db.prepare('SELECT COUNT(*) AS n FROM knowledge_graph_history WHERE graph_id = ?').get(g.graphId).n, 0)
+    assert.equal((await callErr(client, 'delete_graph', { graphId: g.graphId })).code, gs.ERR.GRAPH_NOT_FOUND)
+
+    const listed = await callOk(client, 'list_deleted_graphs', {})
+    assert.deepEqual(listed.deleted.map((d) => [d.graphId, d.title, d.trashId]), [[g.graphId, 'Skal bort', del.trashId]])
+
+    const back = await callOk(client, 'restore_graph', { graphId: g.graphId })
+    assert.equal(back.graphId, g.graphId)
+    const read = await callOk(client, 'get_graph', { graphId: g.graphId, nodeId: n.nodeId })
+    assert.ok(JSON.stringify(read).includes('TEKSTEN'), 'the node text must be back')
+    assert.ok(env.vegvisr_org.db.prepare('SELECT COUNT(*) AS n FROM knowledge_graph_history WHERE graph_id = ?').get(g.graphId).n >= 2, 'the history must be back')
+    assert.equal((await callOk(client, 'list_deleted_graphs', {})).total, 0)
+    // The trash entry is spent: a second restore finds nothing.
+    assert.equal((await callErr(client, 'restore_graph', { trashId: del.trashId })).code, gs.ERR.GRAPH_NOT_FOUND)
+    assert.ok(keep.graphId)
+  })
+
+  test('needs graph:delete, and only the creator may delete or restore', async () => {
+    const { env } = freshDb()
+    const { client: alice } = await connect(env, ALICE_DEL)
+    const { client: aliceNoDelete } = await connect(env, ALICE_RW)
+    const { client: bob } = await connect(env, BOB_DEL)
+    const g = await callOk(alice, 'create_graph', { title: 'Alices', metaArea: '#A' })
+
+    const noScope = await callErr(aliceNoDelete, 'delete_graph', { graphId: g.graphId })
+    assert.equal(noScope.code, gs.ERR.INSUFFICIENT_SCOPE)
+    assert.equal(noScope.requiredScope, 'graph:delete')
+    assert.equal((await callErr(bob, 'delete_graph', { graphId: g.graphId })).code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.ok((await callOk(alice, 'get_graph', { graphId: g.graphId })).graphId || true, 'still there after two refusals')
+
+    const del = await callOk(alice, 'delete_graph', { graphId: g.graphId })
+    // Bob neither sees Alice's trash nor can pull her graph out of it.
+    assert.equal((await callOk(bob, 'list_deleted_graphs', {})).total, 0)
+    assert.equal((await callErr(bob, 'restore_graph', { trashId: del.trashId })).code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.equal((await callErr(bob, 'restore_graph', { graphId: g.graphId })).code, gs.ERR.GRAPH_NOT_FOUND)
+    assert.equal((await callErr(alice, 'restore_graph', {})).code, gs.ERR.INVALID_INPUT)
+    await callOk(alice, 'restore_graph', { trashId: del.trashId })
+  })
+
+  test('a graph that serves a live page is not deleted', async () => {
+    const { env } = freshDb()
+    const g = await gs.createGraph(env, { title: 'Har en side', metaArea: '#A', actor: gs.normalizeActor({ valid: true, userId: 'alice@example.com', userEmail: 'alice@example.com', userRole: 'User', scopes: ['graph:write'] }) })
+    const actor = gs.normalizeActor({ valid: true, userId: 'alice@example.com', userEmail: 'alice@example.com', userRole: 'User', scopes: ['graph:delete'] })
+    const refused = await gs.deleteGraph(env, { graphId: g.graphId, actor, liveDomains: ['side.example.com'] })
+    assert.equal(refused.ok, false)
+    assert.equal(refused.code, gs.ERR.INVALID_INPUT)
+    assert.deepEqual(refused.liveDomains, ['side.example.com'])
+    assert.equal(env.vegvisr_org.db.prepare('SELECT COUNT(*) AS n FROM knowledge_graphs WHERE id = ?').get(g.graphId).n, 1)
+    assert.equal(env.vegvisr_org.db.prepare('SELECT COUNT(*) AS n FROM graph_trash').get().n, 0)
   })
 })
 

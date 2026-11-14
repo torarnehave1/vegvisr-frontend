@@ -6928,6 +6928,137 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── delete_graph · list_deleted_graphs · restore_graph ────────────────────
+  //
+  // The first tools on graph:delete (2026-11-14). The scope has been on the consent screen as an
+  // unticked opt-in since the vocabulary was frozen, so a connection made without it is refused
+  // here with INSUFFICIENT_SCOPE and has to be added again with the box ticked.
+  server.registerTool(
+    'delete_graph',
+    {
+      title: 'Delete a graph (to the trash, 30 days)',
+      description:
+        'Delete one graph. It is moved to the trash with its whole version history and can be ' +
+        'brought back with restore_graph for 30 days; after that it is gone. Only the person who ' +
+        'created the graph, or a Superadmin, may delete it. Refused for a graph that serves a ' +
+        'live page on a domain. ASK THE USER FIRST and name the graph by its title: never call ' +
+        'this on your own initiative, and never for several graphs without each one confirmed. ' +
+        'Show the user the trashId and the date it can be restored until. Requires the ' +
+        'graph:delete scope, which a connection only has when the user ticked it on the consent screen.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph to delete.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        title: z.string().nullable(),
+        nodeCount: z.number(),
+        trashId: z.string().describe('Pass this to restore_graph to bring the graph back.'),
+        restorableUntil: z.string().describe('After this time (UTC) the graph cannot be restored.'),
+        world: z.string().nullable(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ graphId }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:delete')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const liveDomains = sites.mergePublishedDomains(graphId, '', await sites.readPublishedDomainRegistry(env))
+      const r = await gs.deleteGraph(env, { graphId, actor, liveDomains })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, ...payload } = r
+      return ok(
+        { success: true, ...payload },
+        `Deleted "${r.title || graphId}" (${r.nodeCount} node${r.nodeCount === 1 ? '' : 's'}). It is in the trash until ` +
+          `${String(r.restorableUntil).slice(0, 10)}.\nTo bring it back: restore_graph with trashId ${r.trashId}`,
+      )
+    },
+  )
+
+  server.registerTool(
+    'list_deleted_graphs',
+    {
+      title: 'List the graphs in the trash',
+      description:
+        'The graphs you have deleted that can still be restored, newest first: title, when it was ' +
+        'deleted, until when it can be restored, and the trashId restore_graph takes. A Superadmin ' +
+        'sees every entry. Graphs deleted more than 30 days ago are gone and not listed. ' +
+        'Requires the graph:read scope.',
+      inputSchema: {},
+      outputSchema: {
+        success: z.boolean(),
+        total: z.number(),
+        deleted: z.array(
+          z.object({
+            trashId: z.string(),
+            graphId: z.string(),
+            title: z.string().nullable(),
+            deletedBy: z.string().nullable(),
+            deletedAt: z.string().nullable(),
+            restorableUntil: z.string().nullable(),
+            world: z.string().nullable(),
+          }),
+        ),
+      },
+      annotations: READ_ONLY,
+    },
+    async () => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await gs.listDeletedGraphs(env, { actor })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, ...payload } = r
+      const lines = r.deleted.map((d) => `• ${d.title || '(untitled)'} — ${d.graphId} · deleted ${String(d.deletedAt || '').slice(0, 10)} · restorable until ${String(d.restorableUntil || '').slice(0, 10)} · ${d.trashId}`)
+      return ok({ success: true, ...payload }, [r.total ? `${r.total} deleted graph${r.total === 1 ? '' : 's'} in the trash:` : 'The trash is empty.', ...lines].join('\n'))
+    },
+  )
+
+  server.registerTool(
+    'restore_graph',
+    {
+      title: 'Restore a deleted graph from the trash',
+      description:
+        'Bring back a graph deleted within the last 30 days, with its nodes, edges and version ' +
+        'history, under its old id. Name it by trashId (from delete_graph or list_deleted_graphs) ' +
+        'or by graphId. Only the person who created or deleted it, or a Superadmin, may. Two ' +
+        'things do not come back as they were: a created date that was set by hand returns as the ' +
+        'date of the first saved version, and a World graph returns to the World it was in. ' +
+        'Requires the graph:write scope.',
+      inputSchema: {
+        trashId: z.string().optional().describe('The trash entry to restore.'),
+        graphId: z.string().optional().describe('Instead of trashId: the deleted graph\'s id. Its newest trash entry is restored.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        title: z.string().nullable(),
+        world: z.string().nullable(),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ trashId, graphId }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const r = await gs.restoreGraph(env, { trashId: trashId || null, graphId: graphId || null, actor })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, ...payload } = r
+      return ok({ success: true, ...payload }, `Restored "${r.title || r.graphId}".\nViewer: ${r.viewerUrl}`)
+    },
+  )
+
   // ── graph_index ───────────────────────────────────────────────────────────
   //
   // The whole collection in one call. A map or timeline of every graph needs them all, and paging
@@ -7474,6 +7605,9 @@ export const TOOL_NAMES = [
   'list_my_graphs',
   'list_meta_areas',
   'graph_index',
+  'delete_graph',
+  'list_deleted_graphs',
+  'restore_graph',
   'import_mystmkra',
   'search',
   'fetch',

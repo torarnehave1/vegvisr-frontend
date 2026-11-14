@@ -19,7 +19,7 @@
  * format. That is what lets one implementation serve both HTTP/REST and MCP/JSON-RPC.
  */
 
-import { platformStore, resolveGraphStore, GraphStoreError, reserveLocation, activateLocation, dropPendingLocation, worldStoresFor, defaultWorldFor } from './graph-store.js'
+import { platformStore, resolveGraphStore, GraphStoreError, reserveLocation, activateLocation, dropPendingLocation, worldStoresFor, defaultWorldFor, setLocationStatus, graphIdOfTrashId } from './graph-store.js'
 
 /**
  * resolveGraphStore() throws on routing failures; the service speaks in fail() results. `caller`
@@ -1725,6 +1725,156 @@ export async function moveGraphToWorld(env, { graphId, world, actor }) {
     platformCopy: `in the platform trash until ${trash.expiresAt} (${trash.trashId})`,
     ...graphLinks(graphId, domain),
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Deleting a graph, and bringing it back (2026-11-14)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The first MCP tools to use graph:delete. A delete here is a move to the store's trash, where the
+// graph and its whole history are kept for 30 days (graph-store.js), and it never happens without
+// that copy: on the REST route the platform deletes even when the trash copy fails; here a failed
+// copy stops the delete, for every store.
+//
+// Unlike POST /deleteknowgraph this does not remove the graph's chat sessions or work notes. They
+// are small, harmless without their graph, and a restore that brought back a graph with its
+// conversations gone would not be a restore.
+
+/** True when `actor` is the person the graph row names as its creator. */
+function createdByActor(actor, owner, row) {
+  return Boolean((owner && actor.email && owner === actor.email) || (row?.user_id && actor.userId && row.user_id === actor.userId))
+}
+
+/**
+ * Move a graph to the trash. Only its creator or a Superadmin may: in a World's shared store every
+ * member can change every graph, and that must not extend to removing someone else's.
+ * `liveDomains` (from the publish registry) refuses a graph that serves a live page.
+ */
+export async function deleteGraph(env, { graphId, actor, liveDomains = [] }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!graphId) return fail(ERR.INVALID_INPUT, 'graphId is required.')
+
+  const access = await checkAccess(env, actor, graphId, 'write')
+  if (!access.ok) return access
+  if (!actor.isSuperadmin && !createdByActor(actor, access.owner, access.graph)) {
+    return fail(ERR.FORBIDDEN_GRAPH, `Only the person who created graph ${graphId}, or a Superadmin, can delete it.`)
+  }
+  if (liveDomains.length) {
+    return fail(ERR.INVALID_INPUT, `Graph ${graphId} serves a live page at ${liveDomains.join(', ')}. It was NOT deleted: the page would stop working. Take the page down first.`, { liveDomains })
+  }
+
+  const located = await storeFor(env, { graphId, actor })
+  if (located.error) return located.error
+  const { store } = located
+  return guarded(async () => {
+    const row = access.graph
+    let meta = {}
+    let nodeCount = 0
+    try {
+      const parsed = JSON.parse(row.data)
+      meta = parsed?.metadata || {}
+      nodeCount = Array.isArray(parsed?.nodes) ? parsed.nodes.length : 0
+    } catch { /* an unparseable graph is still trashed as it is */ }
+
+    let trash
+    try {
+      trash = await store.trashCopy({ id: graphId, data: row.data, deletedBy: actor.email || actor.userId || 'unknown' })
+    } catch (e) {
+      if (e instanceof GraphStoreError) throw e
+      return fail(ERR.INTERNAL_ERROR, `Graph ${graphId} was NOT deleted: its trash copy failed (${e.message}).`)
+    }
+    await store.deleteGraph(graphId)
+    if (store.kind === 'world') await setLocationStatus(env, graphId, 'trashed')
+
+    return {
+      ok: true,
+      graphId,
+      title: meta.title || row.title || null,
+      nodeCount,
+      trashId: trash.trashId,
+      restorableUntil: trash.expiresAt,
+      world: store.world || null,
+    }
+  })
+}
+
+/** The graphs the actor has deleted that are still in a trash (a Superadmin sees every entry), newest first. */
+export async function listDeletedGraphs(env, { actor }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  return guarded(async () => {
+    const stores = [platformStore(env), ...(await worldStoresFor(env, actor))]
+    const deleted = []
+    for (const store of stores) {
+      for (const t of await store.listTrash()) {
+        const by = String(t.deleted_by || '').toLowerCase()
+        if (!actor.isSuperadmin && !(actor.email && by === actor.email) && !(actor.userId && t.deleted_by === actor.userId)) continue
+        deleted.push({
+          trashId: t.id,
+          graphId: t.graph_id,
+          title: t.title || null,
+          deletedBy: t.deleted_by || null,
+          deletedAt: t.deleted_at || null,
+          restorableUntil: t.expires_at || null,
+          world: store.world || null,
+        })
+      }
+    }
+    deleted.sort((a, b) => String(b.deletedAt || '').localeCompare(String(a.deletedAt || '')))
+    return { ok: true, total: deleted.length, deleted }
+  })
+}
+
+/**
+ * Put a trashed graph back, with its history. Named by trashId, or by graphId (its newest trash
+ * entry). Refused when a graph with that id exists again — the store's restore would overwrite it.
+ * The graph returns with the created date of its first saved version: the trash keeps the graph
+ * and its history, not the row, so a created date set by hand afterwards is not kept.
+ */
+export async function restoreGraph(env, { trashId = null, graphId = null, actor }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!trashId && !graphId) return fail(ERR.INVALID_INPUT, 'trashId or graphId is required.')
+
+  let id = trashId ? String(trashId) : null
+  if (!id) {
+    const listed = await listDeletedGraphs(env, { actor })
+    if (!listed.ok) return listed
+    const hit = listed.deleted.find((d) => d.graphId === graphId)
+    if (!hit) return fail(ERR.GRAPH_NOT_FOUND, `No deleted graph ${graphId} of yours is in the trash. It may be older than 30 days.`)
+    id = hit.trashId
+  }
+  const originalId = graphIdOfTrashId(id)
+  if (!originalId) return fail(ERR.INVALID_INPUT, `"${id}" is not a trash id.`)
+
+  const located = await storeFor(env, { graphId: originalId, actor })
+  if (located.error) return located.error
+  const { store } = located
+  return guarded(async () => {
+    const entry = await store.getTrashEntry(id)
+    if (!entry) return fail(ERR.GRAPH_NOT_FOUND, 'Trash entry not found, or older than 30 days.')
+
+    let meta = {}
+    try {
+      meta = JSON.parse(entry.graph_data)?.metadata || {}
+    } catch { /* restored as it is */ }
+    const creator = String(meta.createdBy || '').toLowerCase()
+    const deleter = String(entry.deleted_by || '').toLowerCase()
+    if (!actor.isSuperadmin && !(actor.email && (creator === actor.email || deleter === actor.email))) {
+      return fail(ERR.FORBIDDEN_GRAPH, 'Only the person who created or deleted that graph, or a Superadmin, can restore it.')
+    }
+    if (await store.getRow(entry.graph_id)) {
+      return fail(ERR.INVALID_INPUT, `A graph with id ${entry.graph_id} exists again, so the trashed one was NOT restored over it.`)
+    }
+
+    await store.restoreFromTrash(entry)
+    if (store.kind === 'world') await setLocationStatus(env, entry.graph_id, 'active')
+    return {
+      ok: true,
+      graphId: entry.graph_id,
+      title: meta.title || entry.title || null,
+      world: store.world || null,
+      ...graphLinks(entry.graph_id, store.world),
+    }
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -28,7 +28,8 @@
  *                  2026-10-20, architect's decision: a row in your own book is your own content;
  *                  contacts:write was declined because it would force every user to reconnect)
  *   graph:publish  making something reachable by people who are not signed in
- *   graph:delete   destroying content (reserved; no tool uses it yet)
+ *   graph:delete   destroying content — delete_graph (2026-11-14), which moves a graph to the
+ *                  trash for 30 days; reserved and unused until then
  *   chat:write     sending a message that reaches other people, in any channel
  *   chat:read      reading messages other people wrote
  *   user:register  creating or altering an account in the user directory
@@ -66,8 +67,8 @@ export const CONNECT_SCOPES = ['graph:read', 'graph:write']
  * someone is about to make every connected user re-authorize. Change it only with that
  * understood, and record the reason in MCP_OAUTH_DEPLOYMENT.md.
  *
- * graph:delete is reserved and unused. It is listed so the vocabulary is complete and so a
- * future delete tool costs a tool-list refresh rather than a re-authorization.
+ * graph:delete was reserved and unused until delete_graph (2026-11-14). It was listed from the
+ * start so that the first delete tool cost a tool-list refresh rather than a new vocabulary.
  */
 export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'graph:delete', 'chat:write', 'chat:read', 'user:register', 'user:read', 'contacts:read']
 
@@ -76,7 +77,7 @@ export const SCOPE_TEXT = {
   'graph:read': 'Lese kunnskapsgrafene dine',
   'graph:write': 'Opprette og endre innholdet ditt — grafer, noder, bilder og metadata, og legge til kontakter i din egen adressebok',
   'graph:publish': 'Gjøre innhold synlig for folk som ikke er innlogget',
-  'graph:delete': 'Slette innhold permanent',
+  'graph:delete': 'Slette grafer (de ligger i papirkurven i 30 dager, så er de borte)',
   'chat:write': 'Sende meldinger som når andre mennesker, og styre hvem som er med i gruppene dine',
   'chat:read': 'Lese meldinger andre har skrevet — i chatten og i E-POSTINNBOKSER du kan sende fra',
   'user:register': 'Opprette brukerkontoer og endre dem — rolle og gruppe',
@@ -128,10 +129,10 @@ export const OPT_IN_SCOPES = [
 /** Longer copy for the consent screen: the one-liner is not enough for an outward-facing scope. */
 export const OPT_IN_SCOPE_DETAIL = {
   'graph:delete':
-    'Lar assistenten slette innhold permanent. INGEN VERKTØY BRUKER DENNE ENNÅ — boksen finnes ' +
-    'fordi et grant aldri utvides: uten den her ville det første slette-verktøyet tvunget alle ' +
-    'til å koble fra og til på nytt. Kryss av bare hvis du vil at et slikt verktøy skal virke ' +
-    'med én gang det finnes. Å la den stå tom koster ingenting i dag.',
+    'Lar assistenten slette en hel graf når du ber om det. Grafen flyttes til papirkurven med ' +
+    'hele historikken sin og kan hentes tilbake i 30 dager; etter det er den borte for godt. ' +
+    'Bare den som opprettet grafen, eller en Superadmin, kan slette den. Kryss av bare hvis du ' +
+    'vil kunne slette grafer herfra. Å la den stå tom gjør at sletting blir avvist.',
   'user:read':
     'Lar assistenten liste de registrerte brukerne på plattformen med navn, e-postadresse, ' +
     'rolle og gruppe. Dette er ANDRE personers kontaktopplysninger, og de blir en del av ' +
