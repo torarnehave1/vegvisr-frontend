@@ -347,3 +347,17 @@ Vegvisr Realtime (realtime.vegvisr.org) operated from MCP. Plan and decisions: k
 - **A playback link is only made for a key in the caller's own list** — `play-url` itself checks nothing.
 - **No `realtime_list_meetings`:** `/realtime/list-meetings` returns every meeting in the
   RealtimeKit app, not the caller's own. Pending the architect's decision.
+
+## get_youtube_transcript (2026-11-14)
+
+- **What:** a YouTube link in, the transcript + metadata + a ready `youtube-video` node out. The
+  first step of the frontend's Transcript Processor, from MCP.
+- **One implementation.** `youtube-service.js` calls api-worker's existing
+  `GET https://api.vegvisr.org/youtube-transcript-io/<videoId>` — the youtube-transcript.io token
+  stays in api-worker. No new binding, secret or scope: the tool needs `graph:read`.
+- **Not done here (architect's decision A):** turning the text into a graph. The frontend sends it
+  to grok-worker `/process-transcript`; over MCP the assistant reads the text and uses
+  `create_graph` / `add_node`.
+- **Long videos:** the text is cut at `maxChars` (default 50000); `nextOffset` → `offset` reads on.
+- **`node`** mirrors `createYouTubeNode()` in `src/composables/useTranscriptProcessor.js`. Change
+  both together.

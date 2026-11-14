@@ -4643,3 +4643,187 @@ describe('import_mystmkra turns the prototype\'s documents into graphs', () => {
     assert.equal(e.code, 'INVALID_INPUT')
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// get_youtube_transcript (2026-11-14)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('get_youtube_transcript reads a video\'s transcript through api-worker (graph:read)', () => {
+  // The answer of GET api.vegvisr.org/youtube-transcript-io/<id>, in the shape read live on
+  // 2026-11-14 (video CELZK04Fk84): start/dur/lengthSeconds are STRINGS, some segments are "\n".
+  const LIVE = {
+    success: true,
+    videoId: 'CELZK04Fk84',
+    transcript: [{
+      id: 'CELZK04Fk84',
+      title: 'Lies Heard About Bioenergetic Therapy',
+      isLive: false,
+      playabilityStatus: { status: 'OK', reason: '' },
+      languages: [{ label: 'en', languageCode: 'en' }],
+      availableLanguages: ['en'],
+      chapters: [{ start_time: 0, title: 'Intro' }, { start_time: 53.6, title: 'The lie' }],
+      tracks: [{
+        language: 'en',
+        transcript: [
+          { start: '0.08', dur: '6.88', text: "there's a big lie floating around that" },
+          { start: '3.23', dur: '3.73', text: '\n' },
+          { start: '3.24', dur: '5.39', text: "bioenergetic therapy is scary and I'm" },
+        ],
+      }],
+      microformat: { playerMicroformatRenderer: {
+        title: { simpleText: 'Lies Heard About Bioenergetic Therapy' },
+        description: { simpleText: 'A video description.' },
+        ownerChannelName: 'Leah Benson Therapy',
+        externalChannelId: 'UCi66RzMiF4gD2TExOUE54tQ',
+        lengthSeconds: '443',
+        publishDate: '2024-11-20',
+        category: 'People & Blogs',
+      } },
+    }],
+  }
+
+  /** api-worker, faked on globalThis.fetch. Records what was asked for. */
+  function apiWorker(body = LIVE, status = 200) {
+    const calls = []
+    const real = globalThis.fetch
+    globalThis.fetch = async (url, init = {}) => {
+      calls.push({ url: String(url), method: init.method || 'GET' })
+      return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+    }
+    return { calls, restore: () => { globalThis.fetch = real } }
+  }
+
+  function seeded() {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    return env
+  }
+
+  test('a share link becomes the transcript, the metadata and the ready youtube-video node', async () => {
+    const api = apiWorker()
+    try {
+      const { client } = await connect(seeded(), ALICE_RO)
+      const res = await client.callTool({ name: 'get_youtube_transcript', arguments: { video: 'https://youtu.be/CELZK04Fk84?si=1hM8ViQy0Qm7HhEd' } })
+      assert.equal(res.isError, undefined)
+      const r = res.structuredContent
+      assert.deepEqual(api.calls, [{ url: 'https://api.vegvisr.org/youtube-transcript-io/CELZK04Fk84', method: 'GET' }])
+      assert.equal(r.found, true)
+      assert.equal(r.videoId, 'CELZK04Fk84')
+      assert.equal(r.title, 'Lies Heard About Bioenergetic Therapy')
+      assert.equal(r.channel, 'Leah Benson Therapy')
+      assert.equal(r.durationSeconds, 443)
+      assert.equal(r.publishedAt, '2024-11-20')
+      assert.equal(r.language, 'en')
+      assert.equal(r.segments, 3)
+      // The "\n" segment is dropped, not turned into a double space.
+      assert.equal(r.text, "there's a big lie floating around that bioenergetic therapy is scary and I'm")
+      assert.equal(r.chars, r.text.length)
+      assert.equal(r.truncated, false)
+      assert.equal(r.nextOffset, null)
+      assert.deepEqual(r.chapters, [{ startSeconds: 0, title: 'Intro' }, { startSeconds: 53.6, title: 'The lie' }])
+      // The node the frontend's createYouTubeNode() builds.
+      assert.equal(r.node.type, 'youtube-video')
+      assert.equal(r.node.label, '![YOUTUBE src=https://www.youtube.com/embed/CELZK04Fk84]Lies Heard About Bioenergetic Therapy[END YOUTUBE]')
+      assert.deepEqual(r.node.bibl, ['https://www.youtube.com/watch?v=CELZK04Fk84'])
+      assert.match(r.node.info, /\*\*Channel:\*\* Leah Benson Therapy/)
+      assert.match(r.node.info, /\*\*Duration:\*\* 7:23/)
+      assert.match(res.content[0].text, /TRANSCRIPT:\nthere's a big lie/)
+    } finally { api.restore() }
+  })
+
+  test('the returned node is accepted by add_node as it is', async () => {
+    const api = apiWorker()
+    try {
+      const { client } = await connect(seeded(), ALICE_RW)
+      const t = await callOk(client, 'get_youtube_transcript', { video: 'CELZK04Fk84' })
+      const g = await callOk(client, 'create_graph', { title: 'Video', metaArea: 'TEST' })
+      const added = await callOk(client, 'add_node', { graphId: g.graphId, node: t.node })
+      assert.equal(added.success, true)
+    } finally { api.restore() }
+  })
+
+  test('a long transcript is read in pieces with offset / nextOffset', async () => {
+    const long = structuredClone(LIVE)
+    long.transcript[0].tracks[0].transcript = Array.from({ length: 400 }, (_, i) => ({ start: String(i), dur: '1', text: `word${i}` }))
+    const api = apiWorker(long)
+    try {
+      const { client } = await connect(seeded(), ALICE_RO)
+      const a = await callOk(client, 'get_youtube_transcript', { video: 'CELZK04Fk84', maxChars: 1000 })
+      assert.equal(a.truncated, true)
+      assert.equal(a.text.length, 1000)
+      assert.equal(a.nextOffset, 1000)
+      let text = a.text
+      let next = a.nextOffset
+      while (next !== null) {
+        const b = await callOk(client, 'get_youtube_transcript', { video: 'CELZK04Fk84', maxChars: 1000, offset: next })
+        assert.equal(b.offset, next)
+        text += b.text
+        next = b.nextOffset
+      }
+      assert.equal(text.length, a.chars)
+      assert.ok(text.endsWith('word399'))
+    } finally { api.restore() }
+  })
+
+  test('a video without captions is found=false with the metadata, not an error', async () => {
+    const none = structuredClone(LIVE)
+    none.transcript[0].tracks = []
+    const api = apiWorker(none)
+    try {
+      const { client } = await connect(seeded(), ALICE_RO)
+      const r = await callOk(client, 'get_youtube_transcript', { video: 'CELZK04Fk84' })
+      assert.equal(r.found, false)
+      assert.match(r.reason, /no transcript/i)
+      assert.equal(r.title, 'Lies Heard About Bioenergetic Therapy')
+      assert.equal(r.text, '')
+    } finally { api.restore() }
+  })
+
+  test('asking for a language the video does not have names the ones it has', async () => {
+    const api = apiWorker()
+    try {
+      const { client } = await connect(seeded(), ALICE_RO)
+      const r = await callOk(client, 'get_youtube_transcript', { video: 'CELZK04Fk84', language: 'no' })
+      assert.equal(r.found, false)
+      assert.match(r.reason, /Available: en/)
+    } finally { api.restore() }
+  })
+
+  test('something that is not a YouTube link is refused before anything is fetched', async () => {
+    const api = apiWorker()
+    try {
+      const { client } = await connect(seeded(), ALICE_RO)
+      for (const video of ['https://vimeo.com/12345', 'not a link', 'https://youtu.be/../../admin']) {
+        const e = await callErr(client, 'get_youtube_transcript', { video })
+        assert.equal(e.code, 'INVALID_INPUT')
+      }
+      assert.equal(api.calls.length, 0)
+    } finally { api.restore() }
+  })
+
+  test('a failure of the transcript service comes back as a tool error with its message', async () => {
+    const api = apiWorker({ error: 'YouTube Transcript IO API error: 429 - slow down' }, 429)
+    try {
+      const { client } = await connect(seeded(), ALICE_RO)
+      const e = await callErr(client, 'get_youtube_transcript', { video: 'CELZK04Fk84' })
+      assert.equal(e.code, 'RATE_LIMITED')
+      assert.match(e.message, /slow down/)
+    } finally { api.restore() }
+  })
+
+  test('it needs graph:read, is read-only, and has no input that names a user', async () => {
+    const api = apiWorker()
+    try {
+      const env = seeded()
+      const denied = await connect(env, { ...ALICE_RO, auth: { ...ALICE_RO.auth, scope: ['contacts:read'] } })
+      const e = await callErr(denied.client, 'get_youtube_transcript', { video: 'CELZK04Fk84' })
+      assert.equal(e.requiredScope, 'graph:read')
+      assert.equal(api.calls.length, 0)
+      const { client } = await connect(env, ALICE_RO)
+      const { tools } = await client.listTools()
+      const t = tools.find((x) => x.name === 'get_youtube_transcript')
+      assert.equal(t.annotations.readOnlyHint, true)
+      assert.equal(t.annotations.openWorldHint, false)
+      assert.deepEqual(Object.keys(t.inputSchema.properties).sort(), ['language', 'maxChars', 'offset', 'video'])
+    } finally { api.restore() }
+  })
+})
