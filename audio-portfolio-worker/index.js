@@ -692,7 +692,7 @@ var index_default = {
           "/list-recordings": {
             get: {
               summary: "List user recordings",
-              description: "Returns recordings for a user. Superadmin role returns all recordings across users. Regular users only see published recordings.",
+              description: "Returns recordings for a user. Requires X-API-Token. Superadmin role returns all recordings across users. Regular users see all of their own recordings, drafts included.",
               operationId: "listRecordings",
               parameters: [
                 { name: "userEmail", in: "query", required: true, schema: { type: "string" }, description: "Email of the user whose recordings to list" },
@@ -1164,7 +1164,7 @@ var index_default = {
                 },
                 tags: { type: "array", items: { type: "string" }, default: [] },
                 category: { type: "string", default: "general" },
-                publicationState: { type: "string", enum: ["draft", "published"], default: "draft" },
+                publicationState: { type: "string", enum: ["draft", "published"], default: "draft", description: "Honoured only for a Superadmin caller. For every other caller the recording is stored as draft; publish through /update-publication-state." },
                 audioFormat: { type: "string", default: "wav" },
                 sampleRate: { type: "integer", default: 16e3 },
                 channels: { type: "integer", default: 1 },
@@ -1300,6 +1300,13 @@ var index_default = {
         const saveCaller = await resolveCaller(request, env, recordingData.userEmail || request.headers.get("X-User-Email"));
         if (!saveCaller.ok) return saveCaller.response;
         recordingData.userEmail = saveCaller.email;
+        // Publishing is Superadmin-only (see /update-publication-state). A regular caller's
+        // publicationState is ignored and the recording is stored as a draft; otherwise anyone
+        // with a login could put a recording on the unauthenticated /list-recordings-public.
+        // Ignored rather than rejected, because VEmotion sent "published" on every save.
+        if (!saveCaller.superadmin && !saveCaller.internal) {
+          recordingData.publicationState = "draft";
+        }
         console.log("\u{1F4BE} Saving recording data:", {
           userEmail: recordingData.userEmail,
           fileName: recordingData.fileName,
