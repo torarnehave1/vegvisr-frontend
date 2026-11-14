@@ -50,6 +50,39 @@ async function validateWorkerApiToken(request, env) {
     return { valid: false, error: "Token validation error: " + e.message };
   }
 }
+// Service-binding calls (e.g. Agent-Builder's env.AUDIO_PORTFOLIO.fetch("https://audio-portfolio-worker/..."))
+// arrive with the bare hostname "audio-portfolio-worker". A public request can never carry that
+// hostname (no DNS name resolves to it), so it identifies an internal caller that already
+// authenticated its own user. Those callers keep their trusted userEmail/ownerEmail params.
+var isServiceBindingRequest = (request) => {
+  try {
+    return new URL(request.url).hostname === "audio-portfolio-worker";
+  } catch {
+    return false;
+  }
+};
+// Resolves who is acting on a per-user route (added 2026-11-14 — these routes used to trust any
+// userEmail in the query/body, so anyone could list, read, rewrite or delete any user's recordings).
+// Public callers must send X-API-Token (emailVerificationToken). The acting email is the token's
+// email; only a Superadmin may act on another user's email via the requested param.
+async function resolveCaller(request, env, requestedEmail) {
+  if (isServiceBindingRequest(request)) {
+    let role = "user";
+    if (requestedEmail && env.vegvisr_org) {
+      try {
+        const row = await env.vegvisr_org.prepare("SELECT Role FROM config WHERE email = ?").bind(requestedEmail).first();
+        if (row?.Role) role = row.Role;
+      } catch {
+      }
+    }
+    return { ok: true, email: requestedEmail, role, superadmin: isSuperadminRole(role), internal: true };
+  }
+  const auth = await validateWorkerApiToken(request, env);
+  if (!auth.valid) return { ok: false, response: createErrorResponse(auth.error, 401) };
+  const superadmin = isSuperadminRole(auth.role);
+  const email = superadmin && requestedEmail ? requestedEmail : auth.email;
+  return { ok: true, email, role: auth.role || "user", superadmin, tokenEmail: auth.email };
+}
 async function resolveKv(env, userEmail) {
   if (userEmail && env.vegvisr_org) {
     try {
@@ -1271,17 +1304,12 @@ var index_default = {
         return createSuccessResponse(result);
       }
       if (pathname === "/list-recordings" && request.method === "GET") {
-        const userEmail = url.searchParams.get("userEmail");
+        const caller = await resolveCaller(request, env, url.searchParams.get("userEmail"));
+        if (!caller.ok) return caller.response;
+        const userEmail = caller.email;
+        const userRole = caller.role;
         const limit = parseInt(url.searchParams.get("limit") || "50");
         const offset = parseInt(url.searchParams.get("offset") || "0");
-        let userRole = "user";
-        if (userEmail && env.vegvisr_org) {
-          try {
-            const row = await env.vegvisr_org.prepare("SELECT Role FROM config WHERE email = ?").bind(userEmail).first();
-            if (row?.Role) userRole = row.Role;
-          } catch {
-          }
-        }
         if (url.searchParams.get("order") === "newest") {
           const requestedOwner = url.searchParams.get("ownerEmail");
           const owner = isSuperadminRole(userRole) && requestedOwner ? requestedOwner : userEmail;
@@ -1300,19 +1328,14 @@ var index_default = {
         return createSuccessResponse(result);
       }
       if (pathname === "/get-recording" && request.method === "GET") {
-        const userEmail = url.searchParams.get("userEmail");
+        const caller = await resolveCaller(request, env, url.searchParams.get("userEmail"));
+        if (!caller.ok) return caller.response;
+        const userEmail = caller.email;
         const recordingId = url.searchParams.get("recordingId");
         if (!userEmail || !recordingId) {
           return createErrorResponse("userEmail and recordingId are required", 400);
         }
-        let userRole = "user";
-        if (env.vegvisr_org) {
-          try {
-            const row = await env.vegvisr_org.prepare("SELECT Role FROM config WHERE email = ?").bind(userEmail).first();
-            if (row?.Role) userRole = row.Role;
-          } catch {
-          }
-        }
+        const userRole = caller.role;
         const requestedOwner = url.searchParams.get("ownerEmail");
         const owner = isSuperadminRole(userRole) && requestedOwner ? requestedOwner : userEmail;
         const kv = await resolveKv(env, owner);
@@ -1323,7 +1346,9 @@ var index_default = {
         return createSuccessResponse({ recording: JSON.parse(recordingData) });
       }
       if (pathname === "/search-recordings" && request.method === "GET") {
-        const userEmail = url.searchParams.get("userEmail");
+        const caller = await resolveCaller(request, env, url.searchParams.get("userEmail"));
+        if (!caller.ok) return caller.response;
+        const userEmail = caller.email;
         const query = url.searchParams.get("query");
         const limit = parseInt(url.searchParams.get("limit") || "50");
         const result = await searchRecordings(env, userEmail, query, limit);
@@ -1337,7 +1362,9 @@ var index_default = {
         return createSuccessResponse(result);
       }
       if (pathname === "/delete-recording" && request.method === "DELETE") {
-        const userEmail = url.searchParams.get("userEmail");
+        const caller = await resolveCaller(request, env, url.searchParams.get("userEmail"));
+        if (!caller.ok) return caller.response;
+        const userEmail = caller.email;
         const recordingId = url.searchParams.get("recordingId");
         const result = await deleteRecording(env, userEmail, recordingId);
         return createSuccessResponse(result);
@@ -1363,6 +1390,9 @@ var index_default = {
           delete updates.publicationState;
           delete updates.publishedAt;
         }
+        const caller = await resolveCaller(request, env, userEmail);
+        if (!caller.ok) return caller.response;
+        userEmail = caller.email;
         console.log("\u{1F4DD} Updating recording:", {
           userEmail,
           recordingId,
@@ -1404,7 +1434,9 @@ var index_default = {
       if (pathname === "/generate-summary" && request.method === "POST") {
         try {
           const body = await request.json();
-          const userEmail = String(body.userEmail || "").trim();
+          const caller = await resolveCaller(request, env, String(body.userEmail || "").trim() || null);
+          if (!caller.ok) return caller.response;
+          const userEmail = String(caller.email || "").trim();
           const recordingId = String(body.recordingId || "").trim();
           if (!userEmail || !recordingId) return createErrorResponse("userEmail and recordingId are required", 400);
           if (!env.WHISPER_WORKER) return createErrorResponse("WHISPER_WORKER service binding not configured", 500);
