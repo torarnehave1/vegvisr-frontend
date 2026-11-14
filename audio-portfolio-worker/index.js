@@ -1294,6 +1294,12 @@ var index_default = {
     try {
       if (pathname === "/save-recording" && request.method === "POST") {
         const recordingData = await request.json();
+        // The owner is whoever the token belongs to (a Superadmin may save for another email;
+        // service-binding callers keep their trusted userEmail). This route used to trust the
+        // userEmail in the body, so anyone could add recordings to any user's portfolio.
+        const saveCaller = await resolveCaller(request, env, recordingData.userEmail || request.headers.get("X-User-Email"));
+        if (!saveCaller.ok) return saveCaller.response;
+        recordingData.userEmail = saveCaller.email;
         console.log("\u{1F4BE} Saving recording data:", {
           userEmail: recordingData.userEmail,
           fileName: recordingData.fileName,
@@ -1520,7 +1526,9 @@ ${clipped}`;
         if (!userEmail) {
           return createErrorResponse("User email is required", 400);
         }
-        const templatesKey = `context-templates:${userEmail}`;
+        const tplCaller = await resolveCaller(request, env, userEmail);
+        if (!tplCaller.ok) return tplCaller.response;
+        const templatesKey = `context-templates:${tplCaller.email}`;
         const templatesData = await env.AUDIO_PORTFOLIO.get(templatesKey);
         const templates = templatesData ? JSON.parse(templatesData) : { templates: [] };
         return createSuccessResponse(templates);
@@ -1531,7 +1539,9 @@ ${clipped}`;
         if (!userEmail || !name || !context) {
           return createErrorResponse("User email, name, and context are required", 400);
         }
-        const templatesKey = `context-templates:${userEmail}`;
+        const tplCaller = await resolveCaller(request, env, userEmail);
+        if (!tplCaller.ok) return tplCaller.response;
+        const templatesKey = `context-templates:${tplCaller.email}`;
         const templatesData = await env.AUDIO_PORTFOLIO.get(templatesKey);
         const templates = templatesData ? JSON.parse(templatesData) : { templates: [] };
         const newTemplate = {
@@ -1551,7 +1561,9 @@ ${clipped}`;
         if (!userEmail || !templateId) {
           return createErrorResponse("User email and template ID are required", 400);
         }
-        const templatesKey = `context-templates:${userEmail}`;
+        const tplCaller = await resolveCaller(request, env, userEmail);
+        if (!tplCaller.ok) return tplCaller.response;
+        const templatesKey = `context-templates:${tplCaller.email}`;
         const templatesData = await env.AUDIO_PORTFOLIO.get(templatesKey);
         if (!templatesData) {
           return createErrorResponse("No templates found", 404);
@@ -1567,7 +1579,9 @@ ${clipped}`;
         if (!userEmail || !templateId) {
           return createErrorResponse("User email and template ID are required", 400);
         }
-        const templatesKey = `context-templates:${userEmail}`;
+        const tplCaller = await resolveCaller(request, env, userEmail);
+        if (!tplCaller.ok) return tplCaller.response;
+        const templatesKey = `context-templates:${tplCaller.email}`;
         const templatesData = await env.AUDIO_PORTFOLIO.get(templatesKey);
         if (!templatesData) {
           return createErrorResponse("No templates found", 404);
