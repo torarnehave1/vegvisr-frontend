@@ -6833,7 +6833,7 @@ ${result.warnings.join('\n')}` : ''),
         'created and updated dates (UTC) and World. No description ' +
         'and no content. scope "mine" (default) is the graphs you own, as list_my_graphs counts ' +
         'them; scope "all" is everything you can see, as search_graphs counts it. metaArea narrows ' +
-        'to one tag. includeNodes (needs a metaArea, at most 300 graphs) adds each graph\'s nodes ' +
+        'to one tag. includeNodes (needs a metaArea, at most 600 graphs) adds each graph\'s nodes ' +
         '(id, label, type) and edges (source, target) — never node text. Made for maps, timelines ' +
         'and counts over the whole collection; the rows are in the structured result, and the text ' +
         'is only a summary — to read graphs as lines use list_my_graphs, to read one use get_graph. ' +

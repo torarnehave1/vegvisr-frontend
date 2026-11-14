@@ -1732,7 +1732,9 @@ export async function moveGraphToWorld(env, { graphId, world, actor }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const INDEX_MAX_GRAPHS = 20000
-const INDEX_NODES_MAX_GRAPHS = 300
+// 300 until 2026-11-14; raised when #MYSTMKRA arrived with 337 graphs. A trial value: the owner asked
+// for 600 "to see if it works". Node lists carry id, label and type only, never content.
+const INDEX_NODES_MAX_GRAPHS = 600
 
 /**
  * Every graph the actor owns (scope 'mine') or may see (scope 'all'), oldest first, in ONE query
