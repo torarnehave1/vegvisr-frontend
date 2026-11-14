@@ -3714,6 +3714,7 @@ const saveToPortfolio = async () => {
         headers: {
           'Content-Type': 'application/json',
           'X-User-Email': userStore.email,
+          'X-API-Token': userStore.emailVerificationToken || '',
         },
         body: JSON.stringify(recordingData),
       },
@@ -3819,6 +3820,7 @@ const saveAudioOnly = async () => {
         headers: {
           'Content-Type': 'application/json',
           'X-User-Email': userStore.email,
+          'X-API-Token': userStore.emailVerificationToken || '',
         },
         body: JSON.stringify(recordingData),
       },
@@ -4006,6 +4008,7 @@ const saveChunkedToPortfolio = async () => {
         headers: {
           'Content-Type': 'application/json',
           'X-User-Email': userStore.email,
+          'X-API-Token': userStore.emailVerificationToken || '',
         },
         body: JSON.stringify(recordingData),
       },

@@ -1663,7 +1663,8 @@ function buildMarkdownFromSelections() {
 async function loadContextTemplates() {
   try {
     const response = await fetch(
-      `https://audio-portfolio-worker.torarnehave.workers.dev/context-templates?userEmail=${encodeURIComponent(userStore.email)}`
+      `https://audio-portfolio-worker.torarnehave.workers.dev/context-templates?userEmail=${encodeURIComponent(userStore.email)}`,
+      { headers: { 'X-API-Token': userStore.emailVerificationToken || '' } }
     )
 
     if (response.ok) {
@@ -1683,7 +1684,7 @@ async function saveTemplate() {
       'https://audio-portfolio-worker.torarnehave.workers.dev/context-templates',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-API-Token': userStore.emailVerificationToken || '' },
         body: JSON.stringify({
           userEmail: userStore.email,
           name: newTemplateName.value.trim(),
@@ -1713,7 +1714,7 @@ function loadTemplate() {
     // Update last used timestamp
     fetch('https://audio-portfolio-worker.torarnehave.workers.dev/context-templates', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-API-Token': userStore.emailVerificationToken || '' },
       body: JSON.stringify({
         userEmail: userStore.email,
         templateId: template.id
@@ -1728,7 +1729,7 @@ async function deleteTemplate() {
   try {
     const response = await fetch(
       `https://audio-portfolio-worker.torarnehave.workers.dev/context-templates?userEmail=${encodeURIComponent(userStore.email)}&templateId=${selectedTemplateId.value}`,
-      { method: 'DELETE' }
+      { method: 'DELETE', headers: { 'X-API-Token': userStore.emailVerificationToken || '' } }
     )
 
     if (response.ok) {

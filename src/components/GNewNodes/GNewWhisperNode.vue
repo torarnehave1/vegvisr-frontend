@@ -669,6 +669,7 @@ const saveToPortfolio = async () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-API-Token': userStore.emailVerificationToken || '',
         },
         body: JSON.stringify(portfolioData),
       },

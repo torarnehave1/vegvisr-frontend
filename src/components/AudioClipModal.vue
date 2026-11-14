@@ -650,7 +650,8 @@ async function saveClip() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-User-Email': userStore.email
+        'X-User-Email': userStore.email,
+        'X-API-Token': userStore.emailVerificationToken || '',
       },
       body: JSON.stringify(recordingData)
     })

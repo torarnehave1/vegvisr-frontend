@@ -922,10 +922,10 @@ const uploadAudioDirectly = async () => {
 
     const saveResponse = await fetch(`${AUDIO_PORTFOLIO_WORKER_URL}/save-recording`, {
       method: 'POST',
-      headers: {
+      headers: authHeaders({
         'Content-Type': 'application/json',
         'X-User-Email': userStore.email,
-      },
+      }),
       body: JSON.stringify(recordingData),
     })
 
