@@ -301,10 +301,16 @@
                           @loadstart="console.log('Audio loading started for:', recordingAudioUrl(recording))"
                           @loadedmetadata="handleAudioMetadata($event, recording)"
                           @loadeddata="console.log('Audio loaded successfully for:', recording.recordingId || recording.id)"
-                          preload="metadata"
+                          preload="none"
                         >
                           Your browser does not support the audio element.
                         </audio>
+                        <small
+                          v-if="audioErrors[recording.recordingId || recording.id]"
+                          class="text-danger d-block mt-1"
+                        >
+                          {{ audioErrors[recording.recordingId || recording.id] }}
+                        </small>
                         <small class="text-muted d-block mt-1">
                           Audio URL:
                           <a
@@ -693,8 +699,18 @@ const directUploading = ref(false)
 const directUploadMessage = ref('')
 const directUploadError = ref('')
 const clippingRecording = ref(null)
+// Per-recording playback errors, shown inline on the card. These used to be alert() dialogs;
+// with hundreds of players on the page, Chrome's per-page media-player cap made every player past
+// ~238 fail with code 4 and each one opened a blocking dialog (2026-11-14).
+const audioErrors = ref({})
 
-const NORWEGIAN_WORKER_URL = 'https://norwegian-transcription-worker.torarnehave.workers.dev'
+// audio-portfolio-worker authenticates per-user routes with X-API-Token (emailVerificationToken).
+const authHeaders = (extra = {}) => ({
+  ...extra,
+  'X-API-Token': userStore.emailVerificationToken || '',
+})
+
+const NORWEGIAN_WORKER_URL ='https://norwegian-transcription-worker.torarnehave.workers.dev'
 const AUDIO_PORTFOLIO_WORKER_URL = 'https://audio-portfolio-worker.torarnehave.workers.dev'
 
 // Computed properties
@@ -980,6 +996,7 @@ const fetchRecordings = async () => {
 
     const response = await fetch(
       `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?${params.toString()}`,
+      { headers: authHeaders() },
     )
 
     if (!response.ok) {
@@ -1065,9 +1082,7 @@ const saveEdit = async (recording) => {
       `https://audio-portfolio-worker.torarnehave.workers.dev/update-recording`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           userEmail: userStore.email,
           recordingId: recording.recordingId || recording.id,
@@ -1117,9 +1132,7 @@ const deleteRecording = async (recording) => {
       `https://audio-portfolio-worker.torarnehave.workers.dev/delete-recording?userEmail=${encodeURIComponent(userStore.email)}&recordingId=${encodeURIComponent(recordingId)}`,
       {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
       },
     )
 
@@ -1158,9 +1171,7 @@ const togglePublicationState = async (recording) => {
       'https://audio-portfolio-worker.torarnehave.workers.dev/update-publication-state',
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           userEmail: recording.userEmail || userStore.email,
           recordingId: recording.recordingId || recording.id,
@@ -1426,9 +1437,7 @@ const handleAudioMetadata = async (event, recording) => {
         'https://audio-portfolio-worker.torarnehave.workers.dev/update-recording',
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             userEmail: userStore.email,
             recordingId: recording.recordingId || recording.id,
@@ -1497,10 +1506,11 @@ const handleAudioError = (event, recording) => {
   console.error('Processed error message:', errorMessage)
   console.error('========================')
 
-  // Show user-friendly error
-  alert(
-    `${errorMessage}\n\nRecording: ${recording.displayName || recording.fileName}\nPlease try again later or contact support.`,
-  )
+  // Show the error on the card itself — never a blocking dialog.
+  audioErrors.value = {
+    ...audioErrors.value,
+    [recording.recordingId || recording.id]: `Can't play this recording. ${errorMessage}`,
+  }
 }
 
 const fetchAdminOwnerEmails = async () => {

@@ -265,6 +265,7 @@ const fetchRecordings = async () => {
     })
     const response = await fetch(
       `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?${params.toString()}`,
+      { headers: { 'X-API-Token': userStore.emailVerificationToken || '' } },
     )
     if (!response.ok) {
       throw new Error(`Failed to fetch recordings: ${response.statusText}`)

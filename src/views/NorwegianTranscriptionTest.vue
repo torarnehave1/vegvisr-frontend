@@ -2016,7 +2016,8 @@ const loadPortfolioForSpeakers = async () => {
     }
 
     const response = await fetch(
-      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?${params.toString()}`
+      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?${params.toString()}`,
+      { headers: { 'X-API-Token': userStore.emailVerificationToken || '' } }
     )
 
     if (!response.ok) {
@@ -2124,6 +2125,7 @@ const saveSpeakerTimeline = async () => {
         headers: {
           'Content-Type': 'application/json',
           'X-User-Email': userStore.email,
+          'X-API-Token': userStore.emailVerificationToken || '',
         },
         body: JSON.stringify({
           id: selectedRecording.value.id,
@@ -2315,7 +2317,8 @@ const loadPortfolioForDiarization = async () => {
     }
 
     const response = await fetch(
-      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?${params.toString()}`
+      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?${params.toString()}`,
+      { headers: { 'X-API-Token': userStore.emailVerificationToken || '' } }
     )
 
     if (!response.ok) {
@@ -2640,6 +2643,7 @@ const saveDiarizationResult = async () => {
         headers: {
           'Content-Type': 'application/json',
           'X-User-Email': userStore.email,
+          'X-API-Token': userStore.emailVerificationToken || '',
         },
         body: JSON.stringify(requestBody),
       }

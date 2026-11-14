@@ -699,7 +699,8 @@ onMounted(async () => {
   try {
     // Fetch recording from audio-portfolio-worker
     const response = await fetch(
-      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}`
+      `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}`,
+      { headers: { 'X-API-Token': userStore.emailVerificationToken || '' } }
     )
 
     if (!response.ok) {
@@ -908,7 +909,8 @@ async function saveToRecording() {
     const response = await fetch(url.toString(), {
       method: 'PUT',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-API-Token': userStore.emailVerificationToken || '',
       },
       body: JSON.stringify({
         conversationAnalysis: {

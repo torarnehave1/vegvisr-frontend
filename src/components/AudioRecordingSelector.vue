@@ -265,7 +265,7 @@ const fetchRecordings = async () => {
     const apiUrl = `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}`
     console.log('🎤 AudioRecordingSelector: Fetching from:', apiUrl)
 
-    const response = await fetch(apiUrl)
+    const response = await fetch(apiUrl, { headers: { 'X-API-Token': userStore.emailVerificationToken || '' } })
 
     console.log('📡 AudioRecordingSelector: Response status:', response.status)
     console.log('📡 AudioRecordingSelector: Response headers:', [...response.headers.entries()])

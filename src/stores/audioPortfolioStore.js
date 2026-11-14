@@ -41,7 +41,8 @@ export const useAudioPortfolioStore = defineStore('audioPortfolio', () => {
 
     try {
       const response = await fetch(
-        `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}`
+        `https://audio-portfolio-worker.torarnehave.workers.dev/list-recordings?userEmail=${encodeURIComponent(userStore.email)}`,
+        { headers: { 'X-API-Token': userStore.emailVerificationToken || '' } }
       )
 
       if (!response.ok) {
@@ -75,6 +76,7 @@ export const useAudioPortfolioStore = defineStore('audioPortfolio', () => {
           headers: {
             'Content-Type': 'application/json',
             'X-User-Email': userStore.email,
+            'X-API-Token': userStore.emailVerificationToken || '',
           },
           body: JSON.stringify({
             id: recordingId,
