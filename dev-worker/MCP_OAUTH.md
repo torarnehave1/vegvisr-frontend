@@ -353,8 +353,17 @@ Vegvisr Realtime (realtime.vegvisr.org) operated from MCP. Plan and decisions: k
   `realtime_update_slug`, `realtime_share_slug`. POST twins `/realtime-tools/create-slug`,
   `update-slug`, `share-slug`. A slug lets people into a meeting WITHOUT login, so realtime-worker
   now requires the caller to own the meeting it points at (`callerOwnsMeeting`, no Superadmin
-  exception; `test-slugs.mjs`). `addEmails` / `removeEmails` are done in the worker. No delete and
-  no revoke through MCP (decision D3 open). A share link cannot be withdrawn from MCP.
+  exception; `test-slugs.mjs`). `addEmails` / `removeEmails` are done in the worker.
+- **Removals (decision D3 = B, 2026-11-16):** `realtime_list_share_links` (`contacts:read`),
+  `realtime_preview_removal`, `realtime_confirm_removal` (`graph:write`). Twins:
+  `/realtime-tools/share-links` (GET), `preview-removal`, `confirm-removal` (POST). Three actions:
+  `revoke_share_link`, `delete_slug`, `close_meeting`. The two-step rule is enforced in
+  realtime-worker, not here: `/realtime/removals/preview` issues a token (HMAC keyed with the
+  caller's session token, 10 minutes, one target, void if the target changed) and
+  `/realtime/removals/confirm` refuses without it, then calls the app's own endpoint. The raw
+  DELETE endpoints and `close-meeting` must stay OUT of `/realtime/openapi.json` — in the spec they
+  become chat tools with no confirm step (`realtime-worker/test-removals.mjs`,
+  `test-openapi-surface.mjs`). Do not add a `realtime_delete_*` tool that bypasses the pair.
 - **The spec is also Agent-Builder's tool list (decision D8 = B, 2026-11-15).** realtime-worker is
   registered in `graph_system_registry` (`sysworker-realtime`, prefix `rt_`), so every operation
   in `/realtime/openapi.json` is a chat tool there too, writes included.
