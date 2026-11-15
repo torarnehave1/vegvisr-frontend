@@ -4937,3 +4937,45 @@ describe('get_youtube_transcript reads a video\'s transcript through api-worker 
     } finally { api.restore() }
   })
 })
+
+describe('realtime_list_meetings lists ad-hoc meetings and says when the list is the whole platform', () => {
+  const READ = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'contacts:read'] } }
+  function withMeetings(filteredByOwner) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    env.REALTIME_WORKER = { fetch: async (url, init) => {
+      calls.push({ path: new URL(url).pathname, token: init.headers['X-API-Token'] })
+      return new Response(JSON.stringify({ success: true, filteredByOwner, meetings: [{ id: 'm-1', title: 'Planning', status: 'ACTIVE', created_at: '2026-11-01T10:00:00.000Z' }] }), { status: 200 })
+    } }
+    return { env, calls }
+  }
+
+  test('it needs contacts:read and is read-only', async () => {
+    const { env, calls } = withMeetings(true)
+    const denied = await connect(env, ALICE_RW)
+    const e = await callErr(denied.client, 'realtime_list_meetings', {})
+    assert.equal(e.requiredScope, 'contacts:read')
+    assert.equal(calls.length, 0)
+    const { tools } = await denied.client.listTools()
+    assert.equal(tools.find((t) => t.name === 'realtime_list_meetings').annotations.readOnlyHint, true)
+  })
+
+  test('own meetings: the join link, as the caller, with no platform warning', async () => {
+    const { env, calls } = withMeetings(true)
+    const { client } = await connect(env, READ)
+    const res = await client.callTool({ name: 'realtime_list_meetings', arguments: {} })
+    assert.equal(res.structuredContent.allUsers, false)
+    assert.equal(res.structuredContent.meetings[0].joinUrl, 'https://realtime.vegvisr.org/?meetingId=m-1')
+    assert.doesNotMatch(res.content[0].text, /Superadmin view/)
+    assert.equal(calls[0].token, 'sess-alice')
+  })
+
+  test('a platform-wide list says so in the text the model reads', async () => {
+    const { env } = withMeetings(false)
+    const { client } = await connect(env, READ)
+    const res = await client.callTool({ name: 'realtime_list_meetings', arguments: {} })
+    assert.equal(res.structuredContent.allUsers, true)
+    assert.match(res.content[0].text, /EVERY meeting on the platform/)
+  })
+})

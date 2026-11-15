@@ -5816,6 +5816,7 @@ const restHandler = {
         '/realtime-tools/recording-link': (actor, q) => realtimeService.getRecordingLink(env, { actor, key: q.get('key') }),
         '/realtime-tools/transcript': (actor, q) => realtimeService.getTranscript(env, { actor, key: q.get('key'), maxChars: q.get('maxChars') || undefined }),
         '/realtime-tools/slugs': (actor) => realtimeService.listSlugs(env, { actor }),
+        '/realtime-tools/meetings': (actor, q) => realtimeService.listMeetings(env, { actor, status: q.get('status') || undefined, limit: q.get('limit') || undefined }),
       })[pathname]
       if (realtimeRead) {
         const tv = await validateAuth(request, env)

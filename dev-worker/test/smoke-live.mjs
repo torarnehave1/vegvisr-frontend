@@ -189,7 +189,7 @@ if (needsToken('realtime-tools/rooms lists the owner\'s rooms')) {
   check('  and a room carries a join link on realtime.vegvisr.org', !!first && /^https:\/\/realtime\.vegvisr\.org\/\?meetingId=/.test(first.joinUrl || ''), JSON.stringify(first || null).slice(0, 160))
 }
 // 9b. The other realtime read tools (slice 1, 2026-11-13), through the same REST twins.
-for (const p of ['recordings', 'slugs', 'recording-link', 'transcript']) {
+for (const p of ['recordings', 'slugs', 'recording-link', 'transcript', 'meetings']) {
   const { status } = await json(`${MCP}/realtime-tools/${p}`)
   check(`realtime-tools/${p} refuses no token`, status === 401, `HTTP ${status}`)
 }
@@ -209,6 +209,8 @@ if (needsToken('realtime-tools recordings, link, transcript and slugs')) {
   }
   const bogus = await json(`${MCP}/realtime-tools/recording-link?key=recordings/smoke-does-not-exist.mp4`, H)
   check('realtime-tools/recording-link refuses a key that is not in the list', bogus.status === 404, `HTTP ${bogus.status}`)
+  const mt = await json(`${MCP}/realtime-tools/meetings`, H)
+  check('realtime-tools/meetings lists meetings and says whose', mt.status === 200 && Array.isArray(mt.body.meetings) && typeof mt.body.allUsers === 'boolean', `HTTP ${mt.status} ${JSON.stringify(mt.body).slice(0, 160)}`)
   const slugs = await json(`${MCP}/realtime-tools/slugs`, H)
   check('realtime-tools/slugs lists slugs', slugs.status === 200 && Array.isArray(slugs.body.slugs), `HTTP ${slugs.status} ${JSON.stringify(slugs.body).slice(0, 160)}`)
 }

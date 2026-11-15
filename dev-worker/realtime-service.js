@@ -341,3 +341,40 @@ export async function listSlugs(env, { actor }) {
   }))
   return { ok: true, slugs }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Meetings (2026-11-15) — read only
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The caller's ad-hoc meetings — the ones made with "New meeting", not the personal or team room
+ * (listRooms has those). Whose meetings are listed is realtime-worker's decision
+ * (GET /realtime/list-meetings): since 2026-11-15 a caller on the shared RealtimeKit app gets only
+ * their own, a Superadmin the whole app. `allUsers` passes that fact on, so a Superadmin's list
+ * is not mistaken for their own meetings.
+ */
+export async function listMeetings(env, { actor, status, limit = 50 }) {
+  const want = status == null || status === '' ? null : String(status).toUpperCase()
+  if (want && !['ACTIVE', 'INACTIVE'].includes(want)) return fail(ERR.INVALID_INPUT, 'status must be ACTIVE or INACTIVE.')
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const r = await callRealtime(env, t.token, '/realtime/list-meetings')
+  if (!r.ok) return r
+  const all = (Array.isArray(r.data.meetings) ? r.data.meetings : []).filter((m) => m?.id).map((m) => ({
+    meetingId: String(m.id),
+    title: m.title ? String(m.title) : null,
+    status: String(m.status || ''),
+    createdAt: m.created_at ? String(m.created_at) : null,
+    joinUrl: joinUrlFor(String(m.id)),
+  }))
+  all.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+  const matched = want ? all.filter((m) => m.status === want) : all
+  const n = Math.min(Math.max(Number(limit) || 50, 1), 200)
+  return {
+    ok: true,
+    total: all.length,
+    matched: matched.length,
+    allUsers: r.data.filteredByOwner !== true,
+    meetings: matched.slice(0, n),
+  }
+}

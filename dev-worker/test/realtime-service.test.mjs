@@ -268,3 +268,26 @@ test('a transcript file is not a recording, and a synced recording is listed onc
   const gone = await rt.getRecordingLink(env, { actor: ALICE, key: 'recordings/m_1.mp4.transcript.json' })
   assert.equal(gone.code, gs.ERR.GRAPH_NOT_FOUND, 'no playback link for a transcript file')
 })
+
+test('listMeetings is newest first with join links, and passes on whose meetings these are', async () => {
+  const mine = world2({ '/realtime/list-meetings': [200, { success: true, filteredByOwner: true, meetings: [
+    { id: 'm-old', created_at: '2026-10-07T10:58:37.922Z', status: 'INACTIVE', sip: null },
+    { id: 'm-new', title: 'Planning', created_at: '2026-11-01T10:00:00.000Z', status: 'ACTIVE' },
+  ] }] })
+  const r = await rt.listMeetings(mine.env, { actor: ALICE })
+  assert.equal(mine.calls[0].token, 'sess-alice')
+  assert.equal(r.allUsers, false)
+  assert.deepEqual(r.meetings, [
+    { meetingId: 'm-new', title: 'Planning', status: 'ACTIVE', createdAt: '2026-11-01T10:00:00.000Z', joinUrl: 'https://realtime.vegvisr.org/?meetingId=m-new' },
+    { meetingId: 'm-old', title: null, status: 'INACTIVE', createdAt: '2026-10-07T10:58:37.922Z', joinUrl: 'https://realtime.vegvisr.org/?meetingId=m-old' },
+  ])
+  const active = await rt.listMeetings(mine.env, { actor: ALICE, status: 'active' })
+  assert.deepEqual([active.total, active.matched, active.meetings.length], [2, 1, 1])
+  assert.equal((await rt.listMeetings(mine.env, { actor: ALICE, status: 'closed' })).code, gs.ERR.INVALID_INPUT)
+
+  const platform = world2({ '/realtime/list-meetings': [200, { success: true, filteredByOwner: false, meetings: [] }] })
+  assert.equal((await rt.listMeetings(platform.env, { actor: ALICE })).allUsers, true)
+  // An older realtime-worker that does not say: assume the wide answer, never the narrow one.
+  const silent = world2({ '/realtime/list-meetings': [200, { success: true, meetings: [] }] })
+  assert.equal((await rt.listMeetings(silent.env, { actor: ALICE })).allUsers, true)
+})

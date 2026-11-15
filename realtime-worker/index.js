@@ -1269,7 +1269,27 @@ function buildRealtimeOpenApiSpec(origin) {
         },
       },
       '/realtime/list-meetings': {
-        get: { operationId: 'listMeetings', summary: 'List the authenticated user\'s meetings', responses: okJson('Meetings list') },
+        get: {
+          operationId: 'listMeetings',
+          summary: 'The authenticated user\'s ad-hoc meetings (the personal and team room are left out — see my-rooms). On the shared RealtimeKit app a caller sees only meetings meeting_ownership records as theirs; a Superadmin, and a user on their own RealtimeKit app, see every meeting in the app',
+          responses: okShape('Meetings list', {
+            success: { type: 'boolean' },
+            filteredByOwner: { type: 'boolean', description: 'true = only the caller\'s own meetings are listed' },
+            meetings: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  title: { type: 'string', description: 'Absent when the meeting has no title' },
+                  status: { type: 'string', enum: ['ACTIVE', 'INACTIVE'] },
+                  created_at: { type: 'string' },
+                  updated_at: { type: 'string' },
+                },
+              },
+            },
+          }),
+        },
       },
       '/realtime/my-rooms': {
         get: {
@@ -1939,8 +1959,30 @@ export default {
           } catch (_) {}
         }
 
-        const meetings = allMeetings.filter((m) => !permanentIds.includes(m.id))
-        return createResponse(JSON.stringify({ success: true, meetings }))
+        // Whose meetings. The shared RealtimeKit app holds EVERY user's meetings, and until
+        // 2026-11-15 this endpoint returned all of them to any signed-in user — ids and titles of
+        // other people's rooms (measured 2026-11-13: 24 listed for one user, 11 owned by others,
+        // 12 with no owner on record). Now a caller on the shared app sees only meetings
+        // meeting_ownership says are theirs — the rule /realtime/recordings already applies.
+        // Unfiltered: a Superadmin (the platform view, as for recordings), and a user on their OWN
+        // RealtimeKit app, where every meeting is theirs by construction.
+        // Fails CLOSED: if ownership cannot be read, nothing is listed.
+        const onSharedApp = appId === env.REALTIMEKIT_APP_ID
+        const filterByOwnership = onSharedApp && auth.role !== 'Superadmin'
+        let visible = allMeetings
+        if (filterByOwnership) {
+          const owned = new Set()
+          try {
+            const ownedRows = await env.vegvisr_org
+              .prepare('SELECT meeting_id FROM meeting_ownership WHERE lower(owner_email) = lower(?)')
+              .bind(auth.email || '').all()
+            for (const r of ownedRows.results || []) owned.add(String(r.meeting_id).toLowerCase())
+          } catch (e) { console.error('/realtime/list-meetings: meeting_ownership lookup failed:', e) }
+          visible = allMeetings.filter((m) => owned.has(String(m.id).toLowerCase()))
+        }
+
+        const meetings = visible.filter((m) => !permanentIds.includes(m.id))
+        return createResponse(JSON.stringify({ success: true, meetings, filteredByOwner: filterByOwnership }))
       } catch (e) {
         console.error('Error in /realtime/list-meetings:', e)
         return createResponse(JSON.stringify({ error: e.message }), 500)

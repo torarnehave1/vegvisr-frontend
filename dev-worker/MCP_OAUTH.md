@@ -345,8 +345,11 @@ Vegvisr Realtime (realtime.vegvisr.org) operated from MCP. Plan and decisions: k
   recordings (they become `hasTranscript`), and a RealtimeKit cloud row with the same file name as
   a stored file is merged into it. RealtimeKit's `download_url` is never passed on.
 - **A playback link is only made for a key in the caller's own list** — `play-url` itself checks nothing.
-- **No `realtime_list_meetings`:** `/realtime/list-meetings` returns every meeting in the
-  RealtimeKit app, not the caller's own. Pending the architect's decision.
+- **`realtime_list_meetings` (2026-11-15):** ad-hoc meetings, REST twin `/realtime-tools/meetings`.
+  `/realtime/list-meetings` used to return every meeting in the shared RealtimeKit app to any
+  signed-in user; by the architect's decision (D5 = A) realtime-worker now lists only the caller's
+  own (`meeting_ownership`), except for a Superadmin and a user on their own RealtimeKit app.
+  `allUsers=true` in the tool result marks the platform-wide Superadmin view.
 
 ## get_youtube_transcript (2026-11-14)
 

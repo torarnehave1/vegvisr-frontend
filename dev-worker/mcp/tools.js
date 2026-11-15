@@ -5839,10 +5839,68 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // realtime_list_meetings (2026-11-15). Held back from slice 1 because /realtime/list-meetings
+  // returned every meeting in the shared RealtimeKit app to any signed-in user. The architect
+  // decided D5 = A: realtime-worker now lists a caller's own meetings only (a Superadmin still
+  // gets the whole app), so the tool can exist. allUsers tells the model which of the two it got.
+  server.registerTool(
+    'realtime_list_meetings',
+    {
+      title: 'List my ad-hoc meetings (Vegvisr Realtime)',
+      description:
+        'The meetings you created with "New meeting" in the Vegvisr Realtime app, newest first — ' +
+        'NOT the personal or team room, which realtime_list_rooms gives. Each has its meetingId, ' +
+        'title (often none), status (ACTIVE = can be joined, INACTIVE = closed), createdAt (UTC) ' +
+        'and joinUrl. status filters on one of the two. allUsers=true means the account is a ' +
+        'Superadmin and the list is every meeting on the platform, other people\'s included — ' +
+        'say so, and do not present those as the user\'s own. Requires the contacts:read scope.',
+      inputSchema: {
+        status: z.enum(['ACTIVE', 'INACTIVE']).optional().describe('Only meetings with this status.'),
+        limit: z.number().int().optional().describe('Maximum meetings, 1–200. Default 50.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        total: z.number(),
+        matched: z.number(),
+        returned: z.number(),
+        allUsers: z.boolean(),
+        meetings: z.array(z.object({
+          meetingId: z.string(),
+          title: z.string().nullable(),
+          status: z.string(),
+          createdAt: z.string().nullable(),
+          joinUrl: z.string(),
+        })),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ status, limit }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'contacts:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.listMeetings(env, { actor, status, limit })
+      if (!r.ok) return fromService(r)
+      const lines = r.meetings.map((m) =>
+        `• ${m.title || '(no title)'} — ${m.status} · created ${(m.createdAt || '').replace('T', ' ').slice(0, 16)} UTC\n  join: ${m.joinUrl}`)
+      const head = (r.matched
+        ? `${r.meetings.length} of ${r.matched} meeting${r.matched === 1 ? '' : 's'}.`
+        : 'No ad-hoc meetings.') +
+        (r.allUsers ? ' This is a Superadmin view: EVERY meeting on the platform, not only your own.' : '')
+      return ok({
+        success: true,
+        total: r.total,
+        matched: r.matched,
+        returned: r.meetings.length,
+        allUsers: r.allUsers,
+        meetings: r.meetings,
+      }, [head, ...lines].join('\n'))
+    },
+  )
+
   // realtime_list_recordings / realtime_get_recording_link / realtime_get_transcript /
   // realtime_list_slugs (slice 1, 2026-11-13) — the read half of recordings and invitations.
-  // There is deliberately no realtime_list_meetings yet: /realtime/list-meetings returns every
-  // meeting in the RealtimeKit app, not the caller's own, and that is the architect's call to make.
   const REALTIME_RECORDING_SHAPE = z.object({
     key: z.string(),
     name: z.string(),
@@ -7656,6 +7714,7 @@ export const TOOL_NAMES = [
   'list_recordings',
   'transcribe_contact_recording',
   'realtime_list_rooms',
+  'realtime_list_meetings',
   'realtime_list_recordings',
   'realtime_get_recording_link',
   'realtime_get_transcript',
