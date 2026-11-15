@@ -134,6 +134,45 @@ describe('moving a graph from one World to another', () => {
     assert.deepEqual(locator(id), { world_domain: A, status: 'active' })
   })
 
+  test('with defer, the answer comes before the cleanup; the cleanup then empties the old World', async () => {
+    const id = await graphInA()
+    const later = []
+    const r = await gs.moveGraphToWorld(env, { graphId: id, world: B, actor: admin, defer: (p) => later.push(p) })
+    assert.equal(r.ok, true, r.message)
+    assert.match(r.originalCopy, /after this answer/)
+    // Already routed and readable in the new World before any cleanup has run.
+    assert.deepEqual(locator(id), { world_domain: B, status: 'active' })
+    assert.equal((await gs.getGraph(env, id, { caller: post })).world, B)
+    assert.equal(later.length, 1)
+    await Promise.all(later)
+    assert.equal(rows(A, id), 0)
+    assert.equal(trashed(A, id), 1)
+    assert.deepEqual(history(B, id), [1, 2, 3])
+  })
+
+  test('with defer, a failing cleanup does not undo the move', async () => {
+    const id = await graphInA()
+    const later = []
+    const r = await gs.moveGraphToWorld(env, { graphId: id, world: B, actor: admin, defer: (p) => later.push(p) })
+    assert.equal(r.ok, true, r.message)
+    down.add(A)
+    await Promise.all(later) // logs, never throws
+    down.delete(A)
+    assert.deepEqual(locator(id), { world_domain: B, status: 'active' })
+    assert.equal(rows(B, id), 1)
+  })
+
+  test('platform to World with defer: answer first, platform copy to the trash after', async () => {
+    const g = await gs.createGraph(env, { title: 'Plattform', metaArea: '#X', nodes: [{ id: 'n1', label: 'n1' }], actor: admin })
+    const later = []
+    const r = await gs.moveGraphToWorld(env, { graphId: g.graphId, world: B, actor: admin, defer: (p) => later.push(p) })
+    assert.equal(r.ok, true, r.message)
+    assert.equal(r.from, 'platform')
+    await Promise.all(later)
+    assert.equal(env.vegvisr_org.db.prepare('SELECT COUNT(*) AS n FROM knowledge_graphs WHERE id = ?').get(g.graphId).n, 0)
+    assert.equal(env.vegvisr_org.db.prepare('SELECT COUNT(*) AS n FROM graph_trash WHERE graph_id = ?').get(g.graphId).n, 1)
+  })
+
   test('platform to World still works as before and says where it came from', async () => {
     const g = await gs.createGraph(env, { title: 'Plattform', metaArea: '#X', nodes: [{ id: 'n1', label: 'n1' }], actor: admin })
     const r = await gs.moveGraphToWorld(env, { graphId: g.graphId, world: B, actor: admin })

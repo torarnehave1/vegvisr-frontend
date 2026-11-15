@@ -57,9 +57,29 @@ export async function scopesFromGrants(listUserGrants, userId, resource, now = M
  * props.scopes carries the scopes, because the provider hands an external token an empty
  * ctx.auth.scope; mcpHandler moves them across.
  */
-export async function resolveLoginToken({ token, env }, { resource, listUserGrants }) {
+// Who a login token belongs to, kept a minute in this isolate (2026-11-15). Each MCP request
+// otherwise paid a D1 lookup plus a grant listing (~0.15 s) before any tool ran. A minute is the
+// same window the node-type registry is cached for; a token's owner does not change, and a change
+// of grants shows up within that minute. Only successful lookups are kept.
+const LOGIN_TOKEN_TTL_MS = 60_000
+const loginTokenCache = new Map()
+export function clearLoginTokenCache() { loginTokenCache.clear() }
+
+export async function resolveLoginToken({ token, env }, { resource, listUserGrants }, now = Date.now()) {
   // An internal token has the shape userId:grantId:secret and was already tried by the provider.
   if (!token || token.split(':').length === 3) return null
+  const key = `${resource}|${token}`
+  const hit = loginTokenCache.get(key)
+  if (hit && now - hit.at < LOGIN_TOKEN_TTL_MS) return hit.value
+  const value = await resolveLoginTokenUncached({ token, env }, { resource, listUserGrants })
+  if (value) {
+    if (loginTokenCache.size > 500) loginTokenCache.clear()
+    loginTokenCache.set(key, { at: now, value })
+  }
+  return value
+}
+
+async function resolveLoginTokenUncached({ token, env }, { resource, listUserGrants }) {
   let user
   try {
     user = await userForLoginToken(env, token)

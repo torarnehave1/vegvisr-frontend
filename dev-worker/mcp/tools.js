@@ -491,7 +491,11 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
 
-      const result = await gs.moveGraphToWorld(env, { graphId, world, actor })
+      // The old copy is moved to the trash after the answer has gone (ctx.waitUntil): the graph is
+      // already verified and routed to the new World by then, so the caller need not wait for it.
+      const { ctx } = getContext()
+      const defer = ctx?.waitUntil ? (p) => ctx.waitUntil(p) : null
+      const result = await gs.moveGraphToWorld(env, { graphId, world, actor, defer })
       if (!result.ok) return fromService(result)
       const { ok: _o, ...payload } = result
       return ok(

@@ -1635,7 +1635,9 @@ async function sha256Hex(text) {
  * The platform history may hold two rows with the same version (an old non-atomic write path);
  * a World store refuses that, so the newest row per version is kept and the rest reported.
  */
-export async function moveGraphToWorld(env, { graphId, world, actor }) {
+// defer: optional (promise) => void, e.g. ctx.waitUntil. When given, the old copy is moved to the
+// trash after the answer; without it (tests, REST) that happens before returning, as before.
+export async function moveGraphToWorld(env, { graphId, world, actor, defer = null }) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   if (!actor.isSuperadmin) return fail(ERR.FORBIDDEN_GRAPH, 'Only a Superadmin may move a graph into a World.')
   if (!graphId || !world) return fail(ERR.INVALID_INPUT, 'graphId and world are required.')
@@ -1645,7 +1647,7 @@ export async function moveGraphToWorld(env, { graphId, world, actor }) {
   if (source.error) return source.error
   if (source.store.kind !== 'platform') {
     if (source.store.world === domain) return fail(ERR.INVALID_INPUT, `Graph ${graphId} is already in ${domain}.`)
-    return moveGraphBetweenWorlds(env, { graphId, from: source.store, domain, actor })
+    return moveGraphBetweenWorlds(env, { graphId, from: source.store, domain, actor, defer })
   }
   const target = await storeFor(env, { world: domain, actor })
   if (target.error) return target.error
@@ -1700,6 +1702,21 @@ export async function moveGraphToWorld(env, { graphId, world, actor }) {
   await activateLocation(env, graphId)
 
   // The platform original goes to the platform trash for 30 days, then is removed.
+  if (defer) {
+    defer((async () => {
+      try {
+        await platform.trashCopy({ id: graphId, data: exported.row.data, deletedBy: `move_graph_to_world:${actor.email || 'superadmin'}` })
+        await platform.deleteGraph(graphId)
+      } catch (e) {
+        console.error(`[move] ${graphId}: platform original NOT removed after the move to ${domain}: ${e.message} (unreachable — reads go to ${domain})`)
+      }
+    })())
+    const note = `going to the platform trash for 30 days (done after this answer)`
+    return {
+      ok: true, graphId, world: domain, title: meta.title ?? null, version: meta.version ?? null, history: verified.versions.length,
+      duplicatesDropped, verified, platformCopy: note, from: 'platform', originalCopy: note, ...graphLinks(graphId, domain),
+    }
+  }
   let trash = null
   try {
     trash = await platform.trashCopy({ id: graphId, data: exported.row.data, deletedBy: `move_graph_to_world:${actor.email || 'superadmin'}` })
@@ -1738,13 +1755,14 @@ export async function moveGraphToWorld(env, { graphId, world, actor }) {
  * World's copy goes to that World's trash for 30 days, as a backup: restore_graph follows the
  * graph's location, which is now the new World, so it does not bring that copy back by itself.
  */
-async function moveGraphBetweenWorlds(env, { graphId, from, domain, actor }) {
+async function moveGraphBetweenWorlds(env, { graphId, from, domain, actor, defer = null }) {
   const target = await storeFor(env, { world: domain, actor })
   if (target.error) return target.error
   const worldStore = target.store
 
   return guarded(async () => {
-    const exported = await from.exportGraph(graphId)
+    // Read the source and check the target at the same time: two different stores.
+    const [exported, taken] = await Promise.all([from.exportGraph(graphId), worldStore.exists(graphId)])
     if (!exported) return fail(ERR.GRAPH_NOT_FOUND, `Graph ${graphId} not found in ${from.world}.`)
     let meta = {}
     try { meta = JSON.parse(exported.row.data)?.metadata || {} } catch { /* the bytes are what is moved */ }
@@ -1753,7 +1771,7 @@ async function moveGraphBetweenWorlds(env, { graphId, from, domain, actor }) {
     }
     // Never touch a graph that already sits in the target under this id: the undo below deletes
     // what this move put there, and must not delete something it did not put there.
-    if (await worldStore.exists(graphId)) {
+    if (taken) {
       return fail(ERR.INVALID_INPUT, `A graph with id ${graphId} already exists in ${domain}. Nothing was moved.`)
     }
 
@@ -1799,9 +1817,17 @@ async function moveGraphBetweenWorlds(env, { graphId, from, domain, actor }) {
       ok: true, graphId, world: domain, from: from.world, title: meta.title ?? null, version: meta.version ?? null,
       history: verified.versions.length, duplicatesDropped, verified, ...graphLinks(graphId, domain),
     }
-    try {
+    const cleanup = async () => {
       const trash = await from.trashCopy({ id: graphId, data: exported.row.data, deletedBy: `move_graph_to_world:${actor.email || 'superadmin'}` })
       await from.deleteGraph(graphId)
+      return trash
+    }
+    if (defer) {
+      defer(cleanup().catch((e) => console.error(`[move] ${graphId}: copy in ${from.world} NOT removed after the move to ${domain}: ${e.message} (unreachable — reads go to ${domain})`)))
+      return { ...base, originalCopy: `going to the trash of ${from.world} for 30 days (done after this answer) — a backup; the graph itself now lives in ${domain}` }
+    }
+    try {
+      const trash = await cleanup()
       return { ...base, originalCopy: `in the trash of ${from.world} until ${trash.expiresAt} (${trash.trashId}) — a backup; the graph itself now lives in ${domain}` }
     } catch (e) {
       // The new copy is live and verified and the locator routes there; a row left in the old

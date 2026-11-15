@@ -2,9 +2,9 @@
  * The account's login token at /mcp, for Agent-Builder's mcp_call and "Login as" (2026-10-17).
  * Run: node --test dev-worker/test/external-token.test.mjs
  */
-import { test, describe } from 'node:test'
+import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { resolveLoginToken, scopesFromGrants } from '../oauth/external-token.js'
+import { resolveLoginToken, scopesFromGrants, clearLoginTokenCache } from '../oauth/external-token.js'
 
 const RESOURCE = 'https://knowledge.vegvisr.org/mcp'
 
@@ -17,6 +17,8 @@ const grants = (items) => async () => ({ items })
 const STINE = { user_id: 'u-stine', email: 'stine@example.test', Role: 'Admin' }
 
 describe('resolveLoginToken', () => {
+  beforeEach(() => clearLoginTokenCache())
+
   test('a known login token resolves to that user, bound to this resource', async () => {
     const r = await resolveLoginToken(
       { token: 'tok-stine', env: env({ 'tok-stine': STINE }) },
@@ -48,6 +50,38 @@ describe('resolveLoginToken', () => {
       { resource: RESOURCE, listUserGrants: async () => { throw new Error('kv down') } },
     )
     assert.deepEqual(r.props.scopes, ['graph:read', 'graph:write'])
+  })
+})
+
+describe('resolveLoginToken is remembered a minute (2026-11-15)', () => {
+  beforeEach(() => clearLoginTokenCache())
+  const counting = () => {
+    const n = { db: 0, grants: 0 }
+    const e = { vegvisr_org: { prepare: () => { n.db++; return { bind: (t) => ({ first: async () => (t === 'tok-stine' ? STINE : null) }) } } } }
+    const g = async () => { n.grants++; return { items: [{ scope: ['graph:read'], resource: RESOURCE }] } }
+    return { n, e, g }
+  }
+
+  test('a second request within the minute does not look the token up again', async () => {
+    const { n, e, g } = counting()
+    const a = await resolveLoginToken({ token: 'tok-stine', env: e }, { resource: RESOURCE, listUserGrants: g }, 1000)
+    const b = await resolveLoginToken({ token: 'tok-stine', env: e }, { resource: RESOURCE, listUserGrants: g }, 1000 + 59_000)
+    assert.deepEqual(b, a)
+    assert.deepEqual(n, { db: 1, grants: 1 })
+  })
+
+  test('after the minute it is looked up again', async () => {
+    const { n, e, g } = counting()
+    await resolveLoginToken({ token: 'tok-stine', env: e }, { resource: RESOURCE, listUserGrants: g }, 1000)
+    await resolveLoginToken({ token: 'tok-stine', env: e }, { resource: RESOURCE, listUserGrants: g }, 1000 + 60_001)
+    assert.deepEqual(n, { db: 2, grants: 2 })
+  })
+
+  test('an unknown token is never remembered', async () => {
+    const { n, e, g } = counting()
+    assert.equal(await resolveLoginToken({ token: 'nope', env: e }, { resource: RESOURCE, listUserGrants: g }, 1000), null)
+    assert.equal(await resolveLoginToken({ token: 'nope', env: e }, { resource: RESOURCE, listUserGrants: g }, 1001), null)
+    assert.equal(n.db, 2)
   })
 })
 

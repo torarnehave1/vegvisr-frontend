@@ -291,7 +291,7 @@ export const mcpHandler = {
     // schemas are built for this request (cached a minute in node-type-registry.js).
     // Plus the own types of every World this caller may use (phase 2): the schema lists them, and
     // add_node / update_node / create_graph check each one against the graph's own World.
-    registerTools(server, () => ({ auth, env, props }), { nodeTypes: await requestNodeTypes(env, actorFromAuth(auth, props)) })
+    registerTools(server, () => ({ auth, env, props, ctx }), { nodeTypes: await requestNodeTypes(env, actorFromAuth(auth, props)) })
 
     // The create_worker workers' own tools, for the Superadmin only, and only on the two methods
     // that can use them — discovery costs a GitHub call and one fetch per worker (cached a minute),
@@ -456,8 +456,9 @@ export async function requestNodeTypes(env, actor) {
   const types = await allowedNodeTypes(env)
   let stores = []
   try { stores = actor ? await worldStoresFor(env, actor) : [] } catch (e) { console.error('[node-types] world stores:', e.message) }
-  for (const store of stores) {
-    for (const t of await worldNodeTypes(env, store.world)) if (!types.includes(t)) types.push(t)
-  }
+  // In parallel: each World is a separate round trip (~0.1 s) when its cache is cold, and a
+  // Superadmin sees every World, so one after another added up on every request.
+  const perWorld = await Promise.all(stores.map((store) => worldNodeTypes(env, store.world)))
+  for (const list of perWorld) for (const t of list) if (!types.includes(t)) types.push(t)
   return types
 }
