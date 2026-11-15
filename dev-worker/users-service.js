@@ -729,6 +729,27 @@ export function listRecordings(env, { actor, query, limit }) {
   return contactHistoryCall(env, actor, '/contacts/recordings', { query, limit })
 }
 
+/**
+ * Copy an audio file from an https URL into the caller's own audio portfolio, through
+ * agent-worker's /contacts/recordings/import door (the upload_portfolio_recording executor).
+ * The URL is only checked for shape here; the fetch, the 80 MB cap and the storing are there.
+ */
+export async function importRecordingFromUrl(env, { actor, url, name, tags }) {
+  const u = String(url || '').trim()
+  if (!/^https:\/\/\S+$/i.test(u)) {
+    return fail(ERR.INVALID_INPUT, 'url must be an https URL of an audio file. Nothing was imported.')
+  }
+  const payload = { url: u }
+  if (String(name || '').trim()) payload.name = String(name).trim()
+  if (Array.isArray(tags) && tags.length) payload.tags = tags.map((t) => String(t))
+  const r = await contactHistoryCall(env, actor, '/contacts/recordings/import', payload)
+  // An agent-worker from before 2026-11-15 has no such door and answers a bare 404.
+  if (!r.ok && r.message === 'Not found.') {
+    return fail(ERR.INTERNAL_ERROR, 'Importing a recording from a URL is not available yet: agent-worker has to be deployed with the /contacts/recordings/import door. Nothing was imported.')
+  }
+  return r
+}
+
 export function transcribeContactRecording(env, { actor, recordingId, graphId, language }) {
   if (!String(recordingId || '').trim()) return Promise.resolve(fail(ERR.INVALID_INPUT, 'recordingId is required.'))
   return contactHistoryCall(env, actor, '/contacts/transcribe', { recordingId: String(recordingId).trim(), graphId, language })

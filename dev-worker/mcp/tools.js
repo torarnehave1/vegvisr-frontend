@@ -6866,6 +6866,56 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── import_recording_from_url (2026-11-15) ───────────────────────────────
+  // The step that was missing between "the file is somewhere else" (Dropbox, a Zoom download
+  // link) and transcribe_contact_recording, which only takes what is already in the portfolio.
+  // graph:write, like photos_upload_from_url and vemotion_import_video: it adds a file to the
+  // caller's own storage and sends nothing anywhere.
+  server.registerTool(
+    'import_recording_from_url',
+    {
+      title: 'Copy an audio file from a URL into your audio portfolio',
+      description:
+        'Copy ONE audio file from a direct https URL into YOUR OWN audio portfolio — e.g. a ' +
+        'temporary download link to a file in Dropbox or Drive. M4A, MP3, WAV, WebM, FLAC or OGG, ' +
+        'up to 80 MB. The URL must answer with the file itself, not a preview page, and a ' +
+        'single-use link is spent by this call. Returns the recordingId — pass it to ' +
+        'transcribe_contact_recording to get the text, or find it later with list_recordings. ' +
+        'name is what the recording is called in the portfolio (with its extension when the URL ' +
+        'has none); it defaults to the file name in the URL. Each call adds a new recording, so ' +
+        'check list_recordings first if it may be there already. Requires the graph:write scope.',
+      inputSchema: {
+        url: z.string().min(1).describe('Direct https URL of the audio file.'),
+        name: z.string().max(200).optional().describe('Name in the portfolio, e.g. "2026-11-09 Tor Arne.m4a".'),
+        tags: z.array(z.string().max(60)).max(10).optional().describe('Tags to file it under.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        recordingId: z.string(),
+        name: z.string(),
+        fileName: z.string(),
+      },
+      annotations: ADDITIVE_WRITE,
+    },
+    async ({ url, name, tags }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await users.importRecordingFromUrl(env, { actor, url, name, tags })
+      if (!r.ok) return fromService(r)
+      const out = {
+        success: true,
+        recordingId: String(r.recordingId || ''),
+        name: String(r.name || ''),
+        fileName: String(r.fileName || ''),
+      }
+      return ok(out, `Imported "${out.name}" into your audio portfolio — recordingId ${out.recordingId}. ` +
+        'Pass it to transcribe_contact_recording to get the text.')
+    },
+  )
+
   server.registerTool(
     'set_user_groups',
     {
@@ -8098,6 +8148,7 @@ export const TOOL_NAMES = [
   'add_contact_note',
   'list_recordings',
   'transcribe_contact_recording',
+  'import_recording_from_url',
   'realtime_list_rooms',
   'realtime_list_meetings',
   'realtime_list_recordings',
