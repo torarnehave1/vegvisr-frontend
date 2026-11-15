@@ -1338,7 +1338,9 @@ async function describeRemoval(auth, action, rawId, env) {
       ],
       details: { meetingId, title: meeting.title || null, status: meeting.status || null, ownerEmail: owner?.owner_email || null, roomType: owner?.room_type || null, slugs, openRoom: !!openRoom },
       done: `Meeting ${title} closed.`,
-      state: `${meetingId}|${meeting.status || ''}`,
+      // The slugs and the open room are in the state too: the preview names what dies with the
+      // meeting, so a slug added after the preview makes it a description of something else.
+      state: `${meetingId}|${meeting.status || ''}|${[...slugs].sort().join(',')}|${openRoom ? `open${openRoom.is_default ? '-default' : ''}` : ''}`,
     }
   }
 

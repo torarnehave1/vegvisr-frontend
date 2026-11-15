@@ -182,6 +182,16 @@ await check('meeting: the preview lists the slugs and the open room that die wit
   assert.equal((await preview(w.env, 'sess-admin', 'close_meeting', 'm-admin-adhoc')).status, 409)
 })
 
+await check('meeting: a slug put on it after the preview voids the preview', async () => {
+  const w = world()
+  const p = await preview(w.env, 'sess-admin', 'close_meeting', 'm-admin-adhoc')
+  const s = await call(w.env, 'sess-admin', 'slugs/create', { slug: 'ny-dor', meetingId: 'm-admin-adhoc', allowedEmails: ['x@example.com'] })
+  assert.equal(s.status, 201)
+  const c = await confirm(w.env, 'sess-admin', p.body.confirmToken)
+  assert.equal(c.status, 409)
+  assert.ok(!kit.closed.has('m-admin-adhoc'))
+})
+
 await check('meeting: own permanent room, another user\'s meeting and a missing meeting are refused at preview', async () => {
   const w = world()
   const own = await preview(w.env, 'sess-admin', 'close_meeting', 'm-admin-personal')
