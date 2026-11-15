@@ -292,7 +292,10 @@ async function resolveWorldEmailTemplate(env2, domain2, purpose, preferredLangs 
     return null;
   }
 }
-async function sendMagicLinkEmail(env2, toEmail, magicLink, sender = null) {
+// lang: optional "en" or "no" from the sign-in page (e.g. Garnet's language switch). It decides which
+// language a World/host template is picked in; without it Norwegian is preferred, as before.
+async function sendMagicLinkEmail(env2, toEmail, magicLink, sender = null, lang = null) {
+  const preferredLangs = lang === "en" ? ["en", "no"] : ["no", "en"];
   const smtpUser = sender?.smtpUser || env2.MAGIC_SMTP_USER || "torarnehave@gmail.com";
   const fromEmail = sender?.fromEmail || env2.MAGIC_SMTP_FROM || smtpUser;
   const rawAppPassword = sender?.appPassword || env2.MAGIC_SMTP_APP_PASSWORD || env2.TAHGMAIL;
@@ -357,9 +360,9 @@ async function sendMagicLinkEmail(env2, toEmail, magicLink, sender = null) {
     // template is used exactly as before (decided 2026-11-15 for Garnet).
     let tmpl = null;
     if (sender.host && sender.host !== sender.domain)
-      tmpl = await resolveWorldEmailTemplate(env2, sender.host, purpose);
+      tmpl = await resolveWorldEmailTemplate(env2, sender.host, purpose, preferredLangs);
     if (!tmpl)
-      tmpl = await resolveWorldEmailTemplate(env2, sender.domain, purpose);
+      tmpl = await resolveWorldEmailTemplate(env2, sender.domain, purpose, preferredLangs);
     if (tmpl) {
       const vars = {
         magicLink,
@@ -399,7 +402,7 @@ async function sendMagicLinkEmail(env2, toEmail, magicLink, sender = null) {
       // A World's own sender must never lock its members out: a rejected or missing Cloudflare
       // token sends the login link from the platform sender instead (vegr.ai, 2026-09-23).
       console.warn(`[magic link] World sender ${fromEmail} failed (${em}); falling back to the platform sender.`);
-      return await sendMagicLinkEmail(env2, toEmail, magicLink, null);
+      return await sendMagicLinkEmail(env2, toEmail, magicLink, null, lang);
     }
     return;
   }
@@ -833,7 +836,7 @@ var email_worker_default = {
                 description: "Generates a magic-link token, stores it in D1, and emails the link to the user.",
                 requestBody: {
                   required: true,
-                  content: { "application/json": { schema: { type: "object", required: ["email"], properties: { email: { type: "string", format: "email" }, redirectUrl: { type: "string", format: "uri", description: "URL to redirect after verification" } } } } }
+                  content: { "application/json": { schema: { type: "object", required: ["email"], properties: { email: { type: "string", format: "email" }, redirectUrl: { type: "string", format: "uri", description: "URL to redirect after verification" }, lang: { type: "string", enum: ["no", "en"], description: "Preferred language of the email when the domain or host has templates in both; default Norwegian." } } } } }
                 },
                 responses: {
                   "200": { description: "Magic link sent", content: { "application/json": { schema: { type: "object", properties: { success: { type: "boolean" }, email: { type: "string" }, expiresAt: { type: "string", format: "date-time" } } } } } },
@@ -1681,6 +1684,7 @@ var email_worker_default = {
           const body = await request.json();
           const targetEmail = body?.email;
           const redirectUrl = body?.redirectUrl;
+          const lang = body?.lang === "en" || body?.lang === "no" ? body.lang : null;
           if (!isValidEmail(targetEmail)) {
             return addCorsHeaders(
               new Response(
@@ -1708,7 +1712,7 @@ var email_worker_default = {
           } catch (err) {
             console.warn("White-label sender resolution failed; using default sender:", err);
           }
-          await sendMagicLinkEmail(env2, targetEmail, magicLink, sender);
+          await sendMagicLinkEmail(env2, targetEmail, magicLink, sender, lang);
           return addCorsHeaders(
             new Response(
               JSON.stringify({
