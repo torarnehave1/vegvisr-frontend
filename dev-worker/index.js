@@ -5819,7 +5819,14 @@ const restHandler = {
         '/realtime-tools/slugs': (actor) => realtimeService.listSlugs(env, { actor }),
         '/realtime-tools/meetings': (actor, q) => realtimeService.listMeetings(env, { actor, status: q.get('status') || undefined, limit: q.get('limit') || undefined }),
       })[pathname]
-      if (realtimeRead) {
+      // The write tools (slice 2a). POST, same session-only gate; each runs the tool's own function.
+      const realtimeWrite = request.method === 'POST' && ({
+        '/realtime-tools/create-meeting': (actor, b) => realtimeService.createMeeting(env, { actor, title: b.title }),
+        '/realtime-tools/rename-room': (actor, b) => realtimeService.renameRoom(env, { actor, meetingId: b.meetingId, title: b.title }),
+        '/realtime-tools/open-room': (actor, b) => realtimeService.setOpenRoom(env, { actor, meetingId: b.meetingId, open: b.open }),
+        '/realtime-tools/waiting-room': (actor, b) => realtimeService.setWaitingRoom(env, { actor, enabled: b.enabled, screenTitle: b.screenTitle, screenImageUrl: b.screenImageUrl }),
+      })[pathname]
+      if (realtimeRead || realtimeWrite) {
         const tv = await validateAuth(request, env)
         if (!tv.valid) {
           return new Response(JSON.stringify({ error: tv.error || 'Authentication required' }), {
@@ -5828,11 +5835,13 @@ const restHandler = {
         }
         if (!hasScope(tv.scopes, 'all')) {
           return new Response(JSON.stringify({
-            error: 'Reading Realtime over REST needs a signed-in session, not a scoped API token.',
+            error: 'Realtime over REST needs a signed-in session, not a scoped API token.',
             code: 'INSUFFICIENT_SCOPE',
           }), { status: 403, headers: corsHeaders })
         }
-        const result = await realtimeRead(normalizeActor(tv), new URL(request.url).searchParams)
+        const result = realtimeRead
+          ? await realtimeRead(normalizeActor(tv), new URL(request.url).searchParams)
+          : await realtimeWrite(normalizeActor(tv), await request.json().catch(() => ({})))
         return new Response(
           JSON.stringify(result.ok
             ? { success: true, ...result, ok: undefined }

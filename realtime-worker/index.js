@@ -1148,13 +1148,14 @@ function buildRealtimeOpenApiSpec(origin) {
   const okJson = (desc) => ({ 200: { description: desc, content: { 'application/json': { schema: { type: 'object' } } } } })
   // A response whose fields are spelled out. The MCP realtime_* tools (dev-worker/realtime-service.js)
   // are written from these shapes, so a field renamed in a handler must be renamed here too.
+  const jsonBody = (properties, required = []) => ({ required: true, content: { 'application/json': { schema: { type: 'object', properties, ...(required.length ? { required } : {}) } } } })
   const okShape = (desc, properties) => ({ 200: { description: desc, content: { 'application/json': { schema: { type: 'object', properties } } } } })
   return {
     openapi: '3.1.0',
     info: {
-      title: 'Realtime Worker API (read subset)',
+      title: 'Realtime Worker API (documented subset)',
       version: '1.0.0',
-      description: 'Curated read-only endpoints of the Vegvisr realtime worker: academy/recordings listing + room/meeting context. Auth: X-API-Token header (the caller\'s emailVerificationToken).',
+      description: 'The endpoints of the Vegvisr realtime worker whose request and response shapes are written down: rooms, meetings, open rooms, waiting room, recordings, transcripts, slugs. The MCP realtime_* tools are built from this document. Auth: X-API-Token header (the caller\'s emailVerificationToken).',
     },
     servers: [{ url: origin }],
     security: [{ apiToken: [] }],
@@ -1288,6 +1289,69 @@ function buildRealtimeOpenApiSpec(origin) {
                 },
               },
             },
+          }),
+        },
+      },
+      '/realtime/create-meeting': {
+        post: {
+          operationId: 'createMeeting',
+          summary: 'Create an ad-hoc meeting in the caller\'s RealtimeKit app and record the caller as its owner. Takes no fields — the meeting has no title until rename-room sets one',
+          requestBody: jsonBody({}),
+          responses: okShape('The new meeting', {
+            success: { type: 'boolean' },
+            meetingId: { type: 'string' },
+            status: { type: 'string', description: 'ACTIVE' },
+          }),
+        },
+      },
+      '/realtime/rename-room': {
+        post: {
+          operationId: 'renameRoom',
+          summary: 'Set the title of a room or meeting the caller owns (personal room, team room, or a meeting in meeting_ownership). 403 otherwise. `asUser` is Superadmin-only',
+          requestBody: jsonBody({ meetingId: { type: 'string' }, title: { type: 'string', description: 'Non-empty; trimmed' } }, ['meetingId', 'title']),
+          responses: okShape('The room with its new title', {
+            success: { type: 'boolean' },
+            meetingId: { type: 'string' },
+            title: { type: 'string' },
+          }),
+        },
+      },
+      '/realtime/toggle-waiting-room': {
+        post: {
+          operationId: 'toggleWaitingRoom',
+          summary: 'Turn the caller\'s waiting room on or off. One setting per account, for all of the caller\'s rooms. Anything but enabled=true turns it off',
+          requestBody: jsonBody({ enabled: { type: 'boolean' } }, ['enabled']),
+          responses: okShape('The setting', { success: { type: 'boolean' }, waitingRoomEnabled: { type: 'boolean' } }),
+        },
+      },
+      '/realtime/update-waiting-screen': {
+        post: {
+          operationId: 'updateWaitingScreen',
+          summary: 'Set what a guest sees while waiting. A field left out keeps its value; null or an empty string clears it',
+          requestBody: jsonBody({
+            title: { type: ['string', 'null'] },
+            image: { type: ['string', 'null'], description: 'http(s) URL' },
+          }),
+          responses: okShape('The waiting screen', {
+            success: { type: 'boolean' },
+            waitingScreen: { type: 'object', properties: { title: { type: ['string', 'null'] }, image: { type: ['string', 'null'] } } },
+          }),
+        },
+      },
+      '/realtime/open-room/toggle': {
+        post: {
+          operationId: 'toggleOpenRoom',
+          summary: 'Open one of the caller\'s own meetings to guests without login, or close it. 403 for a meeting the caller does not own. isDefault: true = make it the room the bare ?openroom link leads to (one per platform, System Owner only), false = not the default, omitted = leave the flag as it is. enabled=false on the default room removes the platform default',
+          requestBody: jsonBody({
+            meetingId: { type: 'string' },
+            enabled: { type: 'boolean' },
+            isDefault: { type: 'boolean' },
+          }, ['meetingId', 'enabled']),
+          responses: okShape('The room\'s open state', {
+            success: { type: 'boolean' },
+            meetingId: { type: 'string' },
+            open: { type: 'boolean' },
+            isDefault: { type: 'boolean' },
           }),
         },
       },
@@ -1671,9 +1735,14 @@ export default {
         let configData = {}
         if (row?.data) { try { configData = JSON.parse(row.data) } catch { configData = {} } }
         if (!configData.realtime) configData.realtime = {}
+        // A field that is OMITTED keeps its value; null or '' clears it (since 2026-11-15). Before,
+        // an omitted field was cleared too, so "change the title" from a caller that sent only the
+        // title wiped the image. The app always sends both fields.
+        const prev = configData.realtime.waitingScreen || {}
+        const has = (k) => body && Object.prototype.hasOwnProperty.call(body, k)
         configData.realtime.waitingScreen = {
-          title: title && typeof title === 'string' ? title.trim() : null,
-          image: image && typeof image === 'string' ? image.trim() : null,
+          title: has('title') ? (title && typeof title === 'string' ? title.trim() : null) : (prev.title ?? null),
+          image: has('image') ? (image && typeof image === 'string' ? image.trim() : null) : (prev.image ?? null),
         }
         await env.vegvisr_org.prepare('UPDATE config SET data = ? WHERE email = ?').bind(JSON.stringify(configData), auth.email).run()
         return createResponse(JSON.stringify({ success: true, waitingScreen: configData.realtime.waitingScreen }))
@@ -1753,14 +1822,24 @@ export default {
           return createResponse(JSON.stringify({ success: true, meetingId, open: false, isDefault: false }))
         }
 
-        const wantDefault = isDefault === true
-        if (wantDefault && !auth.isSystemOwner) return createResponse(JSON.stringify({ error: 'Only the System Owner can set the default open room' }), 403)
+        // isDefault is three-valued since 2026-11-15: true = make it the platform default (System
+        // Owner only), false = it is not the default, OMITTED = leave the flag as it is. Before,
+        // omitted meant false, so "open this room" sent without the field silently took the
+        // default flag off the platform default room and broke the bare ?openroom link. The app
+        // always sends a boolean; the Agent-Builder rt_ tool and MCP callers may not.
+        let wantDefault = isDefault === true
+        if (typeof isDefault !== 'boolean') {
+          const cur = await env.vegvisr_org.prepare('SELECT is_default FROM realtime_open_rooms WHERE meeting_id = ?').bind(meetingId).first()
+          wantDefault = cur?.is_default === 1
+        } else if (wantDefault && !auth.isSystemOwner) {
+          return createResponse(JSON.stringify({ error: 'Only the System Owner can set the default open room' }), 403)
+        }
 
         const upsert = env.vegvisr_org
           .prepare(`INSERT INTO realtime_open_rooms (meeting_id, owner_email, is_default) VALUES (?, ?, ?)
                     ON CONFLICT(meeting_id) DO UPDATE SET owner_email = excluded.owner_email, is_default = excluded.is_default`)
           .bind(meetingId, auth.email, wantDefault ? 1 : 0)
-        if (wantDefault) {
+        if (wantDefault && isDefault === true) {
           // One default per platform (also enforced by a unique partial index); the batch is atomic.
           await env.vegvisr_org.batch([
             env.vegvisr_org.prepare('UPDATE realtime_open_rooms SET is_default = 0 WHERE is_default = 1 AND meeting_id != ?').bind(meetingId),

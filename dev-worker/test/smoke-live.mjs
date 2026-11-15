@@ -215,5 +215,12 @@ if (needsToken('realtime-tools recordings, link, transcript and slugs')) {
   check('realtime-tools/slugs lists slugs', slugs.status === 200 && Array.isArray(slugs.body.slugs), `HTTP ${slugs.status} ${JSON.stringify(slugs.body).slice(0, 160)}`)
 }
 
+// 9c. The realtime WRITE twins (slice 2a, 2026-11-15) exist and are closed without a session.
+//     Nothing is written here: no token means the request stops at the gate.
+for (const p of ['create-meeting', 'rename-room', 'open-room', 'waiting-room']) {
+  const { status } = await json(`${MCP}/realtime-tools/${p}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  check(`realtime-tools/${p} (POST) refuses no token`, status === 401, `HTTP ${status}`)
+}
+
 console.log(failures === 0 ? `\nLIVE SMOKE GREEN${skipped ? ` — ${skipped} check(s) skipped, public-only run` : ''}` : `\n${failures} live check(s) FAILED`)
 process.exit(failures === 0 ? 0 : 1)

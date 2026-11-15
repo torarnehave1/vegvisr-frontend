@@ -378,3 +378,119 @@ export async function listMeetings(env, { actor, status, limit = 50 }) {
     meetings: matched.slice(0, n),
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Prepare a meeting (slice 2a, 2026-11-15) — the first functions that WRITE
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// realtime-worker decides who may change what (ownership, System Owner for the default open
+// room). It also holds the two guards a partial caller needs — an omitted isDefault and an
+// omitted waiting-screen field are left as they are — so nothing here has to read-then-write.
+// Calls that touch the account settings go out ONE AFTER THE OTHER: toggle-waiting-room and
+// update-waiting-screen each rewrite the whole settings JSON, and two at once can lose a write.
+
+const post = (env, token, path, body) => callRealtime(env, token, path, { method: 'POST', body: JSON.stringify(body) })
+
+function cleanTitle(title, { required }) {
+  if (title == null || String(title).trim() === '') return required ? { error: 'title is required.' } : { title: null }
+  const t = String(title).trim()
+  if (t.length > 120) return { error: 'title must be at most 120 characters.' }
+  return { title: t }
+}
+
+/**
+ * Create an ad-hoc meeting owned by the caller. create-meeting takes no fields, so a title is set
+ * with a second call. If that second call fails the meeting still exists — the result says so
+ * (titleSet=false) instead of reporting a failure for something that was created.
+ */
+export async function createMeeting(env, { actor, title }) {
+  const c = cleanTitle(title, { required: false })
+  if (c.error) return fail(ERR.INVALID_INPUT, c.error)
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const made = await post(env, t.token, '/realtime/create-meeting', {})
+  if (!made.ok) return made
+  const meetingId = made.data.meetingId ? String(made.data.meetingId) : ''
+  if (!meetingId) return fail(ERR.INTERNAL_ERROR, 'realtime-worker returned no meetingId.')
+  const out = { ok: true, meetingId, status: String(made.data.status || ''), joinUrl: joinUrlFor(meetingId), title: null, titleSet: false, titleError: null }
+  if (c.title) {
+    const named = await post(env, t.token, '/realtime/rename-room', { meetingId, title: c.title })
+    if (named.ok) { out.title = String(named.data.title || c.title); out.titleSet = true } else out.titleError = named.message
+  }
+  return out
+}
+
+/** Set the title of a room or meeting the caller owns. */
+export async function renameRoom(env, { actor, meetingId, title }) {
+  const id = String(meetingId || '').trim()
+  if (!id) return fail(ERR.INVALID_INPUT, 'meetingId is required — realtime_list_rooms or realtime_list_meetings gives it.')
+  const c = cleanTitle(title, { required: true })
+  if (c.error) return fail(ERR.INVALID_INPUT, c.error)
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const r = await post(env, t.token, '/realtime/rename-room', { meetingId: id, title: c.title })
+  if (!r.ok) return r
+  return { ok: true, meetingId: id, title: String(r.data.title || c.title), joinUrl: joinUrlFor(id) }
+}
+
+/**
+ * Open one of the caller's meetings to guests without login, or close it. isDefault is never
+ * sent: which room the bare ?openroom link leads to is a platform setting made in the app.
+ */
+export async function setOpenRoom(env, { actor, meetingId, open }) {
+  const id = String(meetingId || '').trim()
+  if (!id) return fail(ERR.INVALID_INPUT, 'meetingId is required — realtime_list_rooms or realtime_list_meetings gives it.')
+  if (typeof open !== 'boolean') return fail(ERR.INVALID_INPUT, 'open must be true or false.')
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const r = await post(env, t.token, '/realtime/open-room/toggle', { meetingId: id, enabled: open })
+  if (!r.ok) return r
+  const isOpen = r.data.open === true
+  const isDefault = r.data.isDefault === true
+  let slugs = []
+  if (isOpen) {
+    const st = await callRealtime(env, t.token, '/realtime/open-room/status')
+    if (st.ok && Array.isArray(st.data.slugs?.[id])) slugs = st.data.slugs[id].map(String)
+  }
+  return {
+    ok: true,
+    meetingId: id,
+    open: isOpen,
+    isDefaultOpenRoom: isDefault,
+    openRoomUrl: isOpen ? openRoomUrlFor(id, { isDefault, slug: slugs[0] || null }) : null,
+    joinUrl: joinUrlFor(id),
+  }
+}
+
+/**
+ * The waiting room: one switch per ACCOUNT (all the caller's rooms), and what a guest sees while
+ * waiting. Only what is passed is changed; '' clears a screen field.
+ */
+export async function setWaitingRoom(env, { actor, enabled, screenTitle, screenImageUrl }) {
+  const wantsSwitch = typeof enabled === 'boolean'
+  const screen = {}
+  if (screenTitle !== undefined) screen.title = String(screenTitle ?? '').trim() || null
+  if (screenImageUrl !== undefined) screen.image = String(screenImageUrl ?? '').trim() || null
+  if (!wantsSwitch && !Object.keys(screen).length) return fail(ERR.INVALID_INPUT, 'Pass enabled, screenTitle or screenImageUrl — at least one.')
+  if (screen.title && screen.title.length > 200) return fail(ERR.INVALID_INPUT, 'screenTitle must be at most 200 characters.')
+  if (screen.image && !/^https?:\/\//i.test(screen.image)) return fail(ERR.INVALID_INPUT, 'screenImageUrl must be an http(s) URL.')
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+
+  if (wantsSwitch) {
+    const r = await post(env, t.token, '/realtime/toggle-waiting-room', { enabled })
+    if (!r.ok) return r
+  }
+  if (Object.keys(screen).length) {
+    const r = await post(env, t.token, '/realtime/update-waiting-screen', screen)
+    if (!r.ok) return wantsSwitch ? { ...r, message: `The waiting room was switched ${enabled ? 'on' : 'off'}, but the waiting screen was not changed: ${r.message}` } : r
+  }
+  const now = await callRealtime(env, t.token, '/realtime/my-rooms')
+  if (!now.ok) return now
+  return {
+    ok: true,
+    waitingRoomEnabled: now.data.waitingRoomEnabled === true,
+    screenTitle: now.data.waitingScreen?.title ? String(now.data.waitingScreen.title) : null,
+    screenImageUrl: now.data.waitingScreen?.image ? String(now.data.waitingScreen.image) : null,
+  }
+}

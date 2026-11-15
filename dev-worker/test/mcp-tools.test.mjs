@@ -5003,3 +5003,90 @@ describe('realtime_list_meetings lists ad-hoc meetings and says when the list is
     assert.match(res.content[0].text, /EVERY meeting on the platform/)
   })
 })
+
+describe('the realtime write tools need graph:write and say what they did', () => {
+  const READ = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'contacts:read'] } }
+  const NAMES = ['realtime_create_meeting', 'realtime_rename_room', 'realtime_set_open_room', 'realtime_set_waiting_room']
+  const ARGS = {
+    realtime_create_meeting: { title: 'Planning' },
+    realtime_rename_room: { meetingId: 'p-1', title: 'Morgenmøte' },
+    realtime_set_open_room: { meetingId: 'p-1', open: true },
+    realtime_set_waiting_room: { enabled: true },
+  }
+  function withRealtime() {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    const replies = {
+      '/realtime/create-meeting': { success: true, meetingId: 'm-new', status: 'ACTIVE' },
+      '/realtime/rename-room': { success: true, meetingId: 'p-1', title: 'Morgenmøte' },
+      '/realtime/open-room/toggle': { success: true, meetingId: 'p-1', open: true, isDefault: false },
+      '/realtime/open-room/status': { success: true, rooms: [{ meetingId: 'p-1', isDefault: false }], slugs: { 'p-1': ['momentum'] } },
+      '/realtime/toggle-waiting-room': { success: true, waitingRoomEnabled: true },
+      '/realtime/my-rooms': { success: true, waitingRoomEnabled: true, waitingScreen: { title: 'Welcome', image: null } },
+    }
+    env.REALTIME_WORKER = { fetch: async (url, init) => {
+      const path = new URL(url).pathname
+      calls.push({ path, method: init.method || 'GET', token: init.headers['X-API-Token'], body: init.body ? JSON.parse(init.body) : null })
+      return new Response(JSON.stringify(replies[path]), { status: 200 })
+    } }
+    return { env, calls }
+  }
+
+  test('a token with only the read scopes is refused, and nothing reaches realtime-worker', async () => {
+    const { env, calls } = withRealtime()
+    const ro = await connect(env, READ)
+    for (const name of NAMES) {
+      const e = await callErr(ro.client, name, ARGS[name])
+      assert.equal(e.requiredScope, 'graph:write', name)
+    }
+    assert.equal(calls.length, 0)
+    const { tools } = await ro.client.listTools()
+    for (const name of NAMES) {
+      const t = tools.find((x) => x.name === name)
+      assert.equal(t.annotations.readOnlyHint, false, name)
+      assert.equal(t.annotations.destructiveHint, false, name)
+    }
+  })
+
+  test('realtime_create_meeting returns the join link and says the title was set', async () => {
+    const { env, calls } = withRealtime()
+    const { client } = await connect(env, ALICE_RW)
+    const res = await client.callTool({ name: 'realtime_create_meeting', arguments: { title: 'Morgenmøte' } })
+    assert.equal(res.isError, undefined)
+    assert.equal(res.structuredContent.joinUrl, 'https://realtime.vegvisr.org/?meetingId=m-new')
+    assert.equal(res.structuredContent.titleSet, true)
+    assert.match(res.content[0].text, /join: https:\/\/realtime\.vegvisr\.org\/\?meetingId=m-new/)
+    assert.ok(calls.every((c) => c.method === 'POST' && c.token === 'sess-alice'))
+  })
+
+  test('realtime_set_open_room gives the guest link and never sends isDefault', async () => {
+    const { env, calls } = withRealtime()
+    const { client } = await connect(env, ALICE_RW)
+    const res = await client.callTool({ name: 'realtime_set_open_room', arguments: { meetingId: 'p-1', open: true } })
+    assert.match(res.content[0].text, /OPEN to guests without login/)
+    assert.match(res.content[0].text, /guest link: https:\/\/realtime\.vegvisr\.org\/\?openroom=momentum/)
+    assert.deepEqual(calls[0].body, { meetingId: 'p-1', enabled: true })
+  })
+
+  test('realtime_rename_room and realtime_set_waiting_room report the new state', async () => {
+    const { env } = withRealtime()
+    const { client } = await connect(env, ALICE_RW)
+    const a = await callOk(client, 'realtime_rename_room', { meetingId: 'p-1', title: 'Morgenmøte' })
+    assert.equal(a.title, 'Morgenmøte')
+    const res = await client.callTool({ name: 'realtime_set_waiting_room', arguments: { enabled: true } })
+    assert.match(res.content[0].text, /Waiting room is ON/)
+    assert.equal(res.structuredContent.screenTitle, 'Welcome')
+  })
+
+  test('no realtime tool takes an input that could name another user', async () => {
+    const { env } = withRealtime()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    for (const t of tools.filter((x) => x.name.startsWith('realtime_'))) {
+      for (const k of Object.keys(t.inputSchema.properties || {})) {
+        assert.doesNotMatch(k, /^(asUser|email|userId|ownerEmail|isDefault)$/i, `${t.name}.${k}`)
+      }
+    }
+  })
+})

@@ -6293,6 +6293,182 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // realtime_create_meeting / realtime_rename_room / realtime_set_open_room /
+  // realtime_set_waiting_room (slice 2a, 2026-11-15) — "prepare a meeting", the first realtime
+  // tools that write. graph:write by decision D1 = A. Who may change which room is decided in
+  // realtime-worker; none of these can close, delete or send anything.
+  const REALTIME_WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  server.registerTool(
+    'realtime_create_meeting',
+    {
+      title: 'Create a meeting (Vegvisr Realtime)',
+      description:
+        'Create a new ad-hoc meeting in the Vegvisr Realtime app, owned by you — the same as ' +
+        '"New meeting" in the app. Returns the meetingId and the joinUrl. Anyone signed in to ' +
+        'VEGR.AI can join through joinUrl; a guest WITHOUT an account needs the room opened ' +
+        'with realtime_set_open_room. title is optional (shown in the meeting and in lists). ' +
+        'Every call creates another meeting, so call it once per meeting the user asks for. It ' +
+        'sends no invitation — show the link, and e-mail it only when asked. To use the personal ' +
+        'or team room instead, take its link from realtime_list_rooms. Requires the graph:write scope.',
+      inputSchema: {
+        title: z.string().optional().describe('Meeting title, at most 120 characters.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        meetingId: z.string(),
+        title: z.string().nullable(),
+        titleSet: z.boolean(),
+        titleError: z.string().nullable(),
+        status: z.string(),
+        joinUrl: z.string(),
+      },
+      annotations: ADDITIVE_WRITE,
+    },
+    async ({ title }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.createMeeting(env, { actor, title })
+      if (!r.ok) return fromService(r)
+      return ok({
+        success: true,
+        meetingId: r.meetingId,
+        title: r.title,
+        titleSet: r.titleSet,
+        titleError: r.titleError,
+        status: r.status,
+        joinUrl: r.joinUrl,
+      }, `Meeting created${r.title ? `: ${r.title}` : ''}.\njoin: ${r.joinUrl}\nmeetingId ${r.meetingId}` +
+        (r.titleError ? `\nThe meeting exists, but the title was NOT set: ${r.titleError}` : ''))
+    },
+  )
+
+  server.registerTool(
+    'realtime_rename_room',
+    {
+      title: 'Rename a room or meeting (Vegvisr Realtime)',
+      description:
+        'Set the title of one of your own rooms or meetings in Vegvisr Realtime — the personal ' +
+        'room, the team room, or an ad-hoc meeting. The title is what participants see. ' +
+        'meetingId comes from realtime_list_rooms or realtime_list_meetings. The link does not ' +
+        'change. Requires the graph:write scope.',
+      inputSchema: {
+        meetingId: z.string().min(1).describe('The room or meeting to rename.'),
+        title: z.string().min(1).describe('The new title, at most 120 characters.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        meetingId: z.string(),
+        title: z.string(),
+        joinUrl: z.string(),
+      },
+      annotations: REALTIME_WRITE,
+    },
+    async ({ meetingId, title }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.renameRoom(env, { actor, meetingId, title })
+      if (!r.ok) return fromService(r)
+      return ok({ success: true, meetingId: r.meetingId, title: r.title, joinUrl: r.joinUrl },
+        `The room is now called "${r.title}".\njoin: ${r.joinUrl}`)
+    },
+  )
+
+  server.registerTool(
+    'realtime_set_open_room',
+    {
+      title: 'Open a room to guests, or close it (Vegvisr Realtime)',
+      description:
+        'Decide whether ONE of your own rooms or meetings can be joined by guests WITHOUT ' +
+        'logging in. open=true makes it an open room and returns openRoomUrl — anyone holding ' +
+        'that link can enter (through the waiting room, if yours is on). open=false closes it to ' +
+        'new guests at once; signed-in people can still use the joinUrl. Opening a room is a ' +
+        'real change in who can get in, so do it when the user asks for a guest link, and say ' +
+        'what you did. This tool never changes which room is the platform default (the bare ' +
+        '?openroom link); closing that room removes the default. meetingId comes from ' +
+        'realtime_list_rooms or realtime_list_meetings. Requires the graph:write scope.',
+      inputSchema: {
+        meetingId: z.string().min(1).describe('The room or meeting.'),
+        open: z.boolean().describe('true = guests may join without login; false = they may not.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        meetingId: z.string(),
+        open: z.boolean(),
+        isDefaultOpenRoom: z.boolean(),
+        openRoomUrl: z.string().nullable(),
+        joinUrl: z.string(),
+      },
+      annotations: REALTIME_WRITE,
+    },
+    async ({ meetingId, open }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.setOpenRoom(env, { actor, meetingId, open })
+      if (!r.ok) return fromService(r)
+      return ok({
+        success: true,
+        meetingId: r.meetingId,
+        open: r.open,
+        isDefaultOpenRoom: r.isDefaultOpenRoom,
+        openRoomUrl: r.openRoomUrl,
+        joinUrl: r.joinUrl,
+      }, r.open
+        ? `The room is OPEN to guests without login${r.isDefaultOpenRoom ? ' (platform default)' : ''}.\nguest link: ${r.openRoomUrl}`
+        : `The room is closed to guests. Signed-in people can still join: ${r.joinUrl}`)
+    },
+  )
+
+  server.registerTool(
+    'realtime_set_waiting_room',
+    {
+      title: 'Set the waiting room (Vegvisr Realtime)',
+      description:
+        'Your waiting room in Vegvisr Realtime. enabled=true means people who join any of your ' +
+        'rooms wait until you admit them in the app; enabled=false lets them straight in. It is ' +
+        'ONE setting for your whole account, not per room. screenTitle and screenImageUrl set ' +
+        'what a guest sees while waiting; pass an empty string to clear one. Only what you pass ' +
+        'is changed, and the result is the setting as it now stands. Requires the graph:write scope.',
+      inputSchema: {
+        enabled: z.boolean().optional().describe('Turn the waiting room on or off.'),
+        screenTitle: z.string().optional().describe('Text shown to a waiting guest, at most 200 characters. "" clears it.'),
+        screenImageUrl: z.string().optional().describe('http(s) URL of an image shown to a waiting guest. "" clears it.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        waitingRoomEnabled: z.boolean(),
+        screenTitle: z.string().nullable(),
+        screenImageUrl: z.string().nullable(),
+      },
+      annotations: REALTIME_WRITE,
+    },
+    async ({ enabled, screenTitle, screenImageUrl }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.setWaitingRoom(env, { actor, enabled, screenTitle, screenImageUrl })
+      if (!r.ok) return fromService(r)
+      return ok({
+        success: true,
+        waitingRoomEnabled: r.waitingRoomEnabled,
+        screenTitle: r.screenTitle,
+        screenImageUrl: r.screenImageUrl,
+      }, `Waiting room is ${r.waitingRoomEnabled ? 'ON — guests wait until you admit them' : 'off — guests enter directly'}.` +
+        (r.screenTitle ? `\nWaiting screen text: ${r.screenTitle}` : '') +
+        (r.screenImageUrl ? `\nWaiting screen image: ${r.screenImageUrl}` : ''))
+    },
+  )
+
   // ── set_user_groups ───────────────────────────────────────────────────────
   //
   // register_user refuses an email that already exists, which left no way to tag someone who is
@@ -7794,6 +7970,10 @@ export const TOOL_NAMES = [
   'realtime_get_recording_link',
   'realtime_get_transcript',
   'realtime_list_slugs',
+  'realtime_create_meeting',
+  'realtime_rename_room',
+  'realtime_set_open_room',
+  'realtime_set_waiting_room',
   'get_youtube_transcript',
   'set_user_groups',
   'update_user_profile',

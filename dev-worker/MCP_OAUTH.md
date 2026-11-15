@@ -345,6 +345,16 @@ Vegvisr Realtime (realtime.vegvisr.org) operated from MCP. Plan and decisions: k
   recordings (they become `hasTranscript`), and a RealtimeKit cloud row with the same file name as
   a stored file is merged into it. RealtimeKit's `download_url` is never passed on.
 - **A playback link is only made for a key in the caller's own list** — `play-url` itself checks nothing.
+- **Write tools (slice 2a, 2026-11-15, `graph:write`):** `realtime_create_meeting`,
+  `realtime_rename_room`, `realtime_set_open_room`, `realtime_set_waiting_room`. REST twins (POST):
+  `/realtime-tools/create-meeting`, `rename-room`, `open-room`, `waiting-room`. None can close,
+  delete or send. `realtime_set_open_room` never sends `isDefault`.
+- **The spec is also Agent-Builder's tool list (decision D8 = B, 2026-11-15).** realtime-worker is
+  registered in `graph_system_registry` (`sysworker-realtime`, prefix `rt_`), so every operation
+  in `/realtime/openapi.json` is a chat tool there too, writes included.
+  `realtime-worker/test-openapi-surface.mjs` pins the operation list; the guards a partial caller
+  needs (omitted `isDefault`, omitted waiting-screen field) live in the handlers
+  (`test-room-writes.mjs`), not in `realtime-service.js`.
 - **`realtime_list_meetings` (2026-11-15):** ad-hoc meetings, REST twin `/realtime-tools/meetings`.
   `/realtime/list-meetings` used to return every meeting in the shared RealtimeKit app to any
   signed-in user; by the architect's decision (D5 = A) realtime-worker now lists only the caller's

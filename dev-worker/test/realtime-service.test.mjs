@@ -291,3 +291,126 @@ test('listMeetings is newest first with join links, and passes on whose meetings
   const silent = world2({ '/realtime/list-meetings': [200, { success: true, meetings: [] }] })
   assert.equal((await rt.listMeetings(silent.env, { actor: ALICE })).allUsers, true)
 })
+
+// ── Slice 2a: prepare a meeting (writes) ─────────────────────────────────────
+function world3(handler) {
+  const { env, raw } = freshDb()
+  seedUsers(raw)
+  const calls = []
+  env.REALTIME_WORKER = {
+    fetch: async (url, init = {}) => {
+      const u = new URL(url)
+      const call = { path: u.pathname, method: init.method || 'GET', body: init.body ? JSON.parse(init.body) : null, token: init.headers?.['X-API-Token'] }
+      calls.push(call)
+      const r = handler(call)
+      return j(r[1], r[0])
+    },
+  }
+  return { env, calls }
+}
+
+test('createMeeting creates, then names the meeting, as the caller', async () => {
+  const { env, calls } = world3((c) => c.path === '/realtime/create-meeting'
+    ? [200, { success: true, meetingId: 'm-new', status: 'ACTIVE' }]
+    : [200, { success: true, meetingId: 'm-new', title: 'Planning' }])
+  const r = await rt.createMeeting(env, { actor: ALICE, title: '  Planning ' })
+  assert.deepEqual(r, { ok: true, meetingId: 'm-new', status: 'ACTIVE', joinUrl: 'https://realtime.vegvisr.org/?meetingId=m-new', title: 'Planning', titleSet: true, titleError: null })
+  assert.deepEqual(calls.map((c) => [c.method, c.path, c.body]), [
+    ['POST', '/realtime/create-meeting', {}],
+    ['POST', '/realtime/rename-room', { meetingId: 'm-new', title: 'Planning' }],
+  ])
+  assert.ok(calls.every((c) => c.token === 'sess-alice'))
+})
+
+test('createMeeting without a title makes one call; a failed title does not hide the meeting', async () => {
+  const plain = world3(() => [200, { success: true, meetingId: 'm-new', status: 'ACTIVE' }])
+  const a = await rt.createMeeting(plain.env, { actor: ALICE })
+  assert.equal(plain.calls.length, 1)
+  assert.deepEqual([a.title, a.titleSet], [null, false])
+
+  const half = world3((c) => c.path === '/realtime/create-meeting' ? [200, { success: true, meetingId: 'm-new', status: 'ACTIVE' }] : [502, { error: 'Failed to rename room' }])
+  const b = await rt.createMeeting(half.env, { actor: ALICE, title: 'Planning' })
+  assert.equal(b.ok, true, 'the meeting exists, so this is not a failure')
+  assert.equal(b.titleSet, false)
+  assert.match(b.titleError, /Failed to rename room/)
+
+  const tooLong = world3(() => [200, {}])
+  assert.equal((await rt.createMeeting(tooLong.env, { actor: ALICE, title: 'x'.repeat(121) })).code, gs.ERR.INVALID_INPUT)
+  assert.equal(tooLong.calls.length, 0, 'nothing is created for a title that will be refused')
+})
+
+test('renameRoom forwards id and title; a refusal for a room that is not yours is FORBIDDEN_GRAPH', async () => {
+  const okW = world3(() => [200, { success: true, meetingId: 'p-1', title: 'Morgenmøte' }])
+  const r = await rt.renameRoom(okW.env, { actor: ALICE, meetingId: 'p-1', title: 'Morgenmøte' })
+  assert.deepEqual(r, { ok: true, meetingId: 'p-1', title: 'Morgenmøte', joinUrl: 'https://realtime.vegvisr.org/?meetingId=p-1' })
+  assert.equal('asUser' in okW.calls[0].body, false)
+  const no = world3(() => [403, { error: 'You can only rename rooms you own' }])
+  const d = await rt.renameRoom(no.env, { actor: ALICE, meetingId: 'someone-elses', title: 'x' })
+  assert.equal(d.code, gs.ERR.FORBIDDEN_GRAPH)
+  assert.match(d.message, /rooms you own/)
+  assert.equal((await rt.renameRoom(no.env, { actor: ALICE, meetingId: 'p-1', title: '  ' })).code, gs.ERR.INVALID_INPUT)
+})
+
+test('setOpenRoom never sends isDefault, and returns the guest link by slug', async () => {
+  const { env, calls } = world3((c) => c.path === '/realtime/open-room/toggle'
+    ? [200, { success: true, meetingId: 't-1', open: true, isDefault: false }]
+    : [200, { success: true, rooms: [{ meetingId: 't-1', isDefault: false }], slugs: { 't-1': ['lyd'] }, canSetDefault: true }])
+  const r = await rt.setOpenRoom(env, { actor: ALICE, meetingId: 't-1', open: true })
+  assert.deepEqual(calls[0].body, { meetingId: 't-1', enabled: true }, 'no isDefault: the platform default is not this tool\'s to move')
+  assert.equal(r.open, true)
+  assert.equal(r.openRoomUrl, 'https://realtime.vegvisr.org/?openroom=lyd')
+})
+
+test('setOpenRoom reports the platform default as such, and closing returns no guest link', async () => {
+  const def = world3((c) => c.path === '/realtime/open-room/toggle' ? [200, { success: true, meetingId: 'p-1', open: true, isDefault: true }] : [200, { success: true, rooms: [], slugs: {} }])
+  const a = await rt.setOpenRoom(def.env, { actor: ALICE, meetingId: 'p-1', open: true })
+  assert.deepEqual([a.isDefaultOpenRoom, a.openRoomUrl], [true, 'https://realtime.vegvisr.org/?openroom'])
+
+  const shut = world3(() => [200, { success: true, meetingId: 'p-1', open: false, isDefault: false }])
+  const b = await rt.setOpenRoom(shut.env, { actor: ALICE, meetingId: 'p-1', open: false })
+  assert.deepEqual([b.open, b.openRoomUrl], [false, null])
+  assert.equal(shut.calls.length, 1)
+  assert.deepEqual(shut.calls[0].body, { meetingId: 'p-1', enabled: false })
+
+  const foreign = world3(() => [403, { error: 'You can only open or close your own rooms' }])
+  assert.equal((await rt.setOpenRoom(foreign.env, { actor: ALICE, meetingId: 'x', open: true })).code, gs.ERR.FORBIDDEN_GRAPH)
+  assert.equal((await rt.setOpenRoom(foreign.env, { actor: ALICE, meetingId: 'x', open: 'yes' })).code, gs.ERR.INVALID_INPUT)
+})
+
+test('setWaitingRoom changes only what is passed, one call after the other, and returns the state as it stands', async () => {
+  const state = { waitingRoomEnabled: false, waitingScreen: { title: 'Welcome', image: 'https://img.example/a.png' } }
+  let inFlight = 0
+  let overlapped = false
+  const { env, raw } = freshDb()
+  seedUsers(raw)
+  const calls = []
+  env.REALTIME_WORKER = { fetch: async (url, init = {}) => {
+    const path = new URL(url).pathname
+    const body = init.body ? JSON.parse(init.body) : null
+    calls.push({ path, body })
+    if (++inFlight > 1) overlapped = true
+    await new Promise((res) => setTimeout(res, 5))
+    inFlight--
+    if (path === '/realtime/toggle-waiting-room') state.waitingRoomEnabled = body.enabled === true
+    if (path === '/realtime/update-waiting-screen') state.waitingScreen = { ...state.waitingScreen, ...body }
+    return j({ success: true, personalMeetingId: 'p-1', ...state })
+  } }
+
+  const r = await rt.setWaitingRoom(env, { actor: ALICE, enabled: true, screenTitle: 'Vi starter snart' })
+  assert.deepEqual(r, { ok: true, waitingRoomEnabled: true, screenTitle: 'Vi starter snart', screenImageUrl: 'https://img.example/a.png' })
+  assert.deepEqual(calls.map((c) => [c.path, c.body]), [
+    ['/realtime/toggle-waiting-room', { enabled: true }],
+    ['/realtime/update-waiting-screen', { title: 'Vi starter snart' }],
+    ['/realtime/my-rooms', null],
+  ])
+  assert.equal(overlapped, false, 'the settings writes must not run at the same time')
+
+  calls.length = 0
+  await rt.setWaitingRoom(env, { actor: ALICE, screenImageUrl: '' })
+  assert.deepEqual(calls[0], { path: '/realtime/update-waiting-screen', body: { image: null } }, '"" clears, and the switch is not touched')
+
+  calls.length = 0
+  assert.equal((await rt.setWaitingRoom(env, { actor: ALICE })).code, gs.ERR.INVALID_INPUT)
+  assert.equal((await rt.setWaitingRoom(env, { actor: ALICE, screenImageUrl: 'javascript:alert(1)' })).code, gs.ERR.INVALID_INPUT)
+  assert.equal(calls.length, 0)
+})
