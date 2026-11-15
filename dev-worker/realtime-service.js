@@ -614,3 +614,69 @@ export async function shareSlug(env, { actor, slugId }) {
     scheduledStartAt: String(r.data.scheduledStartAt || ''),
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Removals (decision D3 = B, 2026-11-15) — preview, then confirm
+// ─────────────────────────────────────────────────────────────────────────────
+// Revoking a share link, deleting a slug and closing a meeting. The two-step rule is NOT kept
+// here: realtime-worker issues the confirm token at /realtime/removals/preview and refuses
+// /realtime/removals/confirm without a valid one, so the Agent-Builder chat tools (rt_*) get the
+// same protection as these. This file only forwards.
+
+/** The share links of one of the caller's slugs that are not revoked, each with its id. */
+export async function listShareLinks(env, { actor, slugId }) {
+  const sid = String(slugId || '').trim()
+  if (!sid) return fail(ERR.INVALID_INPUT, 'slugId is required — realtime_list_slugs gives it (the id, not the slug text).')
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const r = await callRealtime(env, t.token, `/realtime/slugs/${encodeURIComponent(sid)}/share-tokens`)
+  if (!r.ok) return r
+  const now = new Date().toISOString()
+  const links = (Array.isArray(r.data.tokens) ? r.data.tokens : []).filter((x) => x?.id).map((x) => {
+    const validFrom = String(x.validFrom || '')
+    const validUntil = String(x.validUntil || '')
+    return {
+      id: String(x.id),
+      url: String(x.url || ''),
+      validFrom,
+      validUntil,
+      createdAt: x.createdAt ? String(x.createdAt) : null,
+      state: now < validFrom ? 'not_yet_valid' : now > validUntil ? 'expired' : 'valid_now',
+    }
+  })
+  return { ok: true, slugId: sid, links }
+}
+
+export const REMOVAL_ACTIONS = ['revoke_share_link', 'delete_slug', 'close_meeting']
+
+/** What a removal would do. Changes nothing; returns the token realtime_confirm_removal needs. */
+export async function previewRemoval(env, { actor, action, id }) {
+  if (!REMOVAL_ACTIONS.includes(action)) return fail(ERR.INVALID_INPUT, `action must be one of: ${REMOVAL_ACTIONS.join(', ')}.`)
+  const target = String(id || '').trim()
+  if (!target) return fail(ERR.INVALID_INPUT, 'id is required: the share link id or URL, the slug id, or the meetingId.')
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const r = await post(env, t.token, '/realtime/removals/preview', { action, id: target })
+  if (!r.ok) return r
+  if (!r.data.confirmToken) return fail(ERR.INTERNAL_ERROR, 'realtime-worker returned no confirmToken.')
+  return {
+    ok: true,
+    action,
+    targetId: String(r.data.targetId || target),
+    summary: String(r.data.summary || ''),
+    effects: Array.isArray(r.data.effects) ? r.data.effects.map(String) : [],
+    confirmToken: String(r.data.confirmToken),
+    expiresAt: String(r.data.expiresAt || ''),
+  }
+}
+
+/** Do the removal a preview described. The token is the only input — it names the target. */
+export async function confirmRemoval(env, { actor, confirmToken }) {
+  const tok = String(confirmToken || '').trim()
+  if (!tok) return fail(ERR.INVALID_INPUT, 'confirmToken is required — it comes from realtime_preview_removal.')
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const r = await post(env, t.token, '/realtime/removals/confirm', { confirmToken: tok })
+  if (!r.ok) return r
+  return { ok: true, action: String(r.data.action || ''), targetId: String(r.data.targetId || ''), done: String(r.data.done || 'Removed.') }
+}

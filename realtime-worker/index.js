@@ -1164,6 +1164,187 @@ function canManageSlugs(role) {
   return role === 'Superadmin' || role === 'Admin'
 }
 
+// ── Removals: preview, then confirm (decision D3 = B, 2026-11-15) ───────────────────────────────
+// Three actions take something away: revoking a share link, deleting a slug, closing a meeting.
+// The app does them behind a button a person presses. A chat tool (Agent-Builder rt_*, MCP
+// realtime_*) has no button, so for tools they exist ONLY as this pair:
+//
+//   POST /realtime/removals/preview  { action, id }      → what would happen + confirmToken
+//   POST /realtime/removals/confirm  { confirmToken }    → does exactly that
+//
+// The confirm step cannot be reached without a preview: the token is an HMAC keyed with the
+// caller's own session token (which no tool ever shows a model), it names one action on one
+// target, it dies after 10 minutes, and it is refused when the target changed after the preview.
+// confirm does not carry its own rules — it calls the app's endpoint (DELETE /realtime/slugs/{id},
+// DELETE /realtime/share-tokens/{id}, POST /realtime/close-meeting), so who may remove what is
+// decided in one place. Those three raw endpoints are deliberately NOT in the OpenAPI spec
+// (test-openapi-surface.mjs): in the spec they would become chat tools with no confirm step.
+const REMOVAL_ACTIONS = ['revoke_share_link', 'delete_slug', 'close_meeting']
+const REMOVAL_TTL_MS = 10 * 60 * 1000
+
+function b64urlFromBytes(bytes) {
+  let bin = ''
+  for (const b of new Uint8Array(bytes)) bin += String.fromCharCode(b)
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+function textFromB64url(s) {
+  const bin = atob(String(s).replace(/-/g, '+').replace(/_/g, '/'))
+  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)))
+}
+async function removalSignature(sessionToken, payload) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(`removal-confirm-v1:${sessionToken}`), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  return b64urlFromBytes(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload)))
+}
+async function removalStateHash(state) {
+  return b64urlFromBytes(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(state)))).slice(0, 22)
+}
+
+// Who may close a meeting. Shared by POST /realtime/close-meeting and the removal preview.
+// Returns null when allowed, else { status, error }.
+async function closeMeetingRefusal(auth, meetingId, env) {
+  if (auth.email && env.vegvisr_org) {
+    try {
+      const configRow = await env.vegvisr_org.prepare("SELECT json_extract(data, '$.realtime') as realtime FROM config WHERE email = ?").bind(auth.email).first()
+      if (configRow?.realtime) {
+        const rt = JSON.parse(configRow.realtime)
+        if (rt.personalMeetingId === meetingId || rt.teamMeetingId === meetingId) {
+          return { status: 403, error: 'Cannot close a permanent room (personal or team).' }
+        }
+      }
+    } catch (_) {}
+  }
+  // The meeting's owner (meeting_ownership) or a Superadmin. Until 2026-11-15 there was no check
+  // at all — any signed-in user could set any meeting INACTIVE by id. Fails CLOSED: no ownership
+  // row, or an unreadable table, is a refusal. A meeting created before ownership was recorded
+  // can be closed by a Superadmin only.
+  if (auth.role !== 'Superadmin') {
+    let owns = false
+    try {
+      const row = await env.vegvisr_org
+        .prepare('SELECT 1 AS ok FROM meeting_ownership WHERE meeting_id = ? AND lower(owner_email) = lower(?) LIMIT 1')
+        .bind(String(meetingId), auth.email || '').first()
+      owns = !!row
+    } catch (e) { console.error('/realtime/close-meeting: meeting_ownership check failed:', e) }
+    if (!owns) return { status: 403, error: 'Only the owner of this meeting can close it.' }
+  }
+  return null
+}
+
+// What a removal would do, read fresh. Returns { status, error } or
+// { targetId, summary, effects, details, done, state } — `state` is everything that, if it
+// changed between preview and confirm, makes the preview a description of something else.
+async function describeRemoval(auth, action, rawId, env) {
+  const nowIso = new Date().toISOString()
+  const when = (iso) => String(iso || '').replace('T', ' ').slice(0, 16) + ' UTC'
+
+  if (action === 'revoke_share_link' || action === 'delete_slug') {
+    if (!canManageSlugs(auth.role)) return { status: 403, error: 'Forbidden: Admin or Superadmin role required' }
+  }
+
+  if (action === 'revoke_share_link') {
+    // Accepts the token id or the whole share link (…/<slug>?t=<id>).
+    let tokenId = String(rawId).trim()
+    const m = tokenId.match(/[?&]t=([^&#\s]+)/)
+    if (m) tokenId = decodeURIComponent(m[1])
+    const row = await env.vegvisr_org
+      .prepare(`SELECT t.id, t.valid_from, t.valid_until, t.revoked_at, s.slug, s.owner_email, s.active
+                FROM slug_share_tokens t JOIN custom_room_slugs s ON s.id = t.slug_id WHERE t.id = ?`)
+      .bind(tokenId).first()
+    if (!row) return { status: 404, error: 'Share link not found' }
+    if (row.owner_email !== auth.email) return { status: 403, error: 'Forbidden: You do not own this share link' }
+    if (row.revoked_at) return { status: 409, error: 'This share link is already revoked. Nothing to do.' }
+    const linkState = !row.active ? 'dead already — its slug is deleted'
+      : nowIso < row.valid_from ? 'not valid yet'
+      : nowIso > row.valid_until ? 'expired already'
+      : 'VALID RIGHT NOW'
+    return {
+      targetId: row.id,
+      summary: `Revoke the share link for realtime.vegvisr.org/${row.slug} (window ${when(row.valid_from)} – ${when(row.valid_until)}; ${linkState}).`,
+      effects: [
+        'The link stops working at once for everyone who has it.',
+        "People on the slug's list still get in with their e-mail address.",
+        'Other share links for the same slug keep working.',
+        'A revoked link cannot be restored. A new one can be made.',
+      ],
+      details: { slug: row.slug, url: `https://realtime.vegvisr.org/${row.slug}?t=${row.id}`, validFrom: row.valid_from, validUntil: row.valid_until, linkState },
+      done: `Share link for realtime.vegvisr.org/${row.slug} revoked.`,
+      state: `${row.id}|${row.revoked_at || ''}`,
+    }
+  }
+
+  if (action === 'delete_slug') {
+    const slugId = String(rawId).trim()
+    const row = await env.vegvisr_org
+      .prepare('SELECT id, slug, meeting_id, owner_email, allowed_emails, active, scheduled_start_at FROM custom_room_slugs WHERE id = ?')
+      .bind(slugId).first()
+    if (!row) return { status: 404, error: 'Slug not found' }
+    if (row.owner_email !== auth.email) return { status: 403, error: 'Forbidden: You do not own this slug' }
+    if (!row.active) return { status: 409, error: 'This slug is already deleted. Nothing to do.' }
+    let allowed = []
+    try { allowed = JSON.parse(row.allowed_emails) || [] } catch (_) {}
+    const links = await env.vegvisr_org
+      .prepare('SELECT COUNT(*) AS n FROM slug_share_tokens WHERE slug_id = ? AND revoked_at IS NULL AND valid_until > ?')
+      .bind(slugId, nowIso).first()
+    const liveLinks = Number(links?.n || 0)
+    return {
+      targetId: row.id,
+      summary: `Delete the invitation address realtime.vegvisr.org/${row.slug} (${allowed.length} ${allowed.length === 1 ? 'person' : 'people'} on its list).`,
+      effects: [
+        `The address stops letting anyone in at once: ${allowed.length ? allowed.join(', ') : 'nobody is on the list'}.`,
+        ...(liveLinks ? [`${liveLinks} share link${liveLinks === 1 ? '' : 's'} not yet expired stop${liveLinks === 1 ? 's' : ''} working too.`] : []),
+        `The name "${row.slug}" can never be used again, also not by you.`,
+        'The room itself, its meetings and its recordings are not touched.',
+        'There is no undo.',
+      ],
+      details: { slug: row.slug, url: `https://realtime.vegvisr.org/${row.slug}`, meetingId: row.meeting_id, allowedEmails: allowed, scheduledStartAt: row.scheduled_start_at || null, liveShareLinks: liveLinks },
+      done: `Invitation address realtime.vegvisr.org/${row.slug} deleted.`,
+      state: `${row.id}|${row.active}|${row.meeting_id}|${row.allowed_emails}`,
+    }
+  }
+
+  if (action === 'close_meeting') {
+    const meetingId = String(rawId).trim()
+    const refusal = await closeMeetingRefusal(auth, meetingId, env)
+    if (refusal) return refusal
+    const { appId, accountId, apiToken } = await getMeetingOwnerCredentials(meetingId, env)
+    if (!appId || !accountId || !apiToken) return { status: 500, error: 'RealtimeKit not configured on server' }
+    const rt = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/realtime/kit/${appId}/meetings/${encodeURIComponent(meetingId)}`,
+      { headers: { Authorization: `Bearer ${apiToken}` } }
+    )
+    if (rt.status === 404) return { status: 404, error: 'Meeting not found' }
+    if (!rt.ok) return { status: 502, error: 'RealtimeKit API error' }
+    const meeting = (await rt.json().catch(() => ({})))?.data || {}
+    if (meeting.status === 'INACTIVE') return { status: 409, error: 'This meeting is already closed. Nothing to do.' }
+    let owner = null
+    let slugs = []
+    let openRoom = null
+    try { owner = await env.vegvisr_org.prepare('SELECT owner_email, room_type FROM meeting_ownership WHERE meeting_id = ?').bind(meetingId).first() } catch (_) {}
+    try { slugs = ((await env.vegvisr_org.prepare('SELECT slug FROM custom_room_slugs WHERE meeting_id = ? AND active = 1').bind(meetingId).all()).results || []).map((r) => r.slug) } catch (_) {}
+    try { openRoom = await env.vegvisr_org.prepare('SELECT is_default FROM realtime_open_rooms WHERE meeting_id = ?').bind(meetingId).first() } catch (_) {}
+    const title = meeting.title ? `"${meeting.title}"` : 'the untitled meeting'
+    const others = owner?.owner_email && String(owner.owner_email).toLowerCase() !== String(auth.email || '').toLowerCase()
+    return {
+      targetId: meetingId,
+      summary: `Close ${title} (${meetingId}).`,
+      effects: [
+        ...(others ? [`WARNING: this meeting belongs to ${owner.owner_email}, not to you${owner.room_type && owner.room_type !== 'adhoc' ? ` — it is their permanent ${owner.room_type} room` : ''}.`] : []),
+        ...(!owner ? ['WARNING: no owner is recorded for this meeting.'] : []),
+        'The meeting is set INACTIVE: nobody can join it through any link.',
+        ...(slugs.length ? [`These invitation addresses lead to it and stop letting people in: ${slugs.map((x) => `realtime.vegvisr.org/${x}`).join(', ')}.`] : []),
+        ...(openRoom ? [`It is an open room${openRoom.is_default ? ' and the platform default' : ''}: the guest link stops working.`] : []),
+        'Recordings already made are kept.',
+        'Nothing in the app or in these tools opens a closed meeting again.',
+      ],
+      details: { meetingId, title: meeting.title || null, status: meeting.status || null, ownerEmail: owner?.owner_email || null, roomType: owner?.room_type || null, slugs, openRoom: !!openRoom },
+      done: `Meeting ${title} closed.`,
+      state: `${meetingId}|${meeting.status || ''}`,
+    }
+  }
+
+  return { status: 400, error: `action must be one of: ${REMOVAL_ACTIONS.join(', ')}` }
+}
+
 // OpenAPI 3.1 spec — curated READ subset, so this worker can be registered in
 // graph_system_registry and its read endpoints auto-exposed as agent tools.
 // operationId → tool name (with the registry node's tool_prefix, e.g. rt_).
@@ -1366,6 +1547,54 @@ function buildRealtimeOpenApiSpec(origin) {
           } } } } } },
         },
       },
+      '/realtime/slugs/{slugId}/share-tokens': {
+        get: {
+          operationId: 'listSlugShareLinks',
+          summary: 'The share links of one of the caller\'s own slugs that have not been revoked (expired ones are included — compare validUntil with now). Each url lets ANYONE holding it into the meeting inside its window, so show one only to the slug\'s owner. id is what removals/preview takes for revoke_share_link',
+          parameters: [{ name: 'slugId', in: 'path', required: true, schema: { type: 'string' }, description: 'The slug id, from the slugs list' }],
+          responses: okShape('Share links, newest first', {
+            success: { type: 'boolean' },
+            tokens: { type: 'array', items: { type: 'object', properties: {
+              id: { type: 'string' }, url: { type: 'string' }, validFrom: { type: 'string' }, validUntil: { type: 'string' }, createdAt: { type: 'string' },
+            } } },
+          }),
+        },
+      },
+      '/realtime/removals/preview': {
+        post: {
+          operationId: 'previewRemoval',
+          summary: 'STEP 1 of removing something — changes nothing. Says exactly what a removal would do and returns a confirmToken (good for 10 minutes). action revoke_share_link: id is the share link\'s id or the whole link. action delete_slug: id is the slug id (the name can never be reused). action close_meeting: id is the meetingId (a closed meeting cannot be opened again; the personal and team room cannot be closed). Show the user summary and every line of effects, and wait for their yes. 409 when it is already removed',
+          requestBody: jsonBody({
+            action: { type: 'string', enum: ['revoke_share_link', 'delete_slug', 'close_meeting'] },
+            id: { type: 'string', description: 'Share link id or URL, slug id, or meetingId — according to action' },
+          }, ['action', 'id']),
+          responses: okShape('What would happen', {
+            success: { type: 'boolean' },
+            nothingChanged: { type: 'boolean', description: 'Always true: a preview removes nothing' },
+            action: { type: 'string' },
+            targetId: { type: 'string' },
+            summary: { type: 'string' },
+            effects: { type: 'array', items: { type: 'string' }, description: 'Every consequence, one per line. Show all of them to the user' },
+            details: { type: 'object' },
+            confirmToken: { type: 'string' },
+            expiresAt: { type: 'string' },
+          }),
+        },
+      },
+      '/realtime/removals/confirm': {
+        post: {
+          operationId: 'confirmRemoval',
+          summary: 'STEP 2 of removing something — THIS REMOVES IT AND CANNOT BE UNDONE. Takes only the confirmToken from removals/preview and does exactly what that preview described. Call it only after the user has seen the preview\'s summary and effects and said yes to that. 410 when the preview is older than 10 minutes, 409 when the target changed after the preview — preview again in both cases',
+          requestBody: jsonBody({ confirmToken: { type: 'string' } }, ['confirmToken']),
+          responses: okShape('What was removed', {
+            success: { type: 'boolean' },
+            action: { type: 'string' },
+            targetId: { type: 'string' },
+            done: { type: 'string' },
+            details: { type: 'object' },
+          }),
+        },
+      },
       '/realtime/create-meeting': {
         post: {
           operationId: 'createMeeting',
@@ -1476,7 +1705,7 @@ function buildRealtimeOpenApiSpec(origin) {
   }
 }
 
-export default {
+const worker = {
   async fetch(request, env) {
     const url = new URL(request.url)
     const pathname = url.pathname
@@ -2048,32 +2277,8 @@ export default {
         const { meetingId } = body
         if (!meetingId) return createResponse(JSON.stringify({ error: 'meetingId is required' }), 400)
 
-        if (auth.email && env.vegvisr_org) {
-          try {
-            const configRow = await env.vegvisr_org.prepare("SELECT json_extract(data, '$.realtime') as realtime FROM config WHERE email = ?").bind(auth.email).first()
-            if (configRow?.realtime) {
-              const rt = JSON.parse(configRow.realtime)
-              if (rt.personalMeetingId === meetingId || rt.teamMeetingId === meetingId) {
-                return createResponse(JSON.stringify({ error: 'Cannot close a permanent room (personal or team).' }), 403)
-              }
-            }
-          } catch (_) {}
-        }
-
-        // Who may close it: the meeting's owner (meeting_ownership) or a Superadmin. Until
-        // 2026-11-15 there was no check at all — any signed-in user could set any meeting
-        // INACTIVE by id. Fails CLOSED: no ownership row, or an unreadable table, is a refusal.
-        // A meeting created before ownership was recorded can be closed by a Superadmin only.
-        if (auth.role !== 'Superadmin') {
-          let owns = false
-          try {
-            const row = await env.vegvisr_org
-              .prepare('SELECT 1 AS ok FROM meeting_ownership WHERE meeting_id = ? AND lower(owner_email) = lower(?) LIMIT 1')
-              .bind(String(meetingId), auth.email || '').first()
-            owns = !!row
-          } catch (e) { console.error('/realtime/close-meeting: meeting_ownership check failed:', e) }
-          if (!owns) return createResponse(JSON.stringify({ error: 'Only the owner of this meeting can close it.' }), 403)
-        }
+        const refusal = await closeMeetingRefusal(auth, meetingId, env)
+        if (refusal) return createResponse(JSON.stringify({ error: refusal.error }), refusal.status)
 
         // Close the meeting in its owner's app.
         const { appId, accountId, apiToken } = await getMeetingOwnerCredentials(meetingId, env)
@@ -4636,6 +4841,83 @@ export default {
       }
     }
 
+    // POST /realtime/removals/preview and /realtime/removals/confirm — see "Removals" above.
+    if (pathname === '/realtime/removals/preview' && request.method === 'POST') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ success: false, error: auth.error || 'Unauthorized' }), 401)
+        if (!auth.email) return createResponse(JSON.stringify({ success: false, error: 'Forbidden: a user account is required' }), 403)
+        const body = await request.json().catch(() => ({}))
+        const action = String(body?.action || '')
+        const id = String(body?.id || '').trim()
+        if (!REMOVAL_ACTIONS.includes(action)) return createResponse(JSON.stringify({ success: false, error: `action must be one of: ${REMOVAL_ACTIONS.join(', ')}` }), 400)
+        if (!id) return createResponse(JSON.stringify({ success: false, error: 'id is required' }), 400)
+        const d = await describeRemoval(auth, action, id, env)
+        if (d.error) return createResponse(JSON.stringify({ success: false, error: d.error }), d.status)
+        const expiresAt = Date.now() + REMOVAL_TTL_MS
+        const payload = b64urlFromBytes(new TextEncoder().encode(JSON.stringify({
+          a: action, id: d.targetId, e: String(auth.email).toLowerCase(), x: expiresAt, s: await removalStateHash(d.state),
+        })))
+        const confirmToken = `${payload}.${await removalSignature(request.headers.get('X-API-Token'), payload)}`
+        return createResponse(JSON.stringify({
+          success: true,
+          nothingChanged: true,
+          action,
+          targetId: d.targetId,
+          summary: d.summary,
+          effects: d.effects,
+          details: d.details,
+          confirmToken,
+          expiresAt: new Date(expiresAt).toISOString(),
+        }), 200)
+      } catch (e) {
+        console.error('Error in /realtime/removals/preview:', e)
+        return createResponse(JSON.stringify({ success: false, error: e.message }), 500)
+      }
+    }
+
+    if (pathname === '/realtime/removals/confirm' && request.method === 'POST') {
+      try {
+        const auth = await validateWorkerApiToken(request, env)
+        if (!auth.valid) return createResponse(JSON.stringify({ success: false, error: auth.error || 'Unauthorized' }), 401)
+        if (!auth.email) return createResponse(JSON.stringify({ success: false, error: 'Forbidden: a user account is required' }), 403)
+        const body = await request.json().catch(() => ({}))
+        const sessionToken = request.headers.get('X-API-Token')
+        const [payload, signature, extra] = String(body?.confirmToken || '').split('.')
+        const again = 'Call the preview again, show the user what it says, and confirm with the new token.'
+        if (!payload || !signature || extra !== undefined) return createResponse(JSON.stringify({ success: false, error: `confirmToken is missing or malformed. It comes from /realtime/removals/preview. ${again}` }), 400)
+        if (signature !== await removalSignature(sessionToken, payload)) return createResponse(JSON.stringify({ success: false, error: `This confirmToken was not issued to you by the preview. ${again}` }), 403)
+        let claim
+        try { claim = JSON.parse(textFromB64url(payload)) } catch (_) { claim = null }
+        if (!claim || !REMOVAL_ACTIONS.includes(claim.a) || !claim.id) return createResponse(JSON.stringify({ success: false, error: `confirmToken is malformed. ${again}` }), 400)
+        if (claim.e !== String(auth.email).toLowerCase()) return createResponse(JSON.stringify({ success: false, error: `This confirmToken was issued to another account. ${again}` }), 403)
+        if (!(Number(claim.x) > Date.now())) return createResponse(JSON.stringify({ success: false, error: `This confirmation has expired (a preview is good for 10 minutes). ${again}` }), 410)
+
+        // Read the target again: refuse if it is gone, already removed, or not what was shown.
+        const d = await describeRemoval(auth, claim.a, claim.id, env)
+        if (d.error) return createResponse(JSON.stringify({ success: false, error: d.error }), d.status)
+        if (claim.s !== await removalStateHash(d.state)) return createResponse(JSON.stringify({ success: false, error: `It has changed since the preview, so the preview no longer describes it. ${again}` }), 409)
+
+        // Do it through the app's own endpoint — its rules decide, not a copy of them.
+        const origin = new URL(request.url).origin
+        const headers = { 'Content-Type': 'application/json', 'X-API-Token': sessionToken }
+        const inner = claim.a === 'revoke_share_link'
+          ? new Request(`${origin}/realtime/share-tokens/${encodeURIComponent(claim.id)}`, { method: 'DELETE', headers })
+          : claim.a === 'delete_slug'
+            ? new Request(`${origin}/realtime/slugs/${encodeURIComponent(claim.id)}`, { method: 'DELETE', headers })
+            : new Request(`${origin}/realtime/close-meeting`, { method: 'POST', headers, body: JSON.stringify({ meetingId: claim.id }) })
+        const res = await worker.fetch(inner, env)
+        const out = await res.json().catch(() => ({}))
+        if (!res.ok || out?.success === false) {
+          return createResponse(JSON.stringify({ success: false, error: out?.error || `The removal failed (${res.status}). Nothing was confirmed as done.` }), res.ok ? 500 : res.status)
+        }
+        return createResponse(JSON.stringify({ success: true, action: claim.a, targetId: claim.id, done: d.done, details: d.details }), 200)
+      } catch (e) {
+        console.error('Error in /realtime/removals/confirm:', e)
+        return createResponse(JSON.stringify({ success: false, error: e.message }), 500)
+      }
+    }
+
     if (pathname === '/realtime/slug-contact-owner' && request.method === 'POST') {
       try {
         const { slug, ownerEmail, visitorEmail, message } = await request.json()
@@ -4770,3 +5052,5 @@ export default {
     }
   },
 }
+
+export default worker

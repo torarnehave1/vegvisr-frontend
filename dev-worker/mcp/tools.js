@@ -6476,7 +6476,8 @@ ${result.warnings.join('\n')}` : ''),
   // realtime_create_slug / realtime_update_slug / realtime_share_slug (slice 2b, 2026-11-15) —
   // invitations. A slug is a door into a meeting: the people on its allowlist, and anyone holding
   // a share link, get in WITHOUT logging in. realtime-worker allows it to Admin and Superadmin and
-  // only onto a room the caller owns. There is no delete here (decision D3 is open).
+  // only onto a room the caller owns. Deleting one, and revoking a share link, is
+  // realtime_preview_removal → realtime_confirm_removal (decision D3 = B).
   const REALTIME_SLUG_SHAPE = {
     success: z.boolean(),
     slugId: z.string(),
@@ -6573,9 +6574,10 @@ ${result.warnings.join('\n')}` : ''),
         'meeting without logging in and without being on the allowlist — from one hour before ' +
         'to one hour after the slug\'s meeting time (validFrom / validUntil, UTC). The slug must ' +
         'have a meeting time; set it with realtime_update_slug. Every call makes ANOTHER link ' +
-        'and the earlier ones stay valid, so call it once and reuse the link. This cannot be ' +
-        'undone from here: a link is revoked in the Realtime app. Make one only when the user ' +
-        'asks for a link to hand out. Requires the graph:write scope.',
+        'and the earlier ones stay valid, so call it once and reuse the link ' +
+        '(realtime_list_share_links shows the ones that exist). A link is withdrawn with ' +
+        'realtime_preview_removal. Make one only when the user asks for a link to hand out. ' +
+        'Requires the graph:write scope.',
       inputSchema: {
         slugId: z.string().min(1).describe('The slug id, from realtime_list_slugs.'),
       },
@@ -6600,6 +6602,139 @@ ${result.warnings.join('\n')}` : ''),
       const t = (iso) => iso.replace('T', ' ').slice(0, 16)
       return ok({ success: true, slugId: r.slugId, url: r.url, validFrom: r.validFrom, validUntil: r.validUntil, scheduledStartAt: r.scheduledStartAt },
         `Share link — anyone holding it gets in without login:\n${r.url}\nWorks from ${t(r.validFrom)} to ${t(r.validUntil)} UTC (meeting at ${t(r.scheduledStartAt)} UTC).`)
+    },
+  )
+
+  // realtime_list_share_links / realtime_preview_removal / realtime_confirm_removal
+  // (decision D3 = B, 2026-11-15) — the only realtime tools that take something away: revoke a
+  // share link, delete a slug, close a meeting. Two steps, and the second is not a matter of the
+  // model behaving: realtime-worker refuses the confirm without the token its preview issued
+  // (10 minutes, one target, void if the target changed). The server cannot ask the user
+  // anything itself, so the preview's text is what the user must see before the confirm.
+  server.registerTool(
+    'realtime_list_share_links',
+    {
+      title: 'List the share links of an invitation address (Vegvisr Realtime)',
+      description:
+        'The share links of ONE of your own slugs that have not been revoked, newest first, each ' +
+        'with its id, its time window (UTC) and whether it is valid now, not yet, or expired. ' +
+        'ANYONE holding a link gets into the meeting inside its window, so show a link only to ' +
+        'the user. slugId comes from realtime_list_slugs. To withdraw a link, pass its id to ' +
+        'realtime_preview_removal. Requires the contacts:read scope.',
+      inputSchema: {
+        slugId: z.string().min(1).describe('The slug id, from realtime_list_slugs.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        slugId: z.string(),
+        links: z.array(z.object({
+          id: z.string(),
+          url: z.string(),
+          validFrom: z.string(),
+          validUntil: z.string(),
+          createdAt: z.string().nullable(),
+          state: z.enum(['not_yet_valid', 'valid_now', 'expired']),
+        })),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ slugId }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'contacts:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.listShareLinks(env, { actor, slugId })
+      if (!r.ok) return fromService(r)
+      const t = (iso) => iso.replace('T', ' ').slice(0, 16)
+      const label = { not_yet_valid: 'not valid yet', valid_now: 'VALID NOW', expired: 'expired' }
+      return ok({ success: true, slugId: r.slugId, links: r.links },
+        r.links.length
+          ? `${r.links.length} share link${r.links.length === 1 ? '' : 's'} not revoked:\n` +
+            r.links.map((l) => `• ${l.url}\n  ${t(l.validFrom)} – ${t(l.validUntil)} UTC · ${label[l.state]} · id ${l.id}`).join('\n')
+          : 'This slug has no share links that are not revoked.')
+    },
+  )
+
+  server.registerTool(
+    'realtime_preview_removal',
+    {
+      title: 'Preview a removal: revoke share link, delete slug, close meeting (Vegvisr Realtime)',
+      description:
+        'STEP 1 of taking something away in Vegvisr Realtime. It changes NOTHING: it says exactly ' +
+        'what would happen and returns a confirmToken for realtime_confirm_removal. ' +
+        'action "revoke_share_link": id is the link\'s id (realtime_list_share_links) or the ' +
+        'whole link — it stops working for everyone holding it. ' +
+        'action "delete_slug": id is the slug id (realtime_list_slugs) — the address stops ' +
+        'letting anyone in and its name can never be used again. ' +
+        'action "close_meeting": id is the meetingId (realtime_list_meetings) — nobody can join ' +
+        'it any more and it cannot be opened again; the personal and team room cannot be closed. ' +
+        'Show the user the summary and EVERY effect, in your own reply, and wait for their yes ' +
+        'to that text before calling realtime_confirm_removal. A yes given before the preview ' +
+        'does not count. Requires the graph:write scope.',
+      inputSchema: {
+        action: z.enum(['revoke_share_link', 'delete_slug', 'close_meeting']).describe('What to remove.'),
+        id: z.string().min(1).describe('Share link id or URL, slug id, or meetingId — according to action.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        nothingChanged: z.boolean(),
+        action: z.string(),
+        targetId: z.string(),
+        summary: z.string(),
+        effects: z.array(z.string()),
+        confirmToken: z.string(),
+        expiresAt: z.string(),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ action, id }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.previewRemoval(env, { actor, action, id })
+      if (!r.ok) return fromService(r)
+      return ok({ success: true, nothingChanged: true, action: r.action, targetId: r.targetId, summary: r.summary, effects: r.effects, confirmToken: r.confirmToken, expiresAt: r.expiresAt },
+        `PREVIEW — nothing has been removed.\n${r.summary}\n` +
+        r.effects.map((e) => `• ${e}`).join('\n') +
+        `\n\nShow this to the user. Only after they say yes to it: realtime_confirm_removal with this confirmToken ` +
+        `(good until ${r.expiresAt.replace('T', ' ').slice(0, 16)} UTC):\n${r.confirmToken}`)
+    },
+  )
+
+  server.registerTool(
+    'realtime_confirm_removal',
+    {
+      title: 'Confirm a removal (Vegvisr Realtime)',
+      description:
+        'STEP 2 — THIS REMOVES IT AND CANNOT BE UNDONE. Does exactly what the ' +
+        'realtime_preview_removal that issued the confirmToken described: revokes that share ' +
+        'link, deletes that slug, or closes that meeting. Call it only after the user has seen ' +
+        'that preview and said yes to it — this server cannot ask them itself. The token is ' +
+        'good for 10 minutes and is refused if the target changed after the preview; in both ' +
+        'cases preview again and show the user the new text. Requires the graph:write scope.',
+      inputSchema: {
+        confirmToken: z.string().min(1).describe('The confirmToken from realtime_preview_removal, unchanged.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        action: z.string(),
+        targetId: z.string(),
+        done: z.string(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ confirmToken }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.confirmRemoval(env, { actor, confirmToken })
+      if (!r.ok) return fromService(r)
+      return ok({ success: true, action: r.action, targetId: r.targetId, done: r.done }, `DONE. ${r.done} This cannot be undone.`)
     },
   )
 
@@ -8162,6 +8297,9 @@ export const TOOL_NAMES = [
   'realtime_create_slug',
   'realtime_update_slug',
   'realtime_share_slug',
+  'realtime_list_share_links',
+  'realtime_preview_removal',
+  'realtime_confirm_removal',
   'get_youtube_transcript',
   'set_user_groups',
   'update_user_profile',

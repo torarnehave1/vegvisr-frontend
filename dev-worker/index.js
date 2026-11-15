@@ -5818,6 +5818,7 @@ const restHandler = {
         '/realtime-tools/transcript': (actor, q) => realtimeService.getTranscript(env, { actor, key: q.get('key'), maxChars: q.get('maxChars') || undefined }),
         '/realtime-tools/slugs': (actor) => realtimeService.listSlugs(env, { actor }),
         '/realtime-tools/meetings': (actor, q) => realtimeService.listMeetings(env, { actor, status: q.get('status') || undefined, limit: q.get('limit') || undefined }),
+        '/realtime-tools/share-links': (actor, q) => realtimeService.listShareLinks(env, { actor, slugId: q.get('slugId') }),
       })[pathname]
       // The write tools (slice 2a). POST, same session-only gate; each runs the tool's own function.
       const realtimeWrite = request.method === 'POST' && ({
@@ -5828,6 +5829,8 @@ const restHandler = {
         '/realtime-tools/create-slug': (actor, b) => realtimeService.createSlug(env, { actor, slug: b.slug, meetingId: b.meetingId, allowedEmails: b.allowedEmails, scheduledStartAt: b.scheduledStartAt }),
         '/realtime-tools/update-slug': (actor, b) => realtimeService.updateSlug(env, { actor, slugId: b.slugId, addEmails: b.addEmails, removeEmails: b.removeEmails, allowedEmails: b.allowedEmails, scheduledStartAt: b.scheduledStartAt, meetingId: b.meetingId }),
         '/realtime-tools/share-slug': (actor, b) => realtimeService.shareSlug(env, { actor, slugId: b.slugId }),
+        '/realtime-tools/preview-removal': (actor, b) => realtimeService.previewRemoval(env, { actor, action: b.action, id: b.id }),
+        '/realtime-tools/confirm-removal': (actor, b) => realtimeService.confirmRemoval(env, { actor, confirmToken: b.confirmToken }),
       })[pathname]
       if (realtimeRead || realtimeWrite) {
         const tv = await validateAuth(request, env)

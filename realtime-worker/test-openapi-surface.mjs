@@ -41,6 +41,12 @@ const EXPECTED = {
   'POST /realtime/slugs/create': 'createSlug',
   'POST /realtime/slugs/{slugId}/update': 'updateSlug',
   'POST /realtime/slugs/{slugId}/share-token': 'mintSlugShareToken',
+  // removals (D3 = B, 2026-11-15): ONLY as preview + confirm. Do not add DELETE /realtime/slugs/{id},
+  // DELETE /realtime/share-tokens/{id} or POST /realtime/close-meeting here — in the spec they
+  // would be chat tools that remove things with no confirm step (test-removals.mjs).
+  'GET /realtime/slugs/{slugId}/share-tokens': 'listSlugShareLinks',
+  'POST /realtime/removals/preview': 'previewRemoval',
+  'POST /realtime/removals/confirm': 'confirmRemoval',
 }
 
 const res = await worker.fetch(new Request('https://api.vegvisr.org/realtime/openapi.json'), {})

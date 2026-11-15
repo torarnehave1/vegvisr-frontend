@@ -5196,3 +5196,108 @@ describe('the realtime slug write tools need graph:write and show what the slug 
     assert.equal(res.structuredContent.url, 'https://realtime.vegvisr.org/kurs?t=tok')
   })
 })
+
+describe('realtime removals are two calls: a preview that changes nothing, then a confirm', () => {
+  const READ = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'contacts:read'] } }
+  function withRealtime({ confirmStatus = 200 } = {}) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    env.REALTIME_WORKER = { fetch: async (url, init) => {
+      const path = new URL(url).pathname
+      calls.push({ path, method: init.method || 'GET', body: init.body ? JSON.parse(init.body) : null, token: init.headers['X-API-Token'] })
+      if (path.endsWith('/share-tokens')) {
+        return new Response(JSON.stringify({ success: true, tokens: [
+          { id: 't-1', url: 'https://realtime.vegvisr.org/kurs?t=t-1', validFrom: '2020-01-01T08:00:00.000Z', validUntil: '2020-01-01T10:00:00.000Z', createdAt: '2020-01-01T00:00:00.000Z' },
+          { id: 't-2', url: 'https://realtime.vegvisr.org/kurs?t=t-2', validFrom: '2020-01-01T08:00:00.000Z', validUntil: '2999-01-01T10:00:00.000Z', createdAt: '2020-01-02T00:00:00.000Z' },
+        ] }), { status: 200 })
+      }
+      if (path === '/realtime/removals/preview') {
+        return new Response(JSON.stringify({ success: true, nothingChanged: true, action: 'delete_slug', targetId: 's-1',
+          summary: 'Delete the invitation address realtime.vegvisr.org/kurs (2 people on its list).',
+          effects: ['The address stops letting anyone in at once: a@example.com, b@example.com.', 'The name "kurs" can never be used again, also not by you.'],
+          details: {}, confirmToken: 'payload.signature', expiresAt: '2026-11-15T12:10:00.000Z' }), { status: 200 })
+      }
+      if (path === '/realtime/removals/confirm') {
+        return confirmStatus === 200
+          ? new Response(JSON.stringify({ success: true, action: 'delete_slug', targetId: 's-1', done: 'Invitation address realtime.vegvisr.org/kurs deleted.' }), { status: 200 })
+          : new Response(JSON.stringify({ success: false, error: 'It has changed since the preview, so the preview no longer describes it. Call the preview again.' }), { status: confirmStatus })
+      }
+      return new Response('{}', { status: 404 })
+    } }
+    return { env, calls }
+  }
+
+  test('preview and confirm need graph:write; with read scopes nothing reaches realtime-worker', async () => {
+    const { env, calls } = withRealtime()
+    const ro = await connect(env, READ)
+    assert.equal((await callErr(ro.client, 'realtime_preview_removal', { action: 'delete_slug', id: 's-1' })).requiredScope, 'graph:write')
+    assert.equal((await callErr(ro.client, 'realtime_confirm_removal', { confirmToken: 'payload.signature' })).requiredScope, 'graph:write')
+    assert.equal(calls.length, 0)
+  })
+
+  test('only the confirm is marked destructive, and it takes nothing but the token', async () => {
+    const { env } = withRealtime()
+    const { client } = await connect(env, ALICE_RW)
+    const { tools } = await client.listTools()
+    const by = (n) => tools.find((t) => t.name === n)
+    assert.equal(by('realtime_preview_removal').annotations.readOnlyHint, true)
+    assert.equal(by('realtime_list_share_links').annotations.readOnlyHint, true)
+    assert.equal(by('realtime_confirm_removal').annotations.destructiveHint, true)
+    assert.deepEqual(Object.keys(by('realtime_confirm_removal').inputSchema.properties), ['confirmToken'])
+    assert.match(by('realtime_confirm_removal').description, /CANNOT BE UNDONE/)
+    // No other realtime tool removes anything: the confirm is the only door.
+    for (const t of tools.filter((x) => x.name.startsWith('realtime_') && x.name !== 'realtime_confirm_removal')) {
+      assert.doesNotMatch(t.name, /delete|revoke|close|remove(?!.*preview)/, t.name)
+    }
+  })
+
+  test('the preview text carries the summary, every effect, the token, and says nothing was removed', async () => {
+    const { env, calls } = withRealtime()
+    const { client } = await connect(env, ALICE_RW)
+    const res = await client.callTool({ name: 'realtime_preview_removal', arguments: { action: 'delete_slug', id: 's-1' } })
+    assert.equal(res.isError, undefined)
+    const text = res.content[0].text
+    assert.match(text, /^PREVIEW — nothing has been removed\./)
+    assert.match(text, /realtime\.vegvisr\.org\/kurs \(2 people/)
+    assert.match(text, /a@example\.com, b@example\.com/)
+    assert.match(text, /can never be used again/)
+    assert.match(text, /payload\.signature/)
+    assert.equal(res.structuredContent.nothingChanged, true)
+    assert.deepEqual(calls.map((c) => c.path), ['/realtime/removals/preview'])
+    assert.deepEqual(calls[0].body, { action: 'delete_slug', id: 's-1' })
+    assert.equal(calls[0].token, 'sess-alice')
+  })
+
+  test('the confirm forwards only the token and reports what was removed', async () => {
+    const { env, calls } = withRealtime()
+    const { client } = await connect(env, ALICE_RW)
+    const res = await client.callTool({ name: 'realtime_confirm_removal', arguments: { confirmToken: 'payload.signature' } })
+    assert.match(res.content[0].text, /^DONE\. Invitation address realtime\.vegvisr\.org\/kurs deleted\./)
+    assert.deepEqual(calls[0].body, { confirmToken: 'payload.signature' })
+  })
+
+  test('a refused confirm is an error the model can read, not a success', async () => {
+    const { env } = withRealtime({ confirmStatus: 409 })
+    const { client } = await connect(env, ALICE_RW)
+    const e = await callErr(client, 'realtime_confirm_removal', { confirmToken: 'payload.signature' })
+    assert.match(JSON.stringify(e), /changed since the preview/)
+  })
+
+  test('an action outside the three is refused before anything is asked', async () => {
+    const { env, calls } = withRealtime()
+    const { client } = await connect(env, ALICE_RW)
+    const res = await client.callTool({ name: 'realtime_preview_removal', arguments: { action: 'delete_recording', id: 'x' } })
+    assert.equal(res.isError, true)
+    assert.equal(calls.length, 0)
+  })
+
+  test('realtime_list_share_links gives each link its id and says which are still valid', async () => {
+    const { env } = withRealtime()
+    const ro = await connect(env, READ)
+    const res = await ro.client.callTool({ name: 'realtime_list_share_links', arguments: { slugId: 's-1' } })
+    assert.equal(res.isError, undefined)
+    assert.deepEqual(res.structuredContent.links.map((l) => [l.id, l.state]), [['t-1', 'expired'], ['t-2', 'valid_now']])
+    assert.match(res.content[0].text, /VALID NOW · id t-2/)
+  })
+})
