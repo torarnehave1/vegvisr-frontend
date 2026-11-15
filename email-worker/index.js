@@ -352,7 +352,14 @@ async function sendMagicLinkEmail(env2, toEmail, magicLink, sender = null) {
   }
   if (sender?.domain) {
     const purpose = meetingId ? "meeting" : "login";
-    const tmpl = await resolveWorldEmailTemplate(env2, sender.domain, purpose);
+    // An app on its own host (e.g. garnet.vegr.ai) may have its own email graph, tagged
+    // #EMAIL-<host>. It wins over the domain's #EMAIL-<domain>; without one, the domain's
+    // template is used exactly as before (decided 2026-11-15 for Garnet).
+    let tmpl = null;
+    if (sender.host && sender.host !== sender.domain)
+      tmpl = await resolveWorldEmailTemplate(env2, sender.host, purpose);
+    if (!tmpl)
+      tmpl = await resolveWorldEmailTemplate(env2, sender.domain, purpose);
     if (tmpl) {
       const vars = {
         magicLink,
@@ -492,6 +499,8 @@ async function resolveWhiteLabelSender(env2, redirectUrl) {
     fromEmail: account2.email,
     founderEmail,
     domain: matchedDomain,
+    // The full host the login was asked from, for a per-host email template.
+    host,
     // Sender backend: 'gmail' → slowyou Gmail SMTP; 'cf-email-service' → Cloudflare Email Service
     // REST (the "appPassword" is then a CF API token, and cfAccountId is required).
     accountType: (account2.accountType || "gmail").toLowerCase(),
