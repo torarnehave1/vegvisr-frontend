@@ -4439,6 +4439,50 @@ describe('contact history + server transcription via agent-worker (2026-10-27)',
     const e = await callErr(client, 'transcribe_contact_recording', { recordingId: 'contactlog:L9' })
     assert.match(e.message, /has no recording/)
   })
+
+  // import_recording_from_url (2026-11-15): the step before transcription for a file that is
+  // somewhere else — a temporary Dropbox link — instead of a manual upload in the browser.
+  test('import_recording_from_url forwards url, name and tags as the caller and returns the recordingId', async () => {
+    const { env, calls } = withAgent({ '/contacts/recordings/import': [200, { success: true, recordingId: 'rec_9_new', name: '2026-11-09 Gruppe', fileName: '2026-11-09_Gruppe.m4a', audioUrl: 'https://audio.vegvisr.org/audio/x.m4a' }] })
+    const ro = await connect(env, READ)
+    const e = await callErr(ro.client, 'import_recording_from_url', { url: 'https://files.example/a/2026-11-09%20Gruppe.m4a' })
+    assert.equal(e.requiredScope, 'graph:write')
+    assert.equal(calls.length, 0, 'nothing was fetched without the scope')
+    const { client } = await connect(env, ALICE_RW)
+    const res = await client.callTool({ name: 'import_recording_from_url', arguments: { url: ' https://files.example/a/2026-11-09%20Gruppe.m4a ', name: '2026-11-09 Gruppe.m4a', tags: ['enkel-endring'] } })
+    assert.equal(res.isError, undefined)
+    assert.deepEqual(res.structuredContent, { success: true, recordingId: 'rec_9_new', name: '2026-11-09 Gruppe', fileName: '2026-11-09_Gruppe.m4a' })
+    assert.match(res.content[0].text, /recordingId rec_9_new/)
+    assert.equal(JSON.stringify(res).includes('audio.vegvisr.org'), false, 'no public audio URL flows to the model')
+    assert.equal(calls[0].path, '/contacts/recordings/import')
+    assert.equal(calls[0].token, 'sess-alice')
+    assert.deepEqual(calls[0].body, { url: 'https://files.example/a/2026-11-09%20Gruppe.m4a', name: '2026-11-09 Gruppe.m4a', tags: ['enkel-endring'] })
+    const { tools } = await client.listTools()
+    assert.equal(tools.find((t) => t.name === 'import_recording_from_url').annotations.openWorldHint, false)
+  })
+
+  test('import_recording_from_url refuses a URL that is not https before calling anything', async () => {
+    const { env, calls } = withAgent({})
+    const { client } = await connect(env, ALICE_RW)
+    for (const url of ['http://files.example/a.m4a', 'ftp://files.example/a.m4a', 'a.m4a']) {
+      const e = await callErr(client, 'import_recording_from_url', { url })
+      assert.equal(e.code, gs.ERR.INVALID_INPUT)
+      assert.match(e.message, /https/)
+    }
+    assert.equal(calls.length, 0)
+  })
+
+  test('import_recording_from_url passes on a refusal, and says so when agent-worker has no such door yet', async () => {
+    const big = withAgent({ '/contacts/recordings/import': [400, { success: false, error: 'The audio is 95.0 MB — a recording takes at most 80 MB.' }] })
+    const a = await connect(big.env, ALICE_RW)
+    const e1 = await callErr(a.client, 'import_recording_from_url', { url: 'https://files.example/big.m4a' })
+    assert.equal(e1.code, gs.ERR.INVALID_INPUT)
+    assert.match(e1.message, /at most 80 MB/)
+    const old = withAgent({ '/contacts/recordings/import': [404, {}] })
+    const b = await connect(old.env, ALICE_RW)
+    const e2 = await callErr(b.client, 'import_recording_from_url', { url: 'https://files.example/a.m4a' })
+    assert.match(e2.message, /agent-worker has to be deployed/)
+  })
 })
 
 
