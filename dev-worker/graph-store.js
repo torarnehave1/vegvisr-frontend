@@ -659,6 +659,16 @@ export async function activateLocation(env, graphId, now = new Date().toISOStrin
   await env.vegvisr_org.prepare("UPDATE graph_locations SET status = 'active', updated_at = ? WHERE graph_id = ?").bind(now, graphId).run()
 }
 
+// A World-to-World move: point an already-located graph at another World in ONE update, after the
+// copy there has been verified. Until this runs every read still goes to the old World.
+export async function relocateGraph(env, graphId, domain, now = new Date().toISOString()) {
+  const r = await env.vegvisr_org
+    .prepare("UPDATE graph_locations SET world_domain = ?, status = 'active', updated_at = ? WHERE graph_id = ?")
+    .bind(domain, now, graphId)
+    .run()
+  if (!r?.meta?.changes) throw new GraphStoreError('STORE_UNAVAILABLE', `Graph ${graphId} has no location row to move.`)
+}
+
 export async function dropPendingLocation(env, graphId) {
   await env.vegvisr_org.prepare("DELETE FROM graph_locations WHERE graph_id = ? AND status = 'pending'").bind(graphId).run()
 }

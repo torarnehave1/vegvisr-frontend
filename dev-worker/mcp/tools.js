@@ -456,14 +456,15 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
     {
       title: "Move a graph into a World's own storage",
       description:
-        "Move one existing graph from the platform's shared storage into a World's OWN storage (the " +
-        "World Founder's Cloudflare account), e.g. world \"sodesign.no\". Row and full version history " +
-        'are copied, every version is verified by SHA-256 against the original, and only then does the ' +
-        "graph's id start pointing at the World; the platform original goes to the platform trash for " +
-        '30 days. The graph id and its links do not change. Superadmin only. A #EMAIL- system graph ' +
-        'cannot be moved. Requires the graph:write scope.',
+        "Move one existing graph into a World's OWN storage (the World Founder's Cloudflare account), " +
+        "e.g. world \"sodesign.no\" — from the platform's shared storage, or from ANOTHER World's own " +
+        'storage. Row and full version history are copied, every version is verified by SHA-256 against ' +
+        "the original, and only then does the graph's id start pointing at the new World; until then " +
+        'every read still goes to where the graph was, and a failure leaves it there untouched. The ' +
+        'original goes to the trash of the store it came from for 30 days. The graph id and its links do ' +
+        'not change. Superadmin only. A #EMAIL- system graph cannot be moved. Requires the graph:write scope.',
       inputSchema: {
-        graphId: z.string().min(1).describe('The platform graph to move.'),
+        graphId: z.string().min(1).describe('The graph to move: on the platform, or in another World.'),
         world: z.string().min(1).describe('The World domain to move it to, e.g. "sodesign.no".'),
       },
       outputSchema: {
@@ -475,7 +476,9 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         history: z.number().describe('Versions now stored in the World.'),
         duplicatesDropped: z.number().describe('Platform history rows that repeated a version number; the newest of each was kept.'),
         verified: z.object({ rowSha256: z.string(), versions: z.array(z.number()) }),
-        platformCopy: z.string(),
+        platformCopy: z.string().optional().describe('Moves from the platform only: where the platform original is now.'),
+        from: z.string().optional().describe('"platform", or the World domain the graph came from.'),
+        originalCopy: z.string().optional().describe('Where the original copy is now (the trash of the store it came from).'),
         editorUrl: z.string(),
         viewerUrl: z.string(),
       },
@@ -493,9 +496,9 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
       const { ok: _o, ...payload } = result
       return ok(
         { success: true, ...payload },
-        `Moved graph ${result.graphId} into ${result.world}: ${result.history} version(s), every one verified by SHA-256.` +
-          (result.duplicatesDropped ? ` ${result.duplicatesDropped} duplicate history row(s) on the platform were not carried over.` : '') +
-          `\nPlatform original: ${result.platformCopy}.\nEditor: ${result.editorUrl}`,
+        `Moved graph ${result.graphId} from ${result.from === 'platform' ? 'the platform' : result.from} into ${result.world}: ${result.history} version(s), every one verified by SHA-256.` +
+          (result.duplicatesDropped ? ` ${result.duplicatesDropped} duplicate history row(s) were not carried over.` : '') +
+          `\nOriginal: ${result.originalCopy}.\nEditor: ${result.editorUrl}`,
       )
     },
   )

@@ -19,7 +19,7 @@
  * format. That is what lets one implementation serve both HTTP/REST and MCP/JSON-RPC.
  */
 
-import { platformStore, resolveGraphStore, GraphStoreError, reserveLocation, activateLocation, dropPendingLocation, worldStoresFor, defaultWorldFor, setLocationStatus, graphIdOfTrashId } from './graph-store.js'
+import { platformStore, resolveGraphStore, GraphStoreError, reserveLocation, activateLocation, dropPendingLocation, relocateGraph, worldStoresFor, defaultWorldFor, setLocationStatus, graphIdOfTrashId } from './graph-store.js'
 
 /**
  * resolveGraphStore() throws on routing failures; the service speaks in fail() results. `caller`
@@ -1644,7 +1644,8 @@ export async function moveGraphToWorld(env, { graphId, world, actor }) {
   const source = await storeFor(env, { graphId, actor })
   if (source.error) return source.error
   if (source.store.kind !== 'platform') {
-    return fail(ERR.INVALID_INPUT, `Graph ${graphId} is not on the platform${source.store.world ? ` — it is already in ${source.store.world}` : ''}.`)
+    if (source.store.world === domain) return fail(ERR.INVALID_INPUT, `Graph ${graphId} is already in ${domain}.`)
+    return moveGraphBetweenWorlds(env, { graphId, from: source.store, domain, actor })
   }
   const target = await storeFor(env, { world: domain, actor })
   if (target.error) return target.error
@@ -1723,8 +1724,91 @@ export async function moveGraphToWorld(env, { graphId, world, actor }) {
     duplicatesDropped,
     verified,
     platformCopy: `in the platform trash until ${trash.expiresAt} (${trash.trashId})`,
+    from: 'platform',
+    originalCopy: `in the platform trash until ${trash.expiresAt} (${trash.trashId})`,
     ...graphLinks(graphId, domain),
   }
+}
+
+/**
+ * Move a graph from one World's own store to another's (2026-11-15). Same rules as a move from the
+ * platform: copy row and every version, read it back from the new World and compare SHA-256, and
+ * only then point the graph's id there — in one update of its location row, so until that moment
+ * every read still goes to the old World and a failure leaves it exactly where it was. The old
+ * World's copy goes to that World's trash for 30 days, as a backup: restore_graph follows the
+ * graph's location, which is now the new World, so it does not bring that copy back by itself.
+ */
+async function moveGraphBetweenWorlds(env, { graphId, from, domain, actor }) {
+  const target = await storeFor(env, { world: domain, actor })
+  if (target.error) return target.error
+  const worldStore = target.store
+
+  return guarded(async () => {
+    const exported = await from.exportGraph(graphId)
+    if (!exported) return fail(ERR.GRAPH_NOT_FOUND, `Graph ${graphId} not found in ${from.world}.`)
+    let meta = {}
+    try { meta = JSON.parse(exported.row.data)?.metadata || {} } catch { /* the bytes are what is moved */ }
+    if (/#EMAIL-/i.test(String(meta.metaArea || ''))) {
+      return fail(ERR.INVALID_INPUT, 'A #EMAIL- system graph is read from the platform by the e-mail worker and cannot be moved into a World.')
+    }
+    // Never touch a graph that already sits in the target under this id: the undo below deletes
+    // what this move put there, and must not delete something it did not put there.
+    if (await worldStore.exists(graphId)) {
+      return fail(ERR.INVALID_INPUT, `A graph with id ${graphId} already exists in ${domain}. Nothing was moved.`)
+    }
+
+    const byVersion = new Map()
+    for (const h of exported.history) byVersion.set(h.version, h)
+    const history = [...byVersion.values()]
+    const duplicatesDropped = exported.history.length - history.length
+
+    const undo = async (why) => {
+      try { await worldStore.deleteGraph(graphId) } catch { /* nothing to undo, or the store is down */ }
+      return fail(ERR.STORE_UNAVAILABLE, `Graph ${graphId} was NOT moved: ${why} It is still in ${from.world}, untouched.`)
+    }
+
+    try {
+      await worldStore.importGraph({ row: exported.row, history })
+    } catch (e) {
+      return undo(`the import into ${domain} failed (${e.message}).`)
+    }
+
+    let verified
+    try {
+      const back = await worldStore.exportGraph(graphId)
+      if (!back) return undo(`the graph could not be read back from ${domain}.`)
+      const rowOk = (await sha256Hex(back.row.data)) === (await sha256Hex(exported.row.data))
+      const want = new Map()
+      for (const h of history) want.set(h.version, await sha256Hex(h.data))
+      const got = new Map()
+      for (const h of back.history) got.set(h.version, await sha256Hex(h.data))
+      const versionsOk = want.size === got.size && [...want].every(([v, hash]) => got.get(v) === hash)
+      if (!rowOk || !versionsOk) return undo(`the copy in ${domain} does not match the original (row ${rowOk ? 'ok' : 'differs'}, versions ${versionsOk ? 'ok' : 'differ'}).`)
+      verified = { rowSha256: await sha256Hex(back.row.data), versions: [...got.keys()].sort((a, b) => a - b) }
+    } catch (e) {
+      return undo(`reading it back from ${domain} failed (${e.message}).`)
+    }
+
+    try {
+      await relocateGraph(env, graphId, domain)
+    } catch (e) {
+      return undo(`its location could not be switched to ${domain} (${e.message}).`)
+    }
+
+    const base = {
+      ok: true, graphId, world: domain, from: from.world, title: meta.title ?? null, version: meta.version ?? null,
+      history: verified.versions.length, duplicatesDropped, verified, ...graphLinks(graphId, domain),
+    }
+    try {
+      const trash = await from.trashCopy({ id: graphId, data: exported.row.data, deletedBy: `move_graph_to_world:${actor.email || 'superadmin'}` })
+      await from.deleteGraph(graphId)
+      return { ...base, originalCopy: `in the trash of ${from.world} until ${trash.expiresAt} (${trash.trashId}) — a backup; the graph itself now lives in ${domain}` }
+    } catch (e) {
+      // The new copy is live and verified and the locator routes there; a row left in the old
+      // World is unreachable, not a second live copy — report it rather than fail the move.
+      return { ...base, originalCopy: `NOT removed from ${from.world}: ${e.message} (unreachable — reads go to ${domain})` }
+    }
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
