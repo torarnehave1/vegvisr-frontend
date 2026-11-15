@@ -5090,3 +5090,65 @@ describe('the realtime write tools need graph:write and say what they did', () =
     }
   })
 })
+
+describe('the realtime slug write tools need graph:write and show what the slug now is', () => {
+  const READ = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'contacts:read'] } }
+  const ARGS = {
+    realtime_create_slug: { slug: 'morgen', meetingId: 'p-1', allowedEmails: ['a@example.com'] },
+    realtime_update_slug: { slugId: 's-1', addEmails: ['c@example.com'] },
+    realtime_share_slug: { slugId: 's-1' },
+  }
+  function withRealtime() {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    env.REALTIME_WORKER = { fetch: async (url, init) => {
+      const path = new URL(url).pathname
+      calls.push({ path, body: init.body ? JSON.parse(init.body) : null, token: init.headers['X-API-Token'] })
+      const reply = path.endsWith('/create') ? [201, { success: true, slugId: 's-9', scheduledStartAt: null }]
+        : path.endsWith('/update') ? [200, { success: true, slug: { id: 's-1', slug: 'kurs', meetingId: 'p-1', allowedEmails: ['a@example.com', 'c@example.com'], scheduledStartAt: '2026-12-01T09:00:00.000Z' } }]
+        : [201, { success: true, url: 'https://realtime.vegvisr.org/kurs?t=tok', validFrom: '2026-12-01T08:00:00.000Z', validUntil: '2026-12-01T10:00:00.000Z', scheduledStartAt: '2026-12-01T09:00:00.000Z' }]
+      return new Response(JSON.stringify(reply[1]), { status: reply[0] })
+    } }
+    return { env, calls }
+  }
+
+  test('read scopes are not enough, and nothing reaches realtime-worker', async () => {
+    const { env, calls } = withRealtime()
+    const ro = await connect(env, READ)
+    for (const [name, args] of Object.entries(ARGS)) {
+      const e = await callErr(ro.client, name, args)
+      assert.equal(e.requiredScope, 'graph:write', name)
+    }
+    assert.equal(calls.length, 0)
+  })
+
+  test('realtime_create_slug returns the address and the list', async () => {
+    const { env, calls } = withRealtime()
+    const { client } = await connect(env, ALICE_RW)
+    const res = await client.callTool({ name: 'realtime_create_slug', arguments: ARGS.realtime_create_slug })
+    assert.equal(res.isError, undefined)
+    assert.equal(res.structuredContent.url, 'https://realtime.vegvisr.org/morgen')
+    assert.match(res.content[0].text, /allowed \(1\): a@example\.com/)
+    assert.match(res.content[0].text, /no meeting time set/)
+    assert.equal(calls[0].token, 'sess-alice')
+  })
+
+  test('realtime_update_slug sends only the addition and shows the full list afterwards', async () => {
+    const { env, calls } = withRealtime()
+    const { client } = await connect(env, ALICE_RW)
+    const res = await client.callTool({ name: 'realtime_update_slug', arguments: ARGS.realtime_update_slug })
+    assert.deepEqual(calls[0].body, { addEmails: ['c@example.com'] })
+    assert.match(res.content[0].text, /allowed \(2\): a@example\.com, c@example\.com/)
+    assert.match(res.content[0].text, /meeting time: 2026-12-01 09:00 UTC/)
+  })
+
+  test('realtime_share_slug says that anyone holding the link gets in, and until when', async () => {
+    const { env } = withRealtime()
+    const { client } = await connect(env, ALICE_RW)
+    const res = await client.callTool({ name: 'realtime_share_slug', arguments: ARGS.realtime_share_slug })
+    assert.match(res.content[0].text, /anyone holding it gets in without login/)
+    assert.match(res.content[0].text, /Works from 2026-12-01 08:00 to 2026-12-01 10:00 UTC/)
+    assert.equal(res.structuredContent.url, 'https://realtime.vegvisr.org/kurs?t=tok')
+  })
+})

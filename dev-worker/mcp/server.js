@@ -76,8 +76,8 @@ Three things on this system cannot be inferred from general knowledge, so ask ra
 Vegvisr Realtime (the video meeting app at realtime.vegvisr.org) is reached through the
 realtime_* tools: the user's rooms and meetings with their invitation links, their meeting
 recordings, a playback link or the saved transcript of one, and their invitation slugs. They can
-also prepare a meeting: create one, rename a room, open it to guests without login, and set the
-waiting room. A meeting itself runs in a browser — these tools give links, they do not join, and
+also prepare a meeting: create one, rename a room, open it to guests without login, set the
+waiting room, and make an invitation address (slug) with its list of people and a share link. A meeting itself runs in a browser — these tools give links, they do not join, and
 they send no invitation: e-mail a link only when the user asks. list_recordings (no prefix) is a different
 thing: ContactHub audio.
 

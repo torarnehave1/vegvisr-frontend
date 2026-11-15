@@ -6473,6 +6473,136 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // realtime_create_slug / realtime_update_slug / realtime_share_slug (slice 2b, 2026-11-15) —
+  // invitations. A slug is a door into a meeting: the people on its allowlist, and anyone holding
+  // a share link, get in WITHOUT logging in. realtime-worker allows it to Admin and Superadmin and
+  // only onto a room the caller owns. There is no delete here (decision D3 is open).
+  const REALTIME_SLUG_SHAPE = {
+    success: z.boolean(),
+    slugId: z.string(),
+    slug: z.string(),
+    url: z.string().nullable(),
+    meetingId: z.string(),
+    allowedEmails: z.array(z.string()),
+    scheduledStartAt: z.string().nullable(),
+  }
+  const slugText = (r) =>
+    `${r.url}\nroom: meetingId ${r.meetingId}\nallowed (${r.allowedEmails.length}): ${r.allowedEmails.join(', ')}` +
+    (r.scheduledStartAt ? `\nmeeting time: ${r.scheduledStartAt.replace('T', ' ').slice(0, 16)} UTC` : '\nno meeting time set') +
+    `\nslugId ${r.slugId}`
+  server.registerTool(
+    'realtime_create_slug',
+    {
+      title: 'Create an invitation address for a room (Vegvisr Realtime)',
+      description:
+        'Create a short address, realtime.vegvisr.org/<slug>, that lets the people in ' +
+        'allowedEmails into ONE of your own rooms or meetings — they type their e-mail and ' +
+        'enter, with no account. slug: 3–50 characters, a–z, 0–9 and single hyphens. meetingId ' +
+        'comes from realtime_list_rooms or realtime_list_meetings and must be a room you own. ' +
+        'scheduledStartAt is the meeting time WITH a time zone offset (the user\'s local time is ' +
+        'Norway unless they say otherwise: +01:00 in winter, +02:00 in summer); it is needed ' +
+        'before realtime_share_slug can make a share link. A slug name can never be reused, ' +
+        'also after it is deleted, so confirm the name with the user first. This sends no ' +
+        'invitation: show the address, and e-mail it only when asked. For Admin and Superadmin ' +
+        'accounts. Requires the graph:write scope.',
+      inputSchema: {
+        slug: z.string().min(3).describe('The address part, e.g. "morgenmote".'),
+        meetingId: z.string().min(1).describe('One of your own rooms or meetings.'),
+        allowedEmails: z.array(z.string()).min(1).describe('Who may enter through this address.'),
+        scheduledStartAt: z.string().optional().describe('Meeting time, ISO 8601 with offset, e.g. 2026-12-01T10:00:00+01:00.'),
+      },
+      outputSchema: REALTIME_SLUG_SHAPE,
+      annotations: ADDITIVE_WRITE,
+    },
+    async ({ slug, meetingId, allowedEmails, scheduledStartAt }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.createSlug(env, { actor, slug, meetingId, allowedEmails, scheduledStartAt })
+      if (!r.ok) return fromService(r)
+      const out = { success: true, slugId: r.slugId, slug: r.slug, url: r.url, meetingId: r.meetingId, allowedEmails: r.allowedEmails, scheduledStartAt: r.scheduledStartAt }
+      return ok(out, `Invitation address created.\n${slugText(out)}`)
+    },
+  )
+
+  server.registerTool(
+    'realtime_update_slug',
+    {
+      title: 'Change an invitation address (Vegvisr Realtime)',
+      description:
+        'Change ONE of your own slugs: who may enter, the meeting time, or which room it opens. ' +
+        'slugId is the id from realtime_list_slugs, not the slug text. Use addEmails and ' +
+        'removeEmails to change the list — allowedEmails REPLACES the whole list and removes ' +
+        'everyone not in it, so use it only when the user gives the complete list. ' +
+        'scheduledStartAt takes a time WITH offset (Norway: +01:00 winter, +02:00 summer), or ' +
+        '"" to clear it; share links already made keep their old time window. meetingId must be ' +
+        'a room you own. Only what you pass is changed, and the result is the slug as it now ' +
+        'stands. Requires the graph:write scope.',
+      inputSchema: {
+        slugId: z.string().min(1).describe('The slug id, from realtime_list_slugs.'),
+        addEmails: z.array(z.string()).optional().describe('Add these people.'),
+        removeEmails: z.array(z.string()).optional().describe('Remove these people.'),
+        allowedEmails: z.array(z.string()).optional().describe('The COMPLETE new list. Not together with addEmails/removeEmails.'),
+        scheduledStartAt: z.string().optional().describe('Meeting time, ISO 8601 with offset. "" clears it.'),
+        meetingId: z.string().optional().describe('Point the slug at another of your own rooms.'),
+      },
+      outputSchema: REALTIME_SLUG_SHAPE,
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ slugId, addEmails, removeEmails, allowedEmails, scheduledStartAt, meetingId }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.updateSlug(env, { actor, slugId, addEmails, removeEmails, allowedEmails, scheduledStartAt, meetingId })
+      if (!r.ok) return fromService(r)
+      const out = { success: true, slugId: r.slugId, slug: r.slug, url: r.url, meetingId: r.meetingId, allowedEmails: r.allowedEmails, scheduledStartAt: r.scheduledStartAt }
+      return ok(out, `The slug now stands as:\n${slugText(out)}`)
+    },
+  )
+
+  server.registerTool(
+    'realtime_share_slug',
+    {
+      title: 'Make a share link for an invitation address (Vegvisr Realtime)',
+      description:
+        'Make a share link for ONE of your own slugs. ANYONE holding the link enters the ' +
+        'meeting without logging in and without being on the allowlist — from one hour before ' +
+        'to one hour after the slug\'s meeting time (validFrom / validUntil, UTC). The slug must ' +
+        'have a meeting time; set it with realtime_update_slug. Every call makes ANOTHER link ' +
+        'and the earlier ones stay valid, so call it once and reuse the link. This cannot be ' +
+        'undone from here: a link is revoked in the Realtime app. Make one only when the user ' +
+        'asks for a link to hand out. Requires the graph:write scope.',
+      inputSchema: {
+        slugId: z.string().min(1).describe('The slug id, from realtime_list_slugs.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        slugId: z.string(),
+        url: z.string(),
+        validFrom: z.string(),
+        validUntil: z.string(),
+        scheduledStartAt: z.string(),
+      },
+      annotations: ADDITIVE_WRITE,
+    },
+    async ({ slugId }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await realtime.shareSlug(env, { actor, slugId })
+      if (!r.ok) return fromService(r)
+      const t = (iso) => iso.replace('T', ' ').slice(0, 16)
+      return ok({ success: true, slugId: r.slugId, url: r.url, validFrom: r.validFrom, validUntil: r.validUntil, scheduledStartAt: r.scheduledStartAt },
+        `Share link — anyone holding it gets in without login:\n${r.url}\nWorks from ${t(r.validFrom)} to ${t(r.validUntil)} UTC (meeting at ${t(r.scheduledStartAt)} UTC).`)
+    },
+  )
+
   // ── set_user_groups ───────────────────────────────────────────────────────
   //
   // register_user refuses an email that already exists, which left no way to tag someone who is
@@ -7978,6 +8108,9 @@ export const TOOL_NAMES = [
   'realtime_rename_room',
   'realtime_set_open_room',
   'realtime_set_waiting_room',
+  'realtime_create_slug',
+  'realtime_update_slug',
+  'realtime_share_slug',
   'get_youtube_transcript',
   'set_user_groups',
   'update_user_profile',

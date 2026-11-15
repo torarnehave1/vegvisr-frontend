@@ -494,3 +494,123 @@ export async function setWaitingRoom(env, { actor, enabled, screenTitle, screenI
     screenImageUrl: now.data.waitingScreen?.image ? String(now.data.waitingScreen.image) : null,
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Slugs (slice 2b, 2026-11-15) — writes
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// A slug is a door into a meeting: the people on its allowlist, and anyone holding one of its
+// share links, get in without logging in. realtime-worker decides who may make one (Admin or
+// Superadmin, and only onto a room the caller owns) and holds the list arithmetic for
+// addEmails / removeEmails, so nothing here reads the list in order to write it back.
+
+const SLUG_RE = /^[a-z0-9-]{3,50}$/
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function cleanEmails(list, name) {
+  if (list === undefined) return { value: undefined }
+  if (!Array.isArray(list)) return { error: `${name} must be a list of e-mail addresses.` }
+  const out = list.map((e) => String(e || '').trim()).filter(Boolean)
+  const bad = out.find((e) => !EMAIL_RE.test(e))
+  if (bad) return { error: `${name}: "${bad}" is not an e-mail address.` }
+  return { value: out }
+}
+
+function cleanTime(v) {
+  if (v === undefined) return { value: undefined }
+  if (v === null || String(v).trim() === '') return { value: null }
+  const d = new Date(String(v))
+  if (isNaN(d.getTime())) return { error: 'scheduledStartAt is not a date. Use ISO 8601 with the time zone offset, e.g. 2026-12-01T10:00:00+01:00.' }
+  // A time without a zone would be read as UTC by the server and land an hour or two off.
+  if (!/(Z|[+-]\d{2}:?\d{2})$/i.test(String(v).trim())) return { error: 'scheduledStartAt needs a time zone offset, e.g. 2026-12-01T10:00:00+01:00 (or Z for UTC).' }
+  return { value: d.toISOString() }
+}
+
+const slugUrl = (slug) => `${REALTIME_APP_ORIGIN}/${encodeURIComponent(String(slug))}`
+
+/** Create a slug that lets the listed people into one of the caller's own rooms. */
+export async function createSlug(env, { actor, slug, meetingId, allowedEmails, scheduledStartAt }) {
+  const s = String(slug || '').trim().toLowerCase()
+  if (!SLUG_RE.test(s) || /^-|-$|--/.test(s)) return fail(ERR.INVALID_INPUT, 'slug must be 3–50 characters: a–z, 0–9 and single hyphens, not at the ends.')
+  const id = String(meetingId || '').trim()
+  if (!id) return fail(ERR.INVALID_INPUT, 'meetingId is required — realtime_list_rooms or realtime_list_meetings gives it.')
+  const emails = cleanEmails(allowedEmails, 'allowedEmails')
+  if (emails.error) return fail(ERR.INVALID_INPUT, emails.error)
+  if (!emails.value?.length) return fail(ERR.INVALID_INPUT, 'allowedEmails needs at least one e-mail address.')
+  const when = cleanTime(scheduledStartAt)
+  if (when.error) return fail(ERR.INVALID_INPUT, when.error)
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const r = await post(env, t.token, '/realtime/slugs/create', {
+    slug: s, meetingId: id, allowedEmails: emails.value, ...(when.value ? { scheduledStartAt: when.value } : {}),
+  })
+  if (!r.ok) return r
+  return {
+    ok: true,
+    slugId: String(r.data.slugId || ''),
+    slug: s,
+    url: slugUrl(s),
+    meetingId: id,
+    allowedEmails: emails.value,
+    scheduledStartAt: r.data.scheduledStartAt ? String(r.data.scheduledStartAt) : null,
+  }
+}
+
+/** Change one of the caller's own slugs. Only what is passed is changed. */
+export async function updateSlug(env, { actor, slugId, addEmails, removeEmails, allowedEmails, scheduledStartAt, meetingId }) {
+  const sid = String(slugId || '').trim()
+  if (!sid) return fail(ERR.INVALID_INPUT, 'slugId is required — realtime_list_slugs gives it (the id, not the slug text).')
+  const body = {}
+  for (const [name, list] of [['addEmails', addEmails], ['removeEmails', removeEmails], ['allowedEmails', allowedEmails]]) {
+    const c = cleanEmails(list, name)
+    if (c.error) return fail(ERR.INVALID_INPUT, c.error)
+    if (c.value !== undefined) {
+      if (!c.value.length) return fail(ERR.INVALID_INPUT, `${name} is empty.`)
+      body[name] = c.value
+    }
+  }
+  if (body.allowedEmails && (body.addEmails || body.removeEmails)) {
+    return fail(ERR.INVALID_INPUT, 'Pass either allowedEmails (replaces the whole list) or addEmails/removeEmails, not both.')
+  }
+  const when = cleanTime(scheduledStartAt)
+  if (when.error) return fail(ERR.INVALID_INPUT, when.error)
+  if (when.value !== undefined) body.scheduledStartAt = when.value
+  if (meetingId !== undefined && String(meetingId).trim()) body.meetingId = String(meetingId).trim()
+  if (!Object.keys(body).length) return fail(ERR.INVALID_INPUT, 'Nothing to change — pass addEmails, removeEmails, allowedEmails, scheduledStartAt or meetingId.')
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const r = await post(env, t.token, `/realtime/slugs/${encodeURIComponent(sid)}/update`, body)
+  if (!r.ok) return r
+  const now = r.data.slug || {}
+  return {
+    ok: true,
+    slugId: sid,
+    slug: String(now.slug || ''),
+    url: now.slug ? slugUrl(now.slug) : null,
+    meetingId: String(now.meetingId || ''),
+    allowedEmails: Array.isArray(now.allowedEmails) ? now.allowedEmails.map(String) : [],
+    scheduledStartAt: now.scheduledStartAt ? String(now.scheduledStartAt) : null,
+  }
+}
+
+/**
+ * Make a share link for a slug: anyone holding it gets in without login, from an hour before to
+ * an hour after the slug's meeting time. Every call makes ANOTHER link; earlier ones stay valid.
+ */
+export async function shareSlug(env, { actor, slugId }) {
+  const sid = String(slugId || '').trim()
+  if (!sid) return fail(ERR.INVALID_INPUT, 'slugId is required — realtime_list_slugs gives it (the id, not the slug text).')
+  const t = await tokenOrFail(env, actor)
+  if (t.error) return t.error
+  const r = await post(env, t.token, `/realtime/slugs/${encodeURIComponent(sid)}/share-token`, {})
+  if (!r.ok) return r
+  if (!r.data.url) return fail(ERR.INTERNAL_ERROR, 'realtime-worker returned no share link.')
+  return {
+    ok: true,
+    slugId: sid,
+    url: String(r.data.url),
+    validFrom: String(r.data.validFrom || ''),
+    validUntil: String(r.data.validUntil || ''),
+    scheduledStartAt: String(r.data.scheduledStartAt || ''),
+  }
+}

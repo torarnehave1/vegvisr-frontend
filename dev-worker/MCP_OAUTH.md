@@ -349,6 +349,12 @@ Vegvisr Realtime (realtime.vegvisr.org) operated from MCP. Plan and decisions: k
   `realtime_rename_room`, `realtime_set_open_room`, `realtime_set_waiting_room`. REST twins (POST):
   `/realtime-tools/create-meeting`, `rename-room`, `open-room`, `waiting-room`. None can close,
   delete or send. `realtime_set_open_room` never sends `isDefault`.
+- **Slug tools (slice 2b, 2026-11-15, `graph:write`):** `realtime_create_slug`,
+  `realtime_update_slug`, `realtime_share_slug`. POST twins `/realtime-tools/create-slug`,
+  `update-slug`, `share-slug`. A slug lets people into a meeting WITHOUT login, so realtime-worker
+  now requires the caller to own the meeting it points at (`callerOwnsMeeting`, no Superadmin
+  exception; `test-slugs.mjs`). `addEmails` / `removeEmails` are done in the worker. No delete and
+  no revoke through MCP (decision D3 open). A share link cannot be withdrawn from MCP.
 - **The spec is also Agent-Builder's tool list (decision D8 = B, 2026-11-15).** realtime-worker is
   registered in `graph_system_registry` (`sysworker-realtime`, prefix `rt_`), so every operation
   in `/realtime/openapi.json` is a chat tool there too, writes included.

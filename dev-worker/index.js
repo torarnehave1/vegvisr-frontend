@@ -5825,6 +5825,9 @@ const restHandler = {
         '/realtime-tools/rename-room': (actor, b) => realtimeService.renameRoom(env, { actor, meetingId: b.meetingId, title: b.title }),
         '/realtime-tools/open-room': (actor, b) => realtimeService.setOpenRoom(env, { actor, meetingId: b.meetingId, open: b.open }),
         '/realtime-tools/waiting-room': (actor, b) => realtimeService.setWaitingRoom(env, { actor, enabled: b.enabled, screenTitle: b.screenTitle, screenImageUrl: b.screenImageUrl }),
+        '/realtime-tools/create-slug': (actor, b) => realtimeService.createSlug(env, { actor, slug: b.slug, meetingId: b.meetingId, allowedEmails: b.allowedEmails, scheduledStartAt: b.scheduledStartAt }),
+        '/realtime-tools/update-slug': (actor, b) => realtimeService.updateSlug(env, { actor, slugId: b.slugId, addEmails: b.addEmails, removeEmails: b.removeEmails, allowedEmails: b.allowedEmails, scheduledStartAt: b.scheduledStartAt, meetingId: b.meetingId }),
+        '/realtime-tools/share-slug': (actor, b) => realtimeService.shareSlug(env, { actor, slugId: b.slugId }),
       })[pathname]
       if (realtimeRead || realtimeWrite) {
         const tv = await validateAuth(request, env)

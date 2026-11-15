@@ -37,6 +37,10 @@ const EXPECTED = {
   'POST /realtime/toggle-waiting-room': 'toggleWaitingRoom',
   'POST /realtime/update-waiting-screen': 'updateWaitingScreen',
   'POST /realtime/open-room/toggle': 'toggleOpenRoom',
+  // write, slugs (slice 2b, 2026-11-15)
+  'POST /realtime/slugs/create': 'createSlug',
+  'POST /realtime/slugs/{slugId}/update': 'updateSlug',
+  'POST /realtime/slugs/{slugId}/share-token': 'mintSlugShareToken',
 }
 
 const res = await worker.fetch(new Request('https://api.vegvisr.org/realtime/openapi.json'), {})

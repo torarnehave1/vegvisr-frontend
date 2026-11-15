@@ -1135,6 +1135,31 @@ function normalizeIsoOrEmpty(value) {
 // Custom room slugs are owner-scoped (create stamps owner_email = caller; list
 // filters by owner_email; update/delete/share-token re-check ownership), so an
 // Admin may manage their OWN slugs alongside Superadmin without seeing others'.
+// Does this caller own the meeting a slug is about to point at? A slug is a door into a meeting:
+// its allowlist and its share links let people in WITHOUT login, with a participant token minted
+// by this worker. Until 2026-11-15 slugs/create and slugs/update accepted ANY meetingId, so an
+// Admin could put a door on someone else's room. Owning means the caller's personal or team room,
+// or a meeting_ownership row. No Superadmin exception (as for open-room/toggle). Fails CLOSED.
+async function callerOwnsMeeting(email, meetingId, env) {
+  const id = String(meetingId || '')
+  if (!email || !id) return false
+  try {
+    const own = await env.vegvisr_org
+      .prepare('SELECT 1 AS ok FROM meeting_ownership WHERE meeting_id = ? AND lower(owner_email) = lower(?) LIMIT 1')
+      .bind(id, email).first()
+    if (own) return true
+    const row = await env.vegvisr_org
+      .prepare("SELECT json_extract(data, '$.realtime') as realtime FROM config WHERE lower(email) = lower(?)")
+      .bind(email).first()
+    if (!row?.realtime) return false
+    const rt = JSON.parse(row.realtime)
+    return rt.personalMeetingId === id || rt.teamMeetingId === id
+  } catch (e) {
+    console.error('callerOwnsMeeting failed (refusing):', e)
+    return false
+  }
+}
+
 function canManageSlugs(role) {
   return role === 'Superadmin' || role === 'Admin'
 }
@@ -1290,6 +1315,55 @@ function buildRealtimeOpenApiSpec(origin) {
               },
             },
           }),
+        },
+      },
+      '/realtime/slugs/create': {
+        post: {
+          operationId: 'createSlug',
+          summary: 'Create a custom room address (realtime.vegvisr.org/<slug>) that lets the listed e-mail addresses into one of the caller\'s OWN rooms or meetings. Admin or Superadmin. 403 for a meeting the caller does not own, 409 when the slug is taken (a deleted slug stays taken)',
+          requestBody: jsonBody({
+            slug: { type: 'string', description: '3-50 characters: a-z, 0-9 and single hyphens, not at the ends' },
+            meetingId: { type: 'string' },
+            allowedEmails: { type: 'array', items: { type: 'string' }, description: 'At least one' },
+            scheduledStartAt: { type: ['string', 'null'], description: 'Meeting time, ISO 8601. Needed before a share link can be made' },
+          }, ['slug', 'meetingId', 'allowedEmails']),
+          responses: { 201: { description: 'The new slug', content: { 'application/json': { schema: { type: 'object', properties: {
+            success: { type: 'boolean' }, slugId: { type: 'string' }, slug: { type: 'string' }, meetingId: { type: 'string' },
+            url: { type: 'string' }, scheduledStartAt: { type: ['string', 'null'] },
+          } } } } } },
+        },
+      },
+      '/realtime/slugs/{slugId}/update': {
+        post: {
+          operationId: 'updateSlug',
+          summary: 'Change one of the caller\'s own slugs. Only the fields sent are changed. allowedEmails REPLACES the whole list; addEmails / removeEmails change it without resending it (not together with allowedEmails). scheduledStartAt null or "" clears the meeting time. meetingId must be a room the caller owns',
+          parameters: [{ name: 'slugId', in: 'path', required: true, schema: { type: 'string' }, description: 'The slug id (not the slug text), from the slugs list' }],
+          requestBody: jsonBody({
+            allowedEmails: { type: 'array', items: { type: 'string' } },
+            addEmails: { type: 'array', items: { type: 'string' } },
+            removeEmails: { type: 'array', items: { type: 'string' } },
+            scheduledStartAt: { type: ['string', 'null'] },
+            meetingId: { type: 'string' },
+          }),
+          responses: okShape('The slug as it now stands', {
+            success: { type: 'boolean' },
+            slug: { type: 'object', properties: {
+              id: { type: 'string' }, slug: { type: 'string' }, meetingId: { type: 'string' },
+              allowedEmails: { type: 'array', items: { type: 'string' } }, scheduledStartAt: { type: ['string', 'null'] },
+            } },
+          }),
+        },
+      },
+      '/realtime/slugs/{slugId}/share-token': {
+        post: {
+          operationId: 'mintSlugShareToken',
+          summary: 'Make a share link for one of the caller\'s own slugs. ANYONE holding the link can enter the meeting without login and without being on the allowlist, from 1 hour before to 1 hour after the slug\'s meeting time. 400 when the slug has no meeting time. Each call makes a new link; earlier ones stay valid',
+          parameters: [{ name: 'slugId', in: 'path', required: true, schema: { type: 'string' }, description: 'The slug id, from the slugs list' }],
+          requestBody: jsonBody({}),
+          responses: { 201: { description: 'The share link', content: { 'application/json': { schema: { type: 'object', properties: {
+            success: { type: 'boolean' }, token: { type: 'string' }, url: { type: 'string' },
+            validFrom: { type: 'string' }, validUntil: { type: 'string' }, scheduledStartAt: { type: 'string' },
+          } } } } } },
         },
       },
       '/realtime/create-meeting': {
@@ -4284,6 +4358,9 @@ export default {
           }
           scheduledIso = d.toISOString()
         }
+        if (!(await callerOwnsMeeting(user.email, meetingId, env))) {
+          return createResponse(JSON.stringify({ success: false, error: 'Forbidden: a slug can only point at a room or meeting you own' }), 403)
+        }
         const existing = await env.vegvisr_org.prepare('SELECT id FROM custom_room_slugs WHERE slug = ?').bind(slug).first()
         if (existing) {
           return createResponse(JSON.stringify({ success: false, error: 'Slug already exists' }), 409)
@@ -4293,7 +4370,7 @@ export default {
         await env.vegvisr_org
           .prepare('INSERT INTO custom_room_slugs (id, slug, meeting_id, owner_email, allowed_emails, created_at, updated_at, active, scheduled_start_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)')
           .bind(slugId, slug, meetingId, user.email, JSON.stringify(allowedEmails), now, now, scheduledIso).run()
-        return createResponse(JSON.stringify({ success: true, slugId }), 201)
+        return createResponse(JSON.stringify({ success: true, slugId, slug, meetingId, url: `https://realtime.vegvisr.org/${slug}`, scheduledStartAt: scheduledIso }), 201)
       } catch (e) {
         return createResponse(JSON.stringify({ success: false, error: e.message }), 500)
       }
@@ -4344,7 +4421,40 @@ export default {
           const ownerRow = await env.vegvisr_org.prepare('SELECT owner_email FROM custom_room_slugs WHERE id = ?').bind(slugId).first()
           if (!ownerRow) return createResponse(JSON.stringify({ success: false, error: 'Slug not found' }), 404)
           if (ownerRow.owner_email !== user.email) return createResponse(JSON.stringify({ success: false, error: 'Forbidden: You do not own this slug' }), 403)
-          const { allowedEmails, meetingId, scheduledStartAt } = await request.json()
+          const reqBody = await request.json()
+          const { meetingId, scheduledStartAt, addEmails, removeEmails } = reqBody
+          let { allowedEmails } = reqBody
+          // addEmails / removeEmails (since 2026-11-15) change the allowlist without the caller
+          // having to send the whole list. allowedEmails REPLACES the list, so a caller asked to
+          // "add one person" that sent only that person used to lock everyone else out.
+          if (addEmails !== undefined || removeEmails !== undefined) {
+            if (allowedEmails !== undefined) {
+              return createResponse(JSON.stringify({ success: false, error: 'Send either allowedEmails (replaces the list) or addEmails/removeEmails, not both' }), 400)
+            }
+            for (const list of [addEmails, removeEmails]) {
+              if (list !== undefined && !Array.isArray(list)) {
+                return createResponse(JSON.stringify({ success: false, error: 'addEmails and removeEmails must be arrays' }), 400)
+              }
+            }
+            const curRow = await env.vegvisr_org.prepare('SELECT allowed_emails FROM custom_room_slugs WHERE id = ?').bind(slugId).first()
+            let current = []
+            try { current = JSON.parse(curRow?.allowed_emails || '[]') } catch { current = [] }
+            const norm = (e) => String(e).trim().toLowerCase()
+            const drop = new Set((removeEmails || []).map(norm))
+            const next = current.filter((e) => !drop.has(norm(e)))
+            const have = new Set(next.map(norm))
+            for (const e of addEmails || []) {
+              const v = String(e).trim()
+              if (!have.has(norm(v))) { next.push(v); have.add(norm(v)) }
+            }
+            if (next.length === 0) {
+              return createResponse(JSON.stringify({ success: false, error: 'That would leave the slug with nobody allowed. Keep at least one e-mail address' }), 400)
+            }
+            allowedEmails = next
+          }
+          if (meetingId !== undefined && !(await callerOwnsMeeting(user.email, meetingId, env))) {
+            return createResponse(JSON.stringify({ success: false, error: 'Forbidden: a slug can only point at a room or meeting you own' }), 403)
+          }
           const updates = []
           const binds = []
           if (allowedEmails !== undefined) {
@@ -4382,7 +4492,15 @@ export default {
           binds.push(new Date().toISOString())
           binds.push(slugId)
           await env.vegvisr_org.prepare(`UPDATE custom_room_slugs SET ${updates.join(', ')} WHERE id = ?`).bind(...binds).run()
-          return createResponse(JSON.stringify({ success: true }), 200)
+          const after = await env.vegvisr_org
+            .prepare('SELECT id, slug, meeting_id, allowed_emails, scheduled_start_at FROM custom_room_slugs WHERE id = ?')
+            .bind(slugId).first()
+          let afterEmails = []
+          try { afterEmails = JSON.parse(after?.allowed_emails || '[]') } catch { afterEmails = [] }
+          return createResponse(JSON.stringify({
+            success: true,
+            slug: { id: after?.id, slug: after?.slug, meetingId: after?.meeting_id, allowedEmails: afterEmails, scheduledStartAt: after?.scheduled_start_at || null },
+          }), 200)
         } catch (e) {
           return createResponse(JSON.stringify({ success: false, error: e.message }), 500)
         }

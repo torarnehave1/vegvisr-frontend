@@ -414,3 +414,69 @@ test('setWaitingRoom changes only what is passed, one call after the other, and 
   assert.equal((await rt.setWaitingRoom(env, { actor: ALICE, screenImageUrl: 'javascript:alert(1)' })).code, gs.ERR.INVALID_INPUT)
   assert.equal(calls.length, 0)
 })
+
+// ── Slice 2b: slugs (writes) ─────────────────────────────────────────────────
+test('createSlug validates before anything is sent, then forwards a normalised request', async () => {
+  const { env, calls } = world3(() => [201, { success: true, slugId: 's-9', slug: 'morgen', meetingId: 'p-1', url: 'https://realtime.vegvisr.org/morgen', scheduledStartAt: '2026-12-01T09:00:00.000Z' }])
+  for (const bad of [
+    { slug: 'Not Valid', meetingId: 'p-1', allowedEmails: ['a@example.com'] },
+    { slug: 'ab', meetingId: 'p-1', allowedEmails: ['a@example.com'] },
+    { slug: 'morgen', meetingId: '', allowedEmails: ['a@example.com'] },
+    { slug: 'morgen', meetingId: 'p-1', allowedEmails: [] },
+    { slug: 'morgen', meetingId: 'p-1', allowedEmails: ['nope'] },
+    { slug: 'morgen', meetingId: 'p-1', allowedEmails: ['a@example.com'], scheduledStartAt: '2026-12-01T10:00:00' },
+    { slug: 'morgen', meetingId: 'p-1', allowedEmails: ['a@example.com'], scheduledStartAt: 'next tuesday' },
+  ]) {
+    assert.equal((await rt.createSlug(env, { actor: ALICE, ...bad })).code, gs.ERR.INVALID_INPUT, JSON.stringify(bad))
+  }
+  assert.equal(calls.length, 0)
+
+  const r = await rt.createSlug(env, { actor: ALICE, slug: ' Morgen ', meetingId: 'p-1', allowedEmails: [' a@example.com '], scheduledStartAt: '2026-12-01T10:00:00+01:00' })
+  assert.deepEqual(calls[0].body, { slug: 'morgen', meetingId: 'p-1', allowedEmails: ['a@example.com'], scheduledStartAt: '2026-12-01T09:00:00.000Z' })
+  assert.deepEqual(r, { ok: true, slugId: 's-9', slug: 'morgen', url: 'https://realtime.vegvisr.org/morgen', meetingId: 'p-1', allowedEmails: ['a@example.com'], scheduledStartAt: '2026-12-01T09:00:00.000Z' })
+})
+
+test('createSlug passes on realtime-worker\'s refusals: not your room, name taken, not an Admin', async () => {
+  const foreign = world3(() => [403, { success: false, error: 'Forbidden: a slug can only point at a room or meeting you own' }])
+  const a = await rt.createSlug(foreign.env, { actor: ALICE, slug: 'kapret', meetingId: 'x', allowedEmails: ['a@example.com'] })
+  assert.equal(a.code, gs.ERR.FORBIDDEN_GRAPH)
+  assert.match(a.message, /you own/)
+  const taken = world3(() => [409, { success: false, error: 'Slug already exists' }])
+  const b = await rt.createSlug(taken.env, { actor: ALICE, slug: 'kurs', meetingId: 'p-1', allowedEmails: ['a@example.com'] })
+  assert.equal(b.ok, false)
+  assert.match(b.message, /already exists/)
+})
+
+test('updateSlug sends only what was passed and returns the slug as it now stands', async () => {
+  const { env, calls } = world3(() => [200, { success: true, slug: { id: 's-1', slug: 'kurs', meetingId: 'p-1', allowedEmails: ['a@example.com', 'c@example.com'], scheduledStartAt: null } }])
+  const r = await rt.updateSlug(env, { actor: ALICE, slugId: 's-1', addEmails: ['c@example.com'] })
+  assert.equal(calls[0].path, '/realtime/slugs/s-1/update')
+  assert.deepEqual(calls[0].body, { addEmails: ['c@example.com'] }, 'the whole list is never resent from here')
+  assert.deepEqual(r.allowedEmails, ['a@example.com', 'c@example.com'])
+  assert.equal(r.url, 'https://realtime.vegvisr.org/kurs')
+
+  calls.length = 0
+  await rt.updateSlug(env, { actor: ALICE, slugId: 's-1', scheduledStartAt: '' })
+  assert.deepEqual(calls[0].body, { scheduledStartAt: null }, '"" clears the meeting time')
+
+  calls.length = 0
+  for (const bad of [
+    { slugId: 's-1' },
+    { slugId: '', addEmails: ['c@example.com'] },
+    { slugId: 's-1', allowedEmails: ['a@example.com'], addEmails: ['c@example.com'] },
+    { slugId: 's-1', removeEmails: [] },
+    { slugId: 's-1', scheduledStartAt: '2026-12-01 10:00' },
+  ]) assert.equal((await rt.updateSlug(env, { actor: ALICE, ...bad })).code, gs.ERR.INVALID_INPUT, JSON.stringify(bad))
+  assert.equal(calls.length, 0)
+})
+
+test('shareSlug returns the link and its window; a slug without a meeting time is an error the model can act on', async () => {
+  const okW = world3(() => [201, { success: true, token: 'tok', url: 'https://realtime.vegvisr.org/kurs?t=tok', validFrom: '2026-12-01T08:00:00.000Z', validUntil: '2026-12-01T10:00:00.000Z', scheduledStartAt: '2026-12-01T09:00:00.000Z' }])
+  const r = await rt.shareSlug(okW.env, { actor: ALICE, slugId: 's-1' })
+  assert.equal(okW.calls[0].path, '/realtime/slugs/s-1/share-token')
+  assert.deepEqual(r, { ok: true, slugId: 's-1', url: 'https://realtime.vegvisr.org/kurs?t=tok', validFrom: '2026-12-01T08:00:00.000Z', validUntil: '2026-12-01T10:00:00.000Z', scheduledStartAt: '2026-12-01T09:00:00.000Z' })
+  const none = world3(() => [400, { success: false, error: 'Set a meeting time on this slug before generating a share link' }])
+  const n = await rt.shareSlug(none.env, { actor: ALICE, slugId: 's-1' })
+  assert.equal(n.code, gs.ERR.INVALID_INPUT)
+  assert.match(n.message, /meeting time/)
+})
