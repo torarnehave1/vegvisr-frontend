@@ -1907,6 +1907,21 @@ export default {
           } catch (_) {}
         }
 
+        // Who may close it: the meeting's owner (meeting_ownership) or a Superadmin. Until
+        // 2026-11-15 there was no check at all — any signed-in user could set any meeting
+        // INACTIVE by id. Fails CLOSED: no ownership row, or an unreadable table, is a refusal.
+        // A meeting created before ownership was recorded can be closed by a Superadmin only.
+        if (auth.role !== 'Superadmin') {
+          let owns = false
+          try {
+            const row = await env.vegvisr_org
+              .prepare('SELECT 1 AS ok FROM meeting_ownership WHERE meeting_id = ? AND lower(owner_email) = lower(?) LIMIT 1')
+              .bind(String(meetingId), auth.email || '').first()
+            owns = !!row
+          } catch (e) { console.error('/realtime/close-meeting: meeting_ownership check failed:', e) }
+          if (!owns) return createResponse(JSON.stringify({ error: 'Only the owner of this meeting can close it.' }), 403)
+        }
+
         // Close the meeting in its owner's app.
         const { appId, accountId, apiToken } = await getMeetingOwnerCredentials(meetingId, env)
         if (!appId || !accountId || !apiToken) return createResponse(JSON.stringify({ error: 'RealtimeKit not configured on server' }), 500)
