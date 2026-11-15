@@ -6241,6 +6241,8 @@ ${result.warnings.join('\n')}` : ''),
   // All three go through agent-worker (the executors the chat uses). Reading sits behind
   // contacts:read; transcribing also needs graph:write (it saves a graph node and appends to the
   // interaction's note) and sends the audio to OpenAI Whisper, hence openWorldHint.
+  // 2026-11-15: transcribing also takes a recording that is only in the audio portfolio (no
+  // interaction, so no note) and splits MP4/M4A, WAV and MP3 as well as WebM.
   const LOG_SHAPE = z.object({
     id: z.string(),
     loggedAt: z.string(),
@@ -6423,16 +6425,19 @@ ${result.warnings.join('\n')}` : ''),
   server.registerTool(
     'transcribe_contact_recording',
     {
-      title: 'Transcribe a ContactHub recording',
+      title: 'Transcribe one of your recordings',
       description:
-        'Transcribe ONE recording from YOUR OWN ContactHub on the server (OpenAI Whisper, Norwegian ' +
-        'by default; long recordings are split into ~8-minute parts and joined with [mm:ss] ' +
-        'timestamps). The text is saved in two places: a fulltext node in a graph — a new private ' +
-        'graph, or graphId to add it to one — and appended to the interaction\'s note in ContactHub ' +
-        '(skipped if a transcript from here is already there). Returns the whole transcript, so you ' +
-        'can build a report or a graph from it. Takes 20–60 seconds. recordingId comes from ' +
-        'get_contact_logs or list_recordings, copied exactly. The audio is sent to OpenAI. Requires ' +
-        'the contacts:read and graph:write scopes.',
+        'Transcribe ONE of YOUR OWN recordings on the server (OpenAI Whisper, Norwegian by default): ' +
+        'one made on a ContactHub interaction, or one that is only in your audio portfolio — an ' +
+        'upload, a group conversation, a Zoom or phone recording. WebM, MP4/M4A, WAV and MP3 of any ' +
+        'length up to 80 MB; a long recording is split into parts and joined with [mm:ss] ' +
+        'timestamps. The text is saved as a fulltext node in a graph — a new private graph, or ' +
+        'graphId to add it to one. For a ContactHub recording it is also appended to the ' +
+        'interaction\'s note (skipped if a transcript from here is already there); a portfolio-only ' +
+        'recording has no interaction and source says "audio-portfolio". Returns the whole ' +
+        'transcript, so you can build a report or a graph from it. Takes 20 seconds to a few ' +
+        'minutes. recordingId comes from list_recordings or get_contact_logs, copied exactly. The ' +
+        'audio is sent to OpenAI. Requires the contacts:read and graph:write scopes.',
       inputSchema: {
         recordingId: z.string().min(1).describe('From get_contact_logs or list_recordings, exactly as returned.'),
         graphId: z.string().optional().describe('Add the transcript node to this graph instead of creating a new one.'),
@@ -6444,6 +6449,8 @@ ${result.warnings.join('\n')}` : ''),
         nodeId: z.string(),
         viewerUrl: z.string(),
         recordingId: z.string(),
+        source: z.enum(['contacthub', 'audio-portfolio']),
+        recordingName: z.string().nullable(),
         contactId: z.string().nullable(),
         contactName: z.string(),
         loggedAt: z.string().nullable(),
@@ -6469,6 +6476,9 @@ ${result.warnings.join('\n')}` : ''),
         nodeId: String(r.nodeId || ''),
         viewerUrl: String(r.viewerUrl || ''),
         recordingId: String(r.recordingId || recordingId),
+        // An agent-worker from before 2026-11-15 sends no source: it only did ContactHub.
+        source: r.source === 'audio-portfolio' ? 'audio-portfolio' : 'contacthub',
+        recordingName: r.recordingName ? String(r.recordingName) : null,
         contactId: r.contactId ? String(r.contactId) : null,
         contactName: String(r.contactName || ''),
         loggedAt: r.loggedAt ? String(r.loggedAt) : null,

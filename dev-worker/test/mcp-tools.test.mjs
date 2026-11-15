@@ -4409,6 +4409,30 @@ describe('contact history + server transcription via agent-worker (2026-10-27)',
     assert.equal(tools.find((t) => t.name === 'transcribe_contact_recording').annotations.openWorldHint, true)
   })
 
+  test('a recording that is only in the audio portfolio is transcribed too, and says so', async () => {
+    const { env, calls } = withAgent({ '/contacts/transcribe': [200, { success: true, graphId: 'g2', nodeId: 'n2', viewerUrl: 'https://www.vegvisr.org/gnew-viewer?graphId=g2', recordingId: 'rec_1_x', source: 'audio-portfolio', recordingName: '2026-11-12 Gruppe', contactId: null, contactName: null, loggedAt: '2026-11-14T12:34:35Z', chunks: 7, failedChunks: 0, chars: 9, notesUpdated: false, transcript: '[00:00] hei', message: 'Transcribed the audio-portfolio recording.' }] })
+    const { client } = await connect(env, BOTH)
+    const res = await client.callTool({ name: 'transcribe_contact_recording', arguments: { recordingId: 'rec_1_x' } })
+    assert.equal(res.isError, undefined)
+    assert.equal(res.structuredContent.source, 'audio-portfolio')
+    assert.equal(res.structuredContent.recordingName, '2026-11-12 Gruppe')
+    assert.equal(res.structuredContent.contactName, '')
+    assert.equal(res.structuredContent.contactId, null)
+    assert.equal(res.structuredContent.notesUpdated, false)
+    assert.equal(res.structuredContent.parts, 7)
+    assert.deepEqual(calls[0].body, { recordingId: 'rec_1_x' })
+    const { tools } = await client.listTools()
+    assert.match(tools.find((t) => t.name === 'transcribe_contact_recording').description, /audio portfolio/)
+  })
+
+  test('an agent-worker that sends no source is read as ContactHub', async () => {
+    const { env } = withAgent({ '/contacts/transcribe': [200, { success: true, graphId: 'g1', nodeId: 'n1', viewerUrl: 'u', recordingId: 'contactlog:L2', contactId: 'c1', contactName: 'Thomas', chunks: 1, failedChunks: 0, chars: 3, notesUpdated: true, transcript: 'hei' }] })
+    const { client } = await connect(env, BOTH)
+    const res = await client.callTool({ name: 'transcribe_contact_recording', arguments: { recordingId: 'contactlog:L2' } })
+    assert.equal(res.structuredContent.source, 'contacthub')
+    assert.equal(res.structuredContent.recordingName, null)
+  })
+
   test('a missing recording is reported, not thrown', async () => {
     const { env } = withAgent({ '/contacts/transcribe': [404, { success: false, error: 'Interaction L9 has no recording' }] })
     const { client } = await connect(env, BOTH)
