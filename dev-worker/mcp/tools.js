@@ -43,6 +43,7 @@ import * as myDay from '../my-day-service.js'
 import * as flows from '../flows-service.js'
 import * as social from '../social-service.js'
 import * as mediaUpload from '../media-upload-service.js'
+import * as nodeUpload from '../node-upload-service.js'
 import * as vemotion from '../vemotion-service.js'
 import * as realtime from '../realtime-service.js'
 import * as youtube from '../youtube-service.js'
@@ -2607,6 +2608,66 @@ ${result.warnings.join('\n')}` : ''),
         `One-time upload URL for album ${result.album}, valid until ${result.expiresAt}, max ${result.maxBytes} bytes.\n` +
           `Run in your sandbox (replace reel.mp4 with your file):\n${result.curl}\n` +
           'The JSON it prints has the public `url` to give post_to_instagram.',
+      )
+    },
+  )
+
+  // ── create_node_upload ────────────────────────────────────────────────────
+  // A whole HTML app as a tool argument makes the model write every character out again: slow,
+  // tens of thousands of tokens, and one changed character breaks a script silently. The file is
+  // already in the client's sandbox, so the sandbox sends it (node-upload-service.js).
+  server.registerTool(
+    'create_node_upload',
+    {
+      title: 'Get a one-time upload URL for the text of one node',
+      description:
+        'Get a URL to upload a LARGE text file from your sandbox as the content (`info`) of ONE node — ' +
+        'a whole HTML app for an html-node, a stylesheet for a css-node, a long markdown document ' +
+        'for a fulltext node. USE THIS INSTEAD OF add_node / update_node when the text is a file ' +
+        'you already have and is longer than a few thousand characters: the text then never passes ' +
+        'through you, so it arrives byte for byte. Upload by running the returned `curl` command: ' +
+        'an HTTP PUT of the file. If the node exists, its text is replaced and its label, type, ' +
+        'metadata and edges are kept; if it does not, it is created with the label and type you ' +
+        'give here. The URL works once, for 10 minutes, for UTF-8 text up to 1 MB, and only for ' +
+        'that one node. The answer to the PUT gives the new graph version, the character count ' +
+        'and the SHA-256 of what was stored — compare it with `sha256sum` of your file. Uploading ' +
+        'publishes nothing. Requires the graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph that holds, or will hold, the node. You must have write access to it.'),
+        nodeId: z.string().min(1).max(120).describe('The node to fill. An existing node has its text replaced; an unknown id creates the node.'),
+        label: z.string().optional().describe('Label for a NEW node. Ignored when the node exists.'),
+        type: z.enum(nodeUpload.UPLOAD_TYPES).optional().describe('Type for a NEW node: html-node (default), css-node or fulltext. Ignored when the node exists.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        uploadUrl: z.string(),
+        graphId: z.string(),
+        nodeId: z.string(),
+        type: z.string(),
+        creates: z.boolean(),
+        expiresAt: z.string(),
+        maxBytes: z.number(),
+        curl: z.string(),
+      },
+      // Making the ticket changes nothing in any graph; the PUT does, and only for the one node.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const result = await nodeUpload.createNodeUpload(env, { ...args, actor })
+      if (!result.ok) return fromService(result)
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `One-time upload URL for node ${result.nodeId} of graph ${result.graphId} ` +
+          `(${result.creates ? 'the node will be created' : 'the node exists: its text will be replaced'}), ` +
+          `valid until ${result.expiresAt}, max ${result.maxBytes} bytes of UTF-8 text.\n` +
+          `Run in your sandbox (replace index.html with your file):\n${result.curl}\n` +
+          'The JSON it prints has the new version and the sha256 of the stored text.',
       )
     },
   )
@@ -7665,6 +7726,7 @@ export const TOOL_NAMES = [
   'post_to_instagram',
   'get_instagram_post_status',
   'create_media_upload',
+  'create_node_upload',
   'get_vemotion_reference',
   'vemotion_list_compositions',
   'vemotion_get_composition',

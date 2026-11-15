@@ -75,6 +75,7 @@ import { imapProbe, imapFindSentFolder, fileSentCopy } from './imap-service.js'
 import { OAuthProvider, getOAuthApi } from '@cloudflare/workers-oauth-provider'
 import { resolveLoginToken } from './oauth/external-token.js'
 import { handleMediaUpload, UPLOAD_PATH as MEDIA_UPLOAD_PATH } from './media-upload-service.js'
+import { handleNodeUpload, UPLOAD_PATH as NODE_UPLOAD_PATH } from './node-upload-service.js'
 import { handleAuthorize, ISSUER, MCP_RESOURCE, SUPPORTED_SCOPES } from './oauth/authorize.js'
 import { mcpHandler } from './mcp/server.js'
 import { readGate as readGateFor } from './read-gate.js'
@@ -11574,6 +11575,10 @@ const defaultHandler = {
     // restHandler's own auth and answers only a valid, unused, unexpired ticket.
     if (new URL(request.url).pathname.startsWith(MEDIA_UPLOAD_PATH)) {
       return handleMediaUpload(request, env)
+    }
+    // Same rule for the text of one node (node-upload-service.js): the ticket is the credential.
+    if (new URL(request.url).pathname.startsWith(NODE_UPLOAD_PATH)) {
+      return handleNodeUpload(request, env)
     }
     if (new URL(request.url).pathname === '/authorize') {
       // env.OAUTH_PROVIDER is injected by the provider before it delegates here, so
