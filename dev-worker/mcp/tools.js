@@ -1290,6 +1290,73 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
     },
   )
 
+  // ── remove_edge (2026-11-16) ──────────────────────────────────────────────
+  //
+  // The one thing add_edge could not undo. Without it a step could be added to a flow graph but
+  // never moved: «Stillerom» got its calendar step last, after the sends, because the edge from
+  // the approval to the first send could not be taken away. Nodes are never touched, the version
+  // before stays in the graph's history, and expectedVersion is required as for update_node.
+  server.registerTool(
+    'remove_edge',
+    {
+      title: 'Remove one edge from a graph',
+      description:
+        'Remove ONE edge between two nodes, without sending the whole graph. The nodes stay. Name ' +
+        'the edge by edgeId (get_graph lists them as "<source>_<target>" unless one was given), or ' +
+        'by source + target — add label when two edges join the same pair. If none or more than ' +
+        'one edge matches, nothing is removed and the answer says why. expectedVersion is ' +
+        'REQUIRED: read it from get_graph. The version before stays in get_graph_history. To MOVE ' +
+        'a step in a flow graph: remove the old edge, then add_edge the new ones. Requires the ' +
+        'graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph containing the edge.'),
+        edgeId: z.string().optional().describe('The edge id. Use this, or source + target.'),
+        source: z.string().optional().describe('Source node id, with target, instead of edgeId.'),
+        target: z.string().optional().describe('Target node id, with source, instead of edgeId.'),
+        label: z.string().optional().describe('The edge label, when two edges join the same source and target.'),
+        expectedVersion: z.number().int().describe('The version you read from get_graph. Required.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        edgeId: z.string(),
+        source: z.string(),
+        target: z.string(),
+        label: z.string().nullable(),
+        currentVersion: z.number(),
+        newVersion: z.number(),
+        title: z.string().nullable(),
+        metaArea: z.string().nullable(),
+        publicationState: z.string(),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      // Takes something away (the history keeps it); a second identical call finds nothing.
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ graphId, edgeId, source, target, label, expectedVersion }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const access = await gs.checkAccess(env, actor, graphId, 'write')
+      if (!access.ok) return fromService(access)
+
+      const result = await gs.removeEdge(env, { graphId, edgeId: edgeId ?? null, source: source ?? null, target: target ?? null, label: label ?? null, expectedVersion, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `Removed edge ${result.edgeId} (${result.source} → ${result.target}${result.label ? `, "${result.label}"` : ''}) from graph ${graphId}. ` +
+          `Version ${result.currentVersion} → ${result.newVersion}. The nodes are untouched.\nViewer: ${result.viewerUrl}`,
+      )
+    },
+  )
+
   // ── get_graph_links ───────────────────────────────────────────────────────
   server.registerTool(
     'get_graph_links',
@@ -5200,6 +5267,65 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── create_calendar_event (2026-11-16) ───────────────────────────────────
+  //
+  // The first calendar tool that writes. Kept deliberately small: the caller's OWN primary
+  // calendar, one plain event, and NO guests — so it reaches nobody and needs no preview. An
+  // invitation to other people is a message, and messages go out through send_email / send_sms
+  // with their previews. graph:write, like create_contact: your own content, added to.
+  // A VEGR Flow may run it without an approval for the same reason (flow-tools.js, write-own).
+  server.registerTool(
+    'create_calendar_event',
+    {
+      title: 'Add an event to my own calendar',
+      description:
+        'Add ONE event to YOUR OWN Google calendar (the primary one, the same account get_my_day ' +
+        'reads). It has no guests and invites nobody: nothing is sent to anyone, and there is no ' +
+        'parameter for attendees — to invite people, send them a message. start is LOCAL time ' +
+        '(Oslo unless timeZone says otherwise) written as 2026-11-19T12:00; give end the same ' +
+        'way, or durationMinutes (default 60). If an event with the same title already starts ' +
+        'at that time, it is returned as it is (created: false) and no second one is made. ' +
+        'Requires the graph:write scope.',
+      inputSchema: {
+        title: z.string().min(1).max(200).describe('The title shown in the calendar.'),
+        start: z.string().min(16).describe('Local start time, e.g. "2026-11-19T12:00". No Z and no offset.'),
+        end: z.string().optional().describe('Local end time, same form. Omit it and use durationMinutes.'),
+        durationMinutes: z.number().int().optional().describe('Length in minutes, 1–1440. Default 60. Ignored when end is given.'),
+        location: z.string().optional().describe('Place or link, e.g. the meeting room address.'),
+        description: z.string().optional().describe('A note on the event. Only you see it — the event has no guests.'),
+        timeZone: z.string().optional().describe('IANA time zone of start/end. Default Europe/Oslo.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        created: z.boolean(),
+        eventId: z.string().nullable(),
+        title: z.string(),
+        start: z.string(),
+        end: z.string().nullable(),
+        timeZone: z.string(),
+        location: z.string().nullable(),
+        link: z.string().nullable(),
+      },
+      // Adds to the caller's own calendar and reaches nobody. Asking twice leaves one entry.
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async (args) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await myDay.createCalendarEvent(env, { ...args, actor })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, ...payload } = r
+      return ok(
+        { success: true, ...payload },
+        `${r.created ? 'Added to your calendar' : 'Already in your calendar — nothing was added'}: "${r.title}", ${r.start.replace('T', ' ').slice(0, 16)}` +
+          `${r.end ? `–${r.end.slice(11, 16)}` : ''} (${r.timeZone})${r.location ? `\nWhere: ${r.location}` : ''}${r.link ? `\n${r.link}` : ''}\nNo guests — nothing was sent to anyone.`,
+      )
+    },
+  )
+
   // ── run_flow / get_flow_run (2026-11-06, VEGR Flows phase 0/1) ──
   // The engine is flows-worker (service binding FLOWS_WORKER). This side authenticates, checks
   // the caller owns the flow graph, and sends the graph + model aliases with the verified e-mail.
@@ -8218,6 +8344,7 @@ export const TOOL_NAMES = [
   'get_graph_version',
   'add_node',
   'add_edge',
+  'remove_edge',
   'get_graph_links',
   'update_node',
   'reorder_nodes',
@@ -8289,6 +8416,7 @@ export const TOOL_NAMES = [
   'search_contacts',
   'create_contact',
   'get_my_day',
+  'create_calendar_event',
   'run_flow',
   'get_flow_run',
   'decide_flow_approval',

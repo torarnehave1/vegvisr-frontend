@@ -284,7 +284,8 @@ describe('18. tools/list', () => {
     // flagged destructive, and it is the only tool on graph:delete (a connection without that
     // scope is refused — see 'delete_graph, list_deleted_graphs, restore_graph'). It moves the
     // graph to a trash it can be restored from; list_deleted_graphs only reads that trash.
-    // Still no tool deletes a node, an edge or a message.
+    // Still no tool deletes a node or a message. (An edge can be taken away since 2026-11-16 —
+    // see remove_edge below.)
     assert.deepEqual(tools.filter((t) => /delete/i.test(t.name)).map((t) => t.name).sort(), ['delete_graph', 'list_deleted_graphs'])
     assert.equal(tools.find((t) => t.name === 'delete_graph').annotations.destructiveHint, true)
     assert.equal(tools.find((t) => t.name === 'list_deleted_graphs').annotations.readOnlyHint, true)
@@ -294,9 +295,19 @@ describe('18. tools/list', () => {
     // It removes a person's access to a group; the person stays registered, their account is
     // untouched, and every message they wrote remains. Owner-only, and re-adding is a separate
     // deliberate act — which is why it is the one tool flagged destructive.
-    const removals = tools.filter((t) => /remove/i.test(t.name)).map((t) => t.name)
-    assert.deepEqual(removals, ['remove_group_member'])
+    //
+    // remove_edge arrived on 2026-11-16, on the owner's decision: a step in a flow graph could be
+    // added but never moved, because no tool could take an edge away («Stillerom» got its
+    // calendar step after the sends for that reason). It removes ONE edge and no content: the
+    // nodes and their text stay, expectedVersion is required, and the version before stays in
+    // the graph's history. Pinned here: it can name one edge and nothing else.
+    const removals = tools.filter((t) => /remove/i.test(t.name)).map((t) => t.name).sort()
+    assert.deepEqual(removals, ['remove_edge', 'remove_group_member'])
     assert.equal(tools.find((t) => t.name === 'remove_group_member').annotations.destructiveHint, true)
+    const re = tools.find((t) => t.name === 'remove_edge')
+    assert.equal(re.annotations.destructiveHint, true)
+    assert.deepEqual(Object.keys(re.inputSchema.properties).sort(), ['edgeId', 'expectedVersion', 'graphId', 'label', 'source', 'target'])
+    assert.ok(re.inputSchema.required.includes('expectedVersion'))
   })
 })
 
@@ -509,6 +520,60 @@ describe('add_edge connects two existing nodes', () => {
     assert.equal((await callErr(ro, 'add_edge', { graphId: g.graphId, edge: { source: 'a', target: 'b' } })).code, gs.ERR.INSUFFICIENT_SCOPE)
     const { client: bob } = await connect(env, BOB_RW)
     assert.equal((await callErr(bob, 'add_edge', { graphId: g.graphId, edge: { source: 'a', target: 'b' } })).code, gs.ERR.FORBIDDEN_GRAPH)
+  })
+})
+
+describe('remove_edge takes one edge away and leaves the nodes', () => {
+  const NODES = [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }, { id: 'c', label: 'C' }]
+  const make = async (client, edges) => callOk(client, 'create_graph', { title: 'T', metaArea: '#X', nodes: NODES, edges })
+
+  test('by source + target: the edge is gone, the nodes stay, the version before is kept', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await make(client, [{ source: 'a', target: 'b', label: 'approved' }, { source: 'b', target: 'c' }])
+    const r = await callOk(client, 'remove_edge', { graphId: g.graphId, source: 'a', target: 'b', expectedVersion: 1 })
+    assert.deepEqual([r.edgeId, r.source, r.target, r.label, r.newVersion], ['a_b', 'a', 'b', 'approved', 2])
+    const read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.deepEqual([read.nodeCount, read.edgeCount], [3, 1])
+    const before = await callOk(client, 'get_graph_version', { graphId: g.graphId, version: 1 })
+    assert.equal(before.edgeCount ?? before.edges?.length, 2, 'the history still has the edge')
+  })
+
+  test('moving a step: remove the old edge, add the new ones', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await make(client, [{ source: 'a', target: 'c', label: 'approved' }])
+    await callOk(client, 'remove_edge', { graphId: g.graphId, edgeId: 'a_c', expectedVersion: 1 })
+    await callOk(client, 'add_edge', { graphId: g.graphId, edge: { source: 'a', target: 'b', label: 'approved' }, expectedVersion: 2 })
+    await callOk(client, 'add_edge', { graphId: g.graphId, edge: { source: 'b', target: 'c', label: 'next' }, expectedVersion: 3 })
+    assert.equal((await callOk(client, 'get_graph', { graphId: g.graphId })).edgeCount, 2)
+  })
+
+  test('two edges between the same pair need the label; an edge that is not there removes nothing', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await make(client, [{ id: 'e1', source: 'a', target: 'b', label: 'approved' }, { id: 'e2', source: 'a', target: 'b', label: 'rejected' }])
+    const both = await callErr(client, 'remove_edge', { graphId: g.graphId, source: 'a', target: 'b', expectedVersion: 1 })
+    assert.match(both.message, /2 edges match.*Nothing was removed/)
+    const none = await callErr(client, 'remove_edge', { graphId: g.graphId, source: 'b', target: 'c', expectedVersion: 1 })
+    assert.match(none.message, /No edge b → c.*Nothing was removed/)
+    assert.equal((await callOk(client, 'get_graph', { graphId: g.graphId })).version, 1)
+    const r = await callOk(client, 'remove_edge', { graphId: g.graphId, source: 'a', target: 'b', label: 'rejected', expectedVersion: 1 })
+    assert.equal(r.label, 'rejected', 'the label picks the one')
+    assert.equal((await callOk(client, 'get_graph', { graphId: g.graphId })).edgeCount, 1)
+  })
+
+  test('a stale version, a missing name, no graph:write and someone else\'s graph are refused', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await make(client, [{ source: 'a', target: 'b' }])
+    assert.equal((await callErr(client, 'remove_edge', { graphId: g.graphId, source: 'a', target: 'b', expectedVersion: 7 })).code, gs.ERR.VERSION_CONFLICT)
+    assert.equal((await callErr(client, 'remove_edge', { graphId: g.graphId, source: 'a', expectedVersion: 1 })).code, gs.ERR.INVALID_INPUT)
+    const { client: ro } = await connect(env, ALICE_RO)
+    assert.equal((await callErr(ro, 'remove_edge', { graphId: g.graphId, source: 'a', target: 'b', expectedVersion: 1 })).code, gs.ERR.INSUFFICIENT_SCOPE)
+    const { client: bob } = await connect(env, BOB_RW)
+    assert.equal((await callErr(bob, 'remove_edge', { graphId: g.graphId, source: 'a', target: 'b', expectedVersion: 1 })).code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.equal((await callOk(client, 'get_graph', { graphId: g.graphId })).edgeCount, 1)
   })
 })
 
@@ -2395,6 +2460,70 @@ describe('get_my_day and list_sent_sms read the caller\'s own calendar and sent 
       assert.equal(t.annotations.readOnlyHint, true)
       assert.equal(t.annotations.openWorldHint, false)
     }
+  })
+})
+
+describe('create_calendar_event adds one event without guests to the caller\'s own calendar (graph:write)', () => {
+  function withCalendar(reply = { success: true, created: true, id: 'ev1', summary: 'Stillerom', start: '2026-11-19T12:00:00+01:00', end: '2026-11-19T12:20:00+01:00', location: 'https://realtime.vegvisr.org/?openroom', htmlLink: 'https://calendar.google.com/x' }, status = 200) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    env.CALENDAR_WORKER = {
+      fetch: async (url, init) => {
+        calls.push({ url: new URL(url), method: init.method, email: init.headers['X-User-Email'], body: JSON.parse(init.body) })
+        return new Response(JSON.stringify(reply), { status })
+      },
+    }
+    return { env, calls }
+  }
+  const STILLE = { title: 'Stillerom', start: '2026-11-19T12:00', durationMinutes: 20, location: 'https://realtime.vegvisr.org/?openroom' }
+
+  test('the event is asked for as the caller, in Oslo time, and the answer says nobody was told', async () => {
+    const { env, calls } = withCalendar()
+    const { client } = await connect(env, ALICE_RW)
+    const r = await client.callTool({ name: 'create_calendar_event', arguments: STILLE })
+    assert.notEqual(r.isError, true, JSON.stringify(r))
+    assert.deepEqual([calls[0].method, calls[0].url.pathname, calls[0].email], ['POST', '/api/calendar/events', 'alice@example.com'])
+    assert.deepEqual(calls[0].body, { summary: 'Stillerom', start: '2026-11-19T12:00', durationMinutes: 20, location: 'https://realtime.vegvisr.org/?openroom', timeZone: 'Europe/Oslo' })
+    assert.deepEqual([sc(r).created, sc(r).eventId, sc(r).link], [true, 'ev1', 'https://calendar.google.com/x'])
+    assert.match(r.content[0].text, /Added to your calendar: "Stillerom", 2026-11-19 12:00–12:20 \(Europe\/Oslo\)/)
+    assert.match(r.content[0].text, /No guests — nothing was sent to anyone/)
+  })
+
+  test('an event that is already there is reported as such', async () => {
+    const { env } = withCalendar({ success: true, created: false, id: 'old', summary: 'Stillerom', start: '2026-11-19T12:00:00+01:00', end: '2026-11-19T12:20:00+01:00' })
+    const { client } = await connect(env, ALICE_RW)
+    const r = await client.callTool({ name: 'create_calendar_event', arguments: STILLE })
+    assert.equal(sc(r).created, false)
+    assert.match(r.content[0].text, /Already in your calendar — nothing was added/)
+  })
+
+  test('there is no way to name a guest, and a time that is not local date-time never reaches the calendar', async () => {
+    const { env, calls } = withCalendar()
+    const { client } = await connect(env, ALICE_RW)
+    for (const start of ['torsdag kl. 12:00 i uken', '2026-11-19T11:00:00Z', '2026-11-19T12:00:00+01:00']) {
+      const e = await callErr(client, 'create_calendar_event', { ...STILLE, start })
+      assert.match(e.message, /local time like 2026-11-19T12:00/)
+    }
+    assert.equal(calls.length, 0)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'create_calendar_event')
+    assert.deepEqual(Object.keys(t.inputSchema.properties).sort(), ['description', 'durationMinutes', 'end', 'location', 'start', 'timeZone', 'title'])
+    assert.equal(t.annotations.openWorldHint, false)
+    assert.equal(t.annotations.readOnlyHint, false)
+  })
+
+  test('without graph:write it is refused; a calendar service without the route, or one that says no, adds nothing', async () => {
+    const a = withCalendar()
+    const e = await callErr((await connect(a.env, ALICE_RO)).client, 'create_calendar_event', STILLE)
+    assert.equal(e.requiredScope, 'graph:write')
+    assert.equal(a.calls.length, 0)
+
+    const old = withCalendar({ error: 'Not found' }, 404)
+    assert.match((await callErr((await connect(old.env, ALICE_RW)).client, 'create_calendar_event', STILLE)).message, /calendar-worker must be deployed/)
+
+    const no = withCalendar({ success: false, error: 'Google Calendar is not connected for this account.' }, 409)
+    assert.match((await callErr((await connect(no.env, ALICE_RW)).client, 'create_calendar_event', STILLE)).message, /not connected.*Nothing was added/)
   })
 })
 

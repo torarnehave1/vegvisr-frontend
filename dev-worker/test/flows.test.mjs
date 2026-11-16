@@ -243,8 +243,28 @@ describe('callToolForFlow — a flow runs MCP tools as its owner, read-only', ()
 
   test('write-own lends graph:write for that one tool only', async () => {
     const { FLOW_WRITE_OWN_TOOLS } = await import('../flow-tools.js')
-    assert.deepEqual(Object.keys(FLOW_WRITE_OWN_TOOLS).sort(), ['add_edge', 'add_node', 'create_graph', 'transcribe_contact_recording', 'update_graph_metadata', 'update_node'])
+    assert.deepEqual(Object.keys(FLOW_WRITE_OWN_TOOLS).sort(), ['add_edge', 'add_node', 'create_calendar_event', 'create_graph', 'transcribe_contact_recording', 'update_graph_metadata', 'update_node'])
     assert.ok(Object.values(FLOW_WRITE_OWN_TOOLS).every((s) => s === 'graph:write'))
+  })
+
+  test('write-own: a flow adds an event to its owner\'s own calendar — as the owner, without guests, without an approval', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const asked = []
+    env.CALENDAR_WORKER = {
+      fetch: async (url, init) => {
+        asked.push({ url: new URL(url), email: init.headers['X-User-Email'], body: JSON.parse(init.body) })
+        return new Response(JSON.stringify({ success: true, created: true, id: 'ev1', summary: 'Stillerom', start: '2026-11-19T12:00:00+01:00', end: '2026-11-19T12:20:00+01:00', htmlLink: 'https://calendar.google.com/x' }), { status: 200 })
+      },
+    }
+    const r = await callToolForFlow(env, { email: 'alice@example.com', toolName: 'create_calendar_event', args: { title: 'Stillerom', start: '2026-11-19T12:00', durationMinutes: 20, attendees: ['eve@evil.example'] } })
+    assert.equal(r.ok, true, JSON.stringify(r))
+    assert.equal(r.isError, false, r.text)
+    assert.equal(r.structured.created, true)
+    assert.equal(asked.length, 1)
+    assert.equal(asked[0].url.hostname, 'calendar-worker', 'over the binding')
+    assert.equal(asked[0].email, 'alice@example.com', 'whose calendar comes from the flow\'s owner')
+    assert.deepEqual(asked[0].body, { summary: 'Stillerom', start: '2026-11-19T12:00', durationMinutes: 20, timeZone: 'Europe/Oslo' }, 'no guests can be passed through')
   })
 
   test('an unknown owner, an unknown tool and a missing tool name are refused', async () => {

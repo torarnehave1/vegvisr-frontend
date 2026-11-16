@@ -791,6 +791,78 @@ export async function addEdge(env, { graphId, edge, expectedVersion = null, acto
 }
 
 /**
+ * Remove ONE edge from a graph (MCP remove_edge, 2026-11-16). Nodes are never touched.
+ *
+ * Asked for when a step had to be moved inside a flow graph and nothing could take an edge away,
+ * so the step ended up last instead of where it belonged. The edge is named by its id, or by
+ * source + target (+ label when two edges join the same pair). expectedVersion is REQUIRED, as
+ * for update_node: this rewrites the edge list, and the graph's history keeps the version before.
+ */
+export async function removeEdge(env, { graphId, edgeId = null, source = null, target = null, label = null, expectedVersion, actor = null, caller = undefined }) {
+  if (!graphId || (!edgeId && !(source && target))) {
+    return fail(ERR.INVALID_INPUT, 'graphId and either edgeId or source + target are required.')
+  }
+  if (!Number.isInteger(expectedVersion)) {
+    return fail(ERR.INVALID_INPUT, 'expectedVersion (an integer, from get_graph) is required to remove an edge.')
+  }
+
+  const located = await storeFor(env, { graphId, actor: caller === undefined ? actor : caller })
+  if (located.error) return located.error
+  const { store } = located
+  return guarded(async () => {
+  const result = await store.getRow(graphId)
+  if (!result) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
+
+  const graphData = JSON.parse(result.data)
+  if (!Array.isArray(graphData.edges)) graphData.edges = []
+
+  const current = await store.currentVersion(graphId)
+  if (current !== expectedVersion) {
+    return fail(ERR.VERSION_CONFLICT, 'Grafen er endret siden den ble lest.', { currentVersion: current })
+  }
+
+  const matches = graphData.edges.filter((e) =>
+    edgeId
+      ? e.id === edgeId
+      : e.source === source && e.target === target && (label === null || label === undefined || String(e.label || '') === String(label)))
+  if (!matches.length) {
+    return fail(ERR.INVALID_INPUT, `No edge ${edgeId ? `with id ${edgeId}` : `${source} → ${target}${label ? ` (${label})` : ''}`} in graph ${graphId}. Nothing was removed.`)
+  }
+  if (matches.length > 1) {
+    return fail(ERR.INVALID_INPUT, `${matches.length} edges match (${matches.map((e) => `${e.id}${e.label ? ` "${e.label}"` : ''}`).join(', ')}). Name one by edgeId or label. Nothing was removed.`)
+  }
+  const removed = matches[0]
+  graphData.edges = graphData.edges.filter((e) => e !== removed)
+
+  const newVersion = current + 1
+  if (!graphData.metadata) graphData.metadata = {}
+  graphData.metadata.version = newVersion
+
+  await store.commit({
+    id: graphId,
+    data: JSON.stringify(graphData),
+    version: newVersion,
+    now: new Date().toISOString(),
+  })
+
+  return {
+    ok: true,
+    graphId,
+    edgeId: removed.id || `${removed.source}_${removed.target}`,
+    source: removed.source,
+    target: removed.target,
+    label: removed.label || null,
+    currentVersion: current,
+    newVersion,
+    title: graphData.metadata?.title || null,
+    metaArea: graphData.metadata?.metaArea || null,
+    publicationState: graphData.metadata?.publicationState || 'private',
+    ...graphLinks(graphId, store.world),
+  }
+  })
+}
+
+/**
  * Update graph-level metadata under optimistic concurrency. Mirrors POST /patchGraphMetadata.
  * `allowPublicationState` gates the one field that must go through publishGraph() instead,
  * so publishing cannot happen as a side effect of an ordinary metadata edit (rule 2).
