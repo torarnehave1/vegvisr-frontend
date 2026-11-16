@@ -11,6 +11,7 @@
  * Node shapes are the registered types `flow` / `flow-step` (see list_node_types) and the design
  * in the "VEGR Flows" graph (node "datamodel").
  */
+import { providerFor } from './providers.js'
 
 export const STEP_KINDS = ['action', 'agent', 'approval', 'route', 'wait', 'loop', 'subflow', 'note']
 
@@ -91,8 +92,15 @@ export function compileFlow(graph, aliases = []) {
       step.resolvedModel = r
       if (m.fallbackModel) step.resolvedFallback = resolveModel(m.fallbackModel, aliasMap)
       else if (r?.fallbackAlias) step.resolvedFallback = resolveModel(r.fallbackAlias, aliasMap)
-      if (!aliasMap.has(m.model || 'auto') && !/^(claude|gpt|o\d|gemini|grok)/i.test(m.model || '')) {
-        errors.push(`Agent step "${step.label}": model "${m.model || 'auto'}" is neither a model alias (${[...aliasMap.keys()].join(', ') || 'none loaded'}) nor a model id.`)
+      if (!aliasMap.has(m.model || 'auto') && !providerFor(m.model)) {
+        errors.push(`Agent step "${step.label}": model "${m.model || 'auto'}" is neither a model alias (${[...aliasMap.keys()].join(', ') || 'none loaded'}) nor a model id the engine has a worker for (claude…, grok…, gpt…/o…).`)
+      }
+      // The same check for what the name resolves to: an alias or fallback pointing at a model no
+      // worker here answers would compile and then fail live.
+      for (const rm of [step.resolvedModel, step.resolvedFallback]) {
+        if (rm?.via !== 'explicit' && rm?.model && !providerFor(rm.model)) {
+          errors.push(`Agent step "${step.label}": ${rm.via} points to "${rm.model}", which the engine has no worker for (claude…, grok…, gpt…/o…).`)
+        }
       }
       step.tools = Array.isArray(m.tools) ? m.tools : []
       const ext = step.tools.filter((t) => EXTERNAL_TOOLS.has(t))

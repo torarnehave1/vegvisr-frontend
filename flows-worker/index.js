@@ -26,6 +26,7 @@
 import { WorkflowEntrypoint } from 'cloudflare:workers'
 import { compileFlow, dryRunStep, liveStep, decideApproval } from './compile.js'
 import { nextRun, describeTime, scheduleTriggers, DEFAULT_TIMEZONE } from './schedule.js'
+import { askModel, hasModelConnection } from './providers.js'
 
 const BINDING_HOST = 'flows-worker'
 
@@ -382,26 +383,10 @@ export class FlowRunner extends WorkflowEntrypoint {
       }
     }
 
-    // An agent step asks a model through anthropic-worker (binding: no token, the platform key).
-    const ai = this.env.ANTHROPIC
-    const callModel = ai?.fetch
-      ? async ({ model, system, user, maxTokens }) => {
-        try {
-          const res = await ai.fetch('https://anthropic-worker/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model, system, max_tokens: maxTokens, messages: [{ role: 'user', content: user }] }),
-          })
-          const data = await res.json().catch(() => ({}))
-          if (!res.ok) return { ok: false, error: `HTTP ${res.status}: ${JSON.stringify(data.error || data).slice(0, 300)}` }
-          const text = (data.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n').trim()
-          if (!text) return { ok: false, error: 'the model returned no text' }
-          return { ok: true, text, usage: data.usage || null, stopReason: data.stop_reason || null }
-        } catch (e) {
-          return { ok: false, error: `could not reach the model: ${e.message}` }
-        }
-      }
-      : null
+    // An agent step asks a model through the worker its model name points to — anthropic-worker,
+    // grok-worker or openai-worker (bindings: no token, the platform keys). See providers.js.
+    const env = this.env
+    const callModel = hasModelConnection(env) ? (req) => askModel(env, req) : null
 
     const writeStep = async (seqNo, r) => db.prepare(
       `INSERT OR REPLACE INTO flow_run_steps (run_id, seq, node_id, kind, status, summary, detail_json, edge, at)

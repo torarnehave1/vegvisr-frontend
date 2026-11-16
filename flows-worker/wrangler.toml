@@ -30,6 +30,16 @@ service = "knowledge-graph-worker"
 binding = "ANTHROPIC"
 service = "anthropic-worker"
 
+# 2026-11-16: the model's name picks the worker (providers.js) — grok… → grok-worker,
+# gpt…/o… → openai-worker. Bindings only, the platform keys; same Cloudflare account.
+[[services]]
+binding = "GROK"
+service = "grok-worker"
+
+[[services]]
+binding = "OPENAI"
+service = "openai-worker"
+
 # Phase 2 (2026-11-07): ONE minute-cron runs every scheduled flow; each flow's own schedule,
 # in its own time zone, lives in D1 flow_triggers (see schedule.js).
 [triggers]
