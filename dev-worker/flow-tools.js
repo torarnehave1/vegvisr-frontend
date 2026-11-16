@@ -18,9 +18,12 @@
  *     a tool in FLOW_SEND_TOOLS runs when, and only when, D1 shows that THIS run belongs to the
  *     owner, is live and running, has a step at the given seq claimed as "sending" for this very
  *     tool, and an earlier approval step in the same run that the owner approved. The claim is
- *     flipped to "calling" with a conditional UPDATE, so one claim sends one message. In this
- *     phase a flow e-mail may go to the owner only (no cc/bcc): the owner approved the text, and
- *     recipients are never taken from model output (VEGR Flows safety rule 3).
+ *     flipped to "calling" with a conditional UPDATE, so one claim sends one message. A flow
+ *     e-mail goes to the owner (no cc/bcc) — or, since 2026-11-16 («Stillerom»), an e-mail or an
+ *     SMS goes to a person in the owner's ContactHub: only when the claimed step, in the spec
+ *     pinned for this run, is a forEach over the contacts of a list_contacts step with a fixed
+ *     label, and the recipient is one of the owner's contacts carrying that label right now.
+ *     Recipients are looked up, never taken from model output (VEGR Flows safety rule 3).
  *   - and a second, narrow exception, "write-own" (2026-11-10): the tools in FLOW_WRITE_OWN_TOOLS
  *     change the OWNER'S OWN graphs and nothing else — they reach nobody, publish nothing and set
  *     no password. They run without an approval, with graph:write lent for that one call; which
@@ -38,6 +41,8 @@ import { registerTools, actorFromAuth } from './mcp/tools.js'
 import { requestNodeTypes } from './mcp/server.js'
 import * as gs from './graph-service.js'
 import { loadModelAliases } from './flows-service.js'
+import * as users from './users-service.js'
+import { normalizeNoPhone } from './sms-service.js'
 
 export const FLOW_SCOPES = ['graph:read', 'contacts:read']
 
@@ -74,22 +79,50 @@ export const FLOW_WRITE_OWN_TOOLS = {
 }
 
 /** Tools a flow may run after an approval, with the one scope each needs. */
-export const FLOW_SEND_TOOLS = { send_email: 'chat:write' }
+export const FLOW_SEND_TOOLS = { send_email: 'chat:write', send_sms: 'chat:write' }
+
+/**
+ * The ContactHub label a claimed send step takes its recipients from, read from the spec pinned
+ * for the run — or null when the step is not a forEach over the contacts of a list_contacts step
+ * with a label written in the graph. The same rule as contactSource() in flows-worker/compile.js;
+ * repeated here because this worker is the one that sends, and it trusts only what D1 holds.
+ */
+export function contactLabelOfStep(spec, nodeId) {
+  const s = spec?.steps?.[nodeId]
+  const m = typeof s?.forEach === 'string' ? s.forEach.match(/^\{\{\s*([a-zA-Z0-9_-]+)\.result\.contacts\s*\}\}$/) : null
+  const src = m && Object.hasOwn(spec.steps, m[1]) ? spec.steps[m[1]] : null
+  if (!src || src.kind !== 'action' || src.toolName !== 'list_contacts' || src.forEach) return null
+  const label = typeof src.params?.label === 'string' ? src.params.label.trim() : ''
+  return label && !label.includes('{{') ? label : null
+}
+
+/**
+ * Is this recipient one of the owner's ContactHub contacts with that label? Read fresh for every
+ * send: a person whose label was removed after the flow started is not written to.
+ */
+async function isLabelledContact(env, actor, label, { email = null, phone = null }) {
+  const r = await users.listContacts(env, { actor, label, limit: 200 })
+  if (!r.ok) return { ok: false, error: `Could not read your ContactHub contacts with label "${label}": ${r.message || r.code || 'unknown error'}` }
+  const hit = (r.contacts || []).some((c) =>
+    email ? (c.emails || []).some((e) => String(e).trim().toLowerCase() === email)
+      : (c.phones || []).some((p) => normalizeNoPhone(p) === phone))
+  return { ok: hit }
+}
 
 /**
  * Is this send approved? Returns null when it may run, otherwise the refusal. Consumes the claim.
  */
-async function checkApprovedSend(env, owner, toolName, args, approval) {
+async function checkApprovedSend(env, owner, toolName, args, approval, actor) {
   const deny = (error) => ({ ok: false, status: 403, error })
   const runId = String(approval?.runId || '')
   const seq = Number(approval?.seq)
   if (!/^[0-9a-f-]{36}$/.test(runId) || !Number.isInteger(seq) || seq < 1) return deny(`"${toolName}" sends something; a flow can run it only after an approval.`)
   const db = env.vegvisr_org
-  const run = await db.prepare('SELECT owner_email, dry_run, status FROM flow_runs WHERE id = ?').bind(runId).first().catch(() => null)
+  const run = await db.prepare('SELECT owner_email, dry_run, status, spec_json FROM flow_runs WHERE id = ?').bind(runId).first().catch(() => null)
   if (!run || String(run.owner_email).toLowerCase() !== owner.email || run.dry_run !== 0 || run.status !== 'running') {
     return deny('That flow run is not a live, running run of yours.')
   }
-  const row = await db.prepare('SELECT kind, status, detail_json FROM flow_run_steps WHERE run_id = ? AND seq = ?').bind(runId, seq).first().catch(() => null)
+  const row = await db.prepare('SELECT node_id, kind, status, detail_json FROM flow_run_steps WHERE run_id = ? AND seq = ?').bind(runId, seq).first().catch(() => null)
   let claimedTool = null
   try { claimedTool = JSON.parse(row?.detail_json || '{}').toolName } catch { /* not a claim */ }
   if (!row || row.kind !== 'action' || row.status !== 'sending' || claimedTool !== toolName) {
@@ -99,11 +132,26 @@ async function checkApprovedSend(env, owner, toolName, args, approval) {
     "SELECT seq FROM flow_run_steps WHERE run_id = ? AND kind = 'approval' AND status = 'approved' AND seq < ? LIMIT 1",
   ).bind(runId, seq).first().catch(() => null)
   if (!approved) return deny('No approval in this run said yes before this send.')
-  if (toolName === 'send_email') {
-    const to = String(args?.toEmail || '').trim().toLowerCase()
-    if (to !== owner.email || (Array.isArray(args?.cc) && args.cc.length) || (Array.isArray(args?.bcc) && args.bcc.length)) {
-      return deny('A flow e-mail can go to the flow\'s owner only in this phase (toEmail = the owner, no cc/bcc).')
+  // Who it goes to. The owner (e-mail only) — or a ContactHub contact with the label the claimed
+  // step's own list_contacts lookup names, in the spec pinned when the run started.
+  const toEmail = toolName === 'send_email' ? String(args?.toEmail || '').trim().toLowerCase() : null
+  const toPhone = toolName === 'send_sms' ? normalizeNoPhone(args?.toPhone) : null
+  if (toolName === 'send_email' && ((Array.isArray(args?.cc) && args.cc.length) || (Array.isArray(args?.bcc) && args.bcc.length))) {
+    return deny('A flow e-mail has one recipient: no cc or bcc.')
+  }
+  if (toolName === 'send_sms' && !toPhone) return deny('That is not a Norwegian mobile number, so nothing was sent.')
+  if (!(toolName === 'send_email' && toEmail === owner.email)) {
+    let spec = null
+    try { spec = JSON.parse(run.spec_json || '{}') } catch { /* no spec: no label */ }
+    const label = contactLabelOfStep(spec, row.node_id)
+    if (!label) {
+      return deny(toolName === 'send_email'
+        ? 'A flow e-mail can go to the flow\'s owner only, or — from a forEach step over a list_contacts step with a fixed label — to your ContactHub contacts with that label.'
+        : 'A flow SMS can go only to your ContactHub contacts with one label: from a forEach step over a list_contacts step with a fixed label.')
     }
+    const found = await isLabelledContact(env, actor, label, { email: toEmail, phone: toPhone })
+    if (found.error) return deny(found.error)
+    if (!found.ok) return deny(`That recipient is not one of your ContactHub contacts with label "${label}", so nothing was sent.`)
   }
   const took = await db.prepare(
     "UPDATE flow_run_steps SET status = 'calling' WHERE run_id = ? AND seq = ? AND status = 'sending'",
@@ -216,7 +264,7 @@ export async function callToolForFlow(env, { email, toolName, args = {}, approva
     if (tool.annotations?.readOnlyHint !== true) {
       if (sendScope) {
         const refused = approval
-          ? await checkApprovedSend(env, owner, toolName, args, approval)
+          ? await checkApprovedSend(env, owner, toolName, args, approval, actorFromAuth(auth, props))
           : await checkOwnerNotice(env, owner, toolName, args, notify)
         if (refused) return refused
       } else if (!writeOwnScope) {

@@ -21,9 +21,21 @@ export const EXTERNAL_TOOLS = new Set([
   'send_meeting_report', 'post_chat_message', 'send_group_message',
 ])
 
+/**
+ * Tools a flow may send to people in the owner's ContactHub (2026-11-16, «Stillerom»): only as
+ * `forEach` over the contacts of a list_contacts step with a fixed label, after an approval.
+ * `to` is the parameter that names the recipient. The MCP server checks every recipient against
+ * that label again before it sends (dev-worker/flow-tools.js) — this list only gives the flow's
+ * author the reason up front.
+ */
+export const CONTACT_SEND_TOOLS = { send_email: 'toEmail', send_sms: 'toPhone' }
+export const FOR_EACH_DEFAULT_MAX = 50
+export const FOR_EACH_HARD_MAX = 200
+
 export const DEFAULT_LIMITS = { maxSteps: 80, maxCostUsd: 0.25, maxExternalSends: 5, dailyCostUsd: 1.0, concurrency: 1 }
 
 const TEMPLATE = /\{\{\s*([a-zA-Z0-9_-]+)((?:\.[a-zA-Z0-9_-]+)*)\s*\}\}/g
+const WHOLE_TEMPLATE = /^\{\{\s*([a-zA-Z0-9_-]+)((?:\.[a-zA-Z0-9_-]+)*)\s*\}\}$/
 
 /** Every {{stepId.result.x}} / {{inputs.x}} reference in a value, as [root, path]. */
 export function templateRefs(value) {
@@ -85,6 +97,17 @@ export function compileFlow(graph, aliases = []) {
       if (!m.toolName || typeof m.toolName !== 'string') errors.push(`Action step "${step.label}": metadata.toolName is required.`)
       step.params = m.params && typeof m.params === 'object' ? m.params : {}
       step.external = EXTERNAL_TOOLS.has(m.toolName)
+      if (m.forEach !== undefined) {
+        // forEach: "{{step.result.list}}" — the tool runs once per item, with {{item.…}} in params.
+        if (typeof m.forEach !== 'string' || !WHOLE_TEMPLATE.test(m.forEach)) {
+          errors.push(`Action step "${step.label}": metadata.forEach must be one reference to a list, e.g. "{{kontakter.result.contacts}}".`)
+        }
+        const max = m.maxItems === undefined ? FOR_EACH_DEFAULT_MAX : Number(m.maxItems)
+        if (!(Number.isInteger(max) && max >= 1 && max <= FOR_EACH_HARD_MAX)) {
+          errors.push(`Action step "${step.label}": metadata.maxItems must be 1–${FOR_EACH_HARD_MAX} (default ${FOR_EACH_DEFAULT_MAX}).`)
+        }
+        step.maxItems = max
+      }
     }
     if (kind === 'agent') {
       if (!m.instructions) errors.push(`Agent step "${step.label}": metadata.instructions is required.`)
@@ -164,10 +187,34 @@ export function compileFlow(graph, aliases = []) {
 
   // ── template references point at real steps ──
   for (const s of Object.values(steps)) {
-    for (const [root] of templateRefs({ params: s.params, input: s.input, instructions: s.instructions, payload: s.payload, preview: s.preview?.params })) {
-      if (root !== 'inputs' && root !== 'trigger' && root !== 'owner' && !steps[root]) {
-        errors.push(`Step "${s.label}" refers to {{${root}…}}, but there is no step with id "${root}".`)
+    const known = (root) => root === 'inputs' || root === 'trigger' || root === 'owner' || !!steps[root]
+    for (const [root] of templateRefs({ params: s.kind === 'action' && s.forEach ? null : s.params, forEach: s.forEach, input: s.input, instructions: s.instructions, payload: s.payload })) {
+      if (!known(root)) errors.push(`Step "${s.label}" refers to {{${root}…}}, but there is no step with id "${root}".`)
+    }
+    // {{item.…}} is the current item of a forEach action; {{payload.…}} is an approval's own
+    // payload inside its preview, so the text the owner reads and the text that is sent are one.
+    if (s.kind === 'action' && s.forEach) {
+      for (const [root] of templateRefs(s.params)) {
+        if (root !== 'item' && !known(root)) errors.push(`Step "${s.label}" refers to {{${root}…}}, but there is no step with id "${root}" (inside forEach, {{item.…}} is the current item).`)
       }
+    }
+    for (const [root] of templateRefs(s.preview?.params)) {
+      if (root !== 'payload' && !known(root)) errors.push(`Step "${s.label}" refers to {{${root}…}} in its preview, but there is no step with id "${root}" ({{payload.…}} is this step's own payload).`)
+    }
+  }
+
+  // ── sending to ContactHub contacts: only the people a list_contacts step with a fixed label found ──
+  for (const s of Object.values(steps)) {
+    if (s.kind !== 'action' || !s.external) continue
+    const src = contactSource({ steps }, s)
+    if (s.forEach && !src) {
+      errors.push(`Action "${s.label}": ${s.toolName} reaches other people, so its forEach must be the contacts of a list_contacts step with a fixed label, e.g. "{{kontakter.result.contacts}}" — recipients are looked up in ContactHub, never written by a model or typed at start.`)
+    } else if (s.forEach && !Object.hasOwn(CONTACT_SEND_TOOLS, s.toolName)) {
+      errors.push(`Action "${s.label}": ${s.toolName} cannot be sent to a list of contacts. A flow can do that with ${Object.keys(CONTACT_SEND_TOOLS).join(' and ')}.`)
+    } else if (s.forEach && !/^\{\{\s*item\./.test(String(s.params?.[CONTACT_SEND_TOOLS[s.toolName]] || ''))) {
+      errors.push(`Action "${s.label}": params.${CONTACT_SEND_TOOLS[s.toolName]} must come from the contact, e.g. "${s.toolName === 'send_sms' ? '{{item.phones.0}}' : '{{item.emails.0}}'}".`)
+    } else if (!s.forEach && s.toolName === 'send_sms') {
+      errors.push(`Action "${s.label}": a flow sends SMS only to contacts looked up in ContactHub. Add forEach: "{{<list_contacts step>.result.contacts}}" and params.toPhone: "{{item.phones.0}}".`)
     }
   }
 
@@ -241,11 +288,28 @@ export function compileFlow(graph, aliases = []) {
   }
 }
 
-const WHOLE_TEMPLATE = /^\{\{\s*([a-zA-Z0-9_-]+)((?:\.[a-zA-Z0-9_-]+)*)\s*\}\}$/
+/**
+ * The list_contacts step a forEach send takes its recipients from, or null. It must be an action
+ * step that calls list_contacts with a label written in the graph (no template): then the people
+ * who can be reached are exactly the owner's contacts with that label. Used by the compiler here
+ * and, with the same rule, by the MCP server before each send.
+ */
+export function contactSource(spec, s) {
+  const m = typeof s?.forEach === 'string' ? s.forEach.match(/^\{\{\s*([a-zA-Z0-9_-]+)\.result\.contacts\s*\}\}$/) : null
+  const src = m ? spec?.steps?.[m[1]] : null
+  if (!src || src.kind !== 'action' || src.toolName !== 'list_contacts' || src.forEach) return null
+  const label = typeof src.params?.label === 'string' ? src.params.label.trim() : ''
+  if (!label || label.includes('{{')) return null
+  return { stepId: src.id, label }
+}
 
 function lookup(root, path, state) {
   const keys = path.replace(/^\./, '').split('.').filter(Boolean)
-  let v = root === 'inputs' ? state.inputs : root === 'trigger' ? state.trigger : root === 'owner' ? state.owner : state.results[root]
+  // `item` (a forEach action) and `payload` (an approval's preview) exist only where the engine sets them.
+  let v = root === 'inputs' ? state.inputs : root === 'trigger' ? state.trigger : root === 'owner' ? state.owner
+    : root === 'item' && state.item !== undefined ? state.item
+    : root === 'payload' && state.payload !== undefined ? state.payload
+    : state.results[root]
   for (const k of keys) v = v == null ? undefined : v[k]
   return v
 }
@@ -297,7 +361,10 @@ export function describeMissing(missing, state) {
     seen.add(m.ref)
     let has = ''
     if (m.root === 'inputs') has = ` (inputs given: ${Object.keys(state.inputs || {}).join(', ') || 'none'})`
-    else if (m.root !== 'trigger' && m.root !== 'owner') {
+    else if (m.root === 'item') {
+      const it = state.item
+      has = ` (this item has: ${it && typeof it === 'object' ? Object.keys(it).filter((k) => !(Array.isArray(it[k]) && !it[k].length) && it[k] != null).join(', ') || 'no fields' : 'no fields'})`
+    } else if (m.root !== 'trigger' && m.root !== 'owner' && m.root !== 'payload') {
       const res = state.results?.[m.root]
       if (!res) has = ` (step "${m.root}" has not run on this path)`
       else {
@@ -333,8 +400,10 @@ export function dryRunStep(spec, stepId, state) {
 
   switch (s.kind) {
     case 'action':
-      detail = { toolName: s.toolName, params: render(s.params, state), external: !!s.external }
-      summary = `would call ${s.toolName}${s.external ? ' (reaches other people — only after approval)' : ''}`
+      detail = { toolName: s.toolName, params: render(s.params, state), external: !!s.external, ...(s.forEach ? { forEach: s.forEach, maxItems: s.maxItems } : {}) }
+      summary = s.forEach
+        ? `would call ${s.toolName} once for each item of ${s.forEach} (at most ${s.maxItems})${s.external ? ` — reaches other people: only the ContactHub contacts with label "${contactSource(spec, s)?.label}", only after approval` : ''}`
+        : `would call ${s.toolName}${s.external ? ' (reaches other people — only after approval)' : ''}`
       edge = pick('next')
       break
     case 'agent':
@@ -347,7 +416,7 @@ export function dryRunStep(spec, stepId, state) {
       edge = result.route ? pick(result.route, 'next') : pick('next')
       break
     case 'approval':
-      detail = { approver: s.approver || 'owner', timeout: s.timeout || '24h', payload: render(s.payload || null, state), preview: s.preview ? { toolName: s.preview.toolName, params: render(s.preview.params, state) } : null }
+      detail = { approver: s.approver || 'owner', timeout: s.timeout || '24h', payload: render(s.payload || null, state), preview: s.preview ? { toolName: s.preview.toolName, params: render(s.preview.params, { ...state, payload: render(s.payload || null, state) }) } : null }
       summary = `${s.preview ? `would show a preview (${s.preview.toolName}) and ` : 'would '}wait for ${detail.approver}'s approval (dry run continues as approved)`
       edge = pick('approved')
       break
@@ -448,6 +517,56 @@ function ends(text) {
   return t.length <= 2000 ? { text: t } : { textStart: t.slice(0, 1000), textEnd: t.slice(-1000), textLength: t.length }
 }
 
+/** Arguments as they go in the run log: a phone number keeps its last two digits (safety rule 8). */
+export function logArgs(args) {
+  if (!args || typeof args !== 'object' || typeof args.toPhone !== 'string') return args
+  const p = args.toPhone.replace(/\s/g, '')
+  return { ...args, toPhone: p.length < 4 ? '••' : `••••••${p.slice(-2)}` }
+}
+
+/**
+ * A forEach action in a LIVE run, before anything is called: the items it will run for, or the
+ * step's outcome when it cannot start. Checked here, all at once, so a list is never half sent:
+ *   - the reference must be a list, no longer than maxItems;
+ *   - the items must fit in what is left of limits.maxSteps;
+ *   - a send must have its approval, and ALL its messages must fit in limits.maxExternalSends.
+ * Pure: the runner calls it outside its durable steps, from the state it has folded so far.
+ */
+export function forEachPlan(spec, stepId, state, stepsSoFar = 0) {
+  const s = spec.steps[stepId]
+  const edges = spec.edges[stepId] || []
+  const next = edges.find((x) => x.label === 'next') || edges[0] || null
+  const err = edges.find((x) => x.label === 'error') || null
+  const fail = (why, status = 'error') => ({
+    outcome: {
+      record: { nodeId: s.id, label: s.label, kind: s.kind, status, summary: `${status === 'refused' ? 'refused' : 'failed'}: ${why}`, detail: { toolName: s.toolName, forEach: s.forEach }, edge: status === 'error' && err ? 'error' : null },
+      result: { error: why }, nextId: status === 'error' && err ? err.target : null,
+      stop: status === 'error' && err ? null : `Step "${s.label}" ${status === 'refused' ? 'was refused' : 'failed'}: ${why}`,
+    },
+  })
+  const missing = []
+  const items = render(s.forEach, state, missing)
+  if (missing.length) return fail(describeMissing(missing, state))
+  if (!Array.isArray(items)) return fail(`${s.forEach} is not a list (it is ${items === null ? 'null' : typeof items})`)
+  if (items.length > s.maxItems) return fail(`${s.forEach} has ${items.length} items, more than this step's maxItems ${s.maxItems}. Nothing was run.`)
+  if (stepsSoFar + items.length > spec.limits.maxSteps) return fail(`${items.length} items do not fit in what is left of limits.maxSteps ${spec.limits.maxSteps}. Nothing was run.`)
+  if (s.external) {
+    if (!state.approved) return fail(`${s.toolName} reaches other people and no approval on this run said yes`, 'refused')
+    const left = spec.limits.maxExternalSends - (state.sends || 0)
+    if (items.length > left) return fail(`${items.length} messages to send, but the run may send ${left} more (limits.maxExternalSends ${spec.limits.maxExternalSends} in the flow node). Nothing was sent.`)
+  }
+  if (!items.length) {
+    return { outcome: { record: { nodeId: s.id, label: s.label, kind: s.kind, status: 'ok', summary: `${s.forEach} is empty — nothing to do`, detail: { toolName: s.toolName, forEach: s.forEach, count: 0 }, edge: next?.label || null }, result: { count: 0, done: 0, failed: 0, items: [] }, nextId: next?.target || null, stop: null } }
+  }
+  return { items, nextId: next?.target || null }
+}
+
+/** One line for an item in the run log: a contact's name, or its position in the list. */
+export function itemName(item, i) {
+  const n = item && typeof item === 'object' ? item.name || item.label || item.title || item.id : typeof item === 'string' ? item : null
+  return n ? String(n).slice(0, 80) : `item ${i + 1}`
+}
+
 /** Tools where "it is already there" means an earlier run of the same flow wrote it: not an error. */
 export const EXISTS_IS_OK_TOOLS = new Set(['add_node', 'add_edge'])
 
@@ -524,13 +643,13 @@ export async function liveStep(spec, stepId, state, hooks = {}) {
           result: { alreadyExists: true, graphId: args.graphId ?? null, nodeId: args.node?.id ?? args.nodeId ?? null }, nextId: next?.target || null, stop: null,
         }
       }
-      return failed(`${s.toolName}: ${why}`, { toolName: s.toolName, args })
+      return failed(`${s.toolName}: ${why}`, { toolName: s.toolName, args: logArgs(args) })
     }
     const result = r.structured ?? { text: r.text }
     const next = byLabel('next') || edges[0] || null
     const size = JSON.stringify(result).length
     return {
-      record: { nodeId: s.id, label: s.label, kind: s.kind, status: s.external ? 'sent' : 'ok', summary: `ran ${s.toolName}${s.external ? ' (sent)' : ''} (${size} chars of result)`, detail: { toolName: s.toolName, args, result: size > 8000 ? `${JSON.stringify(result).slice(0, 8000)}…` : result }, edge: next?.label || null },
+      record: { nodeId: s.id, label: s.label, kind: s.kind, status: s.external ? 'sent' : 'ok', summary: `ran ${s.toolName}${s.external ? ' (sent)' : ''} (${size} chars of result)`, detail: { toolName: s.toolName, args: logArgs(args), result: size > 8000 ? `${JSON.stringify(result).slice(0, 8000)}…` : result }, edge: next?.label || null },
       result, nextId: next?.target || null, stop: null,
     }
   }
@@ -608,7 +727,9 @@ export async function liveStep(spec, stepId, state, hooks = {}) {
 
   if (s.kind === 'approval') {
     const rp = strict(s.payload || null)
-    const rv = strict(s.preview?.params || {})
+    // The preview may quote the payload ({{payload.emne}}): one text, read and then sent.
+    const rvMissing = []
+    const rv = { out: render(s.preview?.params || {}, { ...state, payload: rp.out }, rvMissing), missing: rvMissing }
     if (rp.missing.length || rv.missing.length) return unresolved([...rp.missing, ...rv.missing], null)
     let payload = rp.out
     const timeout = workflowDuration(s.timeout || '24h')

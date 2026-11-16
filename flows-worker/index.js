@@ -22,9 +22,12 @@
  * agent steps ask a model through anthropic-worker (ANTHROPIC binding); approval steps pause the
  * run (step.waitForEvent) until the owner decides through MCP decide_flow_approval; a tool that
  * reaches other people runs only after a yes, once. Route/wait/loop are still simulated.
+ * forEach (2026-11-16): an action step with metadata.forEach runs its tool once per item of a
+ * list an earlier step returned. That is how a flow sends an approved e-mail or SMS to the
+ * owner's ContactHub contacts with one label («Stillerom») — each message its own claimed send.
  */
 import { WorkflowEntrypoint } from 'cloudflare:workers'
-import { compileFlow, dryRunStep, liveStep, decideApproval } from './compile.js'
+import { compileFlow, dryRunStep, liveStep, decideApproval, forEachPlan, itemName } from './compile.js'
 import { nextRun, describeTime, scheduleTriggers, DEFAULT_TIMEZONE } from './schedule.js'
 import { askModel, hasModelConnection } from './providers.js'
 
@@ -40,7 +43,7 @@ export default {
     const url = new URL(request.url)
     const path = url.pathname
 
-    if (path === '/health') return json({ status: 'ok', worker: 'flows-worker', phase: '2 schedules', strict: '2026-11-13' })
+    if (path === '/health') return json({ status: 'ok', worker: 'flows-worker', phase: '2 schedules', strict: '2026-11-13', forEachContacts: '2026-11-16' })
     if (url.hostname !== BINDING_HOST) {
       return json({ error: 'flows-worker is reachable only over a service binding.' }, 403)
     }
@@ -395,7 +398,7 @@ export class FlowRunner extends WorkflowEntrypoint {
     ).bind(runId, seqNo, r.record.nodeId, r.record.kind, r.record.status, r.record.summary,
       r.record.detail ? JSON.stringify(r.record.detail) : null, r.record.edge, new Date().toISOString()).run()
 
-    const state = { inputs, trigger: { type: 'manual' }, owner: { email: owner }, results: {}, approved: false, sends: 0, costUsd: 0 }
+    const state = { inputs, trigger: { type: 'manual' }, owner: { email: owner }, results: {}, approved: false, sends: 0, notSent: 0, costUsd: 0 }
     const lines = []
     let id = spec.entry
     let seq = 0
@@ -407,6 +410,57 @@ export class FlowRunner extends WorkflowEntrypoint {
         const stepId = id
         const s = spec.steps[stepId]
         const sending = !dryRun && s.kind === 'action' && s.external && state.approved
+
+        // forEach: the tool runs once per item. The list comes from the state folded so far, so a
+        // replay after a pause sees the same items; every item is its own durable step (and, for
+        // a send, its own claim), so a restart mid-list never sends to the same person twice.
+        if (!dryRun && s.kind === 'action' && s.forEach) {
+          const plan = forEachPlan(spec, stepId, state, mySeq - 1)
+          if (plan.outcome) {
+            const o = await step.do(`${stepId}#${mySeq}`, async () => { await writeStep(mySeq, plan.outcome); return plan.outcome })
+            state.results[stepId] = { result: o.result }
+            lines.push(`${mySeq}. ${o.record.label} — ${o.record.summary}`)
+            if (o.stop) throw new Error(o.stop)
+            id = o.nextId
+            continue
+          }
+          const done = []
+          for (let i = 0; i < plan.items.length; i += 1) {
+            if (i > 0) seq += 1
+            const itemSeq = seq
+            const name = itemName(plan.items[i], i)
+            const itemState = { ...state, item: plan.items[i] }
+            if (s.external) {
+              await step.do(`${stepId}#${itemSeq} claim`, async () => {
+                await writeStep(itemSeq, { record: { nodeId: s.id, kind: s.kind, status: 'sending', summary: `sending with ${s.toolName} to ${name}`, detail: { toolName: s.toolName }, edge: null } })
+                return true
+              })
+            }
+            const r = await step.do(
+              `${stepId}#${itemSeq}`,
+              { retries: { limit: s.external ? 0 : retryLimit(s), delay: s.external ? '1 second' : '2 seconds' } },
+              async () => {
+                const one = await liveStep(spec, stepId, itemState, {
+                  callTool: (t, a, extra) => callTool(t, a, extra?.send ? { runId, seq: itemSeq } : null),
+                  callModel,
+                })
+                const rec = { ...one.record, label: `${s.label} → ${name}`, summary: `${name}: ${one.record.summary}`, edge: null }
+                await writeStep(itemSeq, { record: rec })
+                return { record: rec, result: one.result }
+              },
+            )
+            // One person's wrong number must not stop the others: note it and go on.
+            const ok = r.record.status === 'sent' || r.record.status === 'ok'
+            if (r.record.status === 'sent') state.sends += 1
+            else if (s.external) state.notSent += 1
+            done.push({ name, status: r.record.status, ...(ok ? {} : { error: r.result?.error || r.record.summary }) })
+            lines.push(`${itemSeq}. ${r.record.label} — ${r.record.summary}`)
+          }
+          const failedCount = done.filter((d) => d.error).length
+          state.results[stepId] = { result: { count: done.length, done: done.length - failedCount, failed: failedCount, items: done } }
+          id = plan.nextId
+          continue
+        }
 
         if (sending) {
           await step.do(`${stepId}#${mySeq} claim`, async () => {
@@ -481,7 +535,7 @@ export class FlowRunner extends WorkflowEntrypoint {
       await step.do('finish', async () => {
         const head = dryRun
           ? `Dry run of "${spec.name}": ${seq} step${seq === 1 ? '' : 's'}, nothing was called.`
-          : `Live run of "${spec.name}": ${seq} step${seq === 1 ? '' : 's'}${state.sends ? `, ${state.sends} sent` : ''}${state.costUsd ? `, model cost ~$${state.costUsd.toFixed(4)}` : ''}.`
+          : `Live run of "${spec.name}": ${seq} step${seq === 1 ? '' : 's'}${state.sends ? `, ${state.sends} sent` : ''}${state.notSent ? `, ${state.notSent} NOT sent (see the lines below)` : ''}${state.costUsd ? `, model cost ~$${state.costUsd.toFixed(4)}` : ''}.`
         const digest = `${head}\n${lines.join('\n')}`
         await db.prepare("UPDATE flow_runs SET status = 'succeeded', digest = ?2, finished_at = ?3 WHERE id = ?1")
           .bind(runId, digest, new Date().toISOString()).run()
