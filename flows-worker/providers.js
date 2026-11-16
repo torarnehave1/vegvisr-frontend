@@ -18,6 +18,13 @@
  *     through an AI Gateway (AI_GATEWAY_ID, else "default"), paid from the account's prepaid
  *     credits. No Moonshot key. Only the model's own fields are sent: the gateway rejects others.
  *
+ * grok-worker and openai-worker look for a key the same way: first the user's own key, found by
+ * the user id in the request, then the platform's key. Until 2026-11-16 (evening) no user id was
+ * sent, so a model there answered only when a platform key was set — a live grok run failed with
+ * "X AI API key not configured" while the owner's own key sat unused. Now the flow owner's user
+ * id goes along to them too. For gemini the id is REQUIRED (no id, no question asked); for grok
+ * and openai it is sent when it can be found, and the worker's platform key remains the fallback.
+ *
  * A model id may carry the prefix Agent-Builder's model panel uses ("kimi/kimi-k3.1-pro",
  * "gemini/gemini-2.5-flash", "grok/…", "openai/…"); the prefix is cut before the model is asked.
  *
@@ -31,9 +38,9 @@
 
 export const PROVIDERS = {
   anthropic: { binding: 'ANTHROPIC', url: 'https://anthropic-worker/chat', format: 'anthropic' },
-  grok: { binding: 'GROK', url: 'https://grok-worker/chat', format: 'openai' },
-  openai: { binding: 'OPENAI', url: 'https://openai-worker/chat', format: 'openai' },
-  gemini: { binding: 'GEMINI', url: 'https://gemini-worker/chat', format: 'openai', ownerKey: true },
+  grok: { binding: 'GROK', url: 'https://grok-worker/chat', format: 'openai', ownerKey: 'optional' },
+  openai: { binding: 'OPENAI', url: 'https://openai-worker/chat', format: 'openai', ownerKey: 'optional' },
+  gemini: { binding: 'GEMINI', url: 'https://gemini-worker/chat', format: 'openai', ownerKey: 'required' },
   kimi: { binding: 'AI', catalogAuthor: 'moonshotai', format: 'openai' },
 }
 
@@ -68,10 +75,12 @@ export function buildModelRequest(provider, { model, system, user, maxTokens, us
   const messages = [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: user }]
   if (provider === 'kimi') return { messages, max_tokens: maxTokens }
   if (provider === 'gemini') return { userId, model, messages, max_tokens: maxTokens }
+  // The owner's user id, when known, lets the worker answer with the owner's own key.
+  const who = userId ? { userId } : {}
   // openai-worker forwards max_completion_tokens (what current GPT models take); grok-worker takes max_tokens.
   return provider === 'openai'
-    ? { model, messages, max_completion_tokens: maxTokens }
-    : { model, messages, max_tokens: maxTokens }
+    ? { ...who, model, messages, max_completion_tokens: maxTokens }
+    : { ...who, model, messages, max_tokens: maxTokens }
 }
 
 /**
@@ -163,12 +172,14 @@ export async function askModel(env, { model, system, user, maxTokens, ownerEmail
   if (!svc?.fetch) {
     return { ok: false, error: `no connection to the ${provider} worker (service binding ${p.binding} is missing on flows-worker)` }
   }
-  // Gemini answers with the flow owner's own key: the owner's user id goes with the question.
+  // The flow owner's user id goes with the question, so the worker can answer with the owner's
+  // own key. Gemini has no other key: without the id it is not asked. Grok and OpenAI fall back
+  // to the platform's key, so a missing id does not stop them.
   let userId
   if (p.ownerKey) {
     const found = await ownerUserId(env, ownerEmail)
-    if (!found.ok) return { ok: false, error: found.error }
-    userId = found.userId
+    if (found.ok) userId = found.userId
+    else if (p.ownerKey === 'required') return { ok: false, error: found.error }
   }
   try {
     const res = await svc.fetch(p.url, {
@@ -190,11 +201,11 @@ export async function askModel(env, { model, system, user, maxTokens, ownerEmail
  */
 export async function ownerUserId(env, ownerEmail) {
   const email = String(ownerEmail || '').trim().toLowerCase()
-  if (!email) return { ok: false, error: 'a gemini model answers with the flow owner\'s own Gemini key, and this run has no owner e-mail' }
-  if (!env?.DB?.prepare) return { ok: false, error: 'a gemini model needs the owner\'s user id, and the database binding DB is missing on flows-worker' }
+  if (!email) return { ok: false, error: 'this model answers with the flow owner\'s own key, and this run has no owner e-mail' }
+  if (!env?.DB?.prepare) return { ok: false, error: 'this model needs the owner\'s user id, and the database binding DB is missing on flows-worker' }
   try {
     const row = await env.DB.prepare('SELECT user_id FROM config WHERE LOWER(email) = ?1 LIMIT 1').bind(email).first()
-    if (!row?.user_id) return { ok: false, error: `a gemini model answers with the flow owner's own Gemini key, and no user was found for ${email}` }
+    if (!row?.user_id) return { ok: false, error: `this model answers with the flow owner's own key, and no user was found for ${email}` }
     return { ok: true, userId: String(row.user_id) }
   } catch (e) {
     return { ok: false, error: `could not read the flow owner's user id: ${e?.message || e}` }

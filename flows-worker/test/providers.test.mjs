@@ -192,6 +192,25 @@ test('kimi failures are reported without throwing: no binding, a thrown run, an 
   assert.match(spent.error, /stop reason max_tokens.*the answer held only: reasoning.*raise metadata\.maxTokens/)
 })
 
+test('grok and gpt models are asked with the flow owner\'s user id, so the owner\'s own key answers', async () => {
+  const seen = []
+  const ok = (who) => svc((url, body) => { seen.push([who, body.userId, body.model]); return reply({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } }) })
+  const env = { DB: dbWith({ 'tor@example.com': { user_id: 'owner-uuid' } }), GROK: ok('grok'), OPENAI: ok('openai') }
+  assert.equal((await askModel(env, { model: 'grok-4.5', system: 's', user: 'u', maxTokens: 10, ownerEmail: 'tor@example.com' })).ok, true)
+  assert.equal((await askModel(env, { model: 'gpt-5', system: 's', user: 'u', maxTokens: 10, ownerEmail: 'tor@example.com' })).ok, true)
+  assert.deepEqual(seen, [['grok', 'owner-uuid', 'grok-4.5'], ['openai', 'owner-uuid', 'gpt-5']])
+})
+
+test('a grok or gpt model is still asked when the owner is unknown: the platform key is the fallback', async () => {
+  const seen = []
+  const GROK = svc((url, body) => { seen.push(['userId' in body, body.model]); return reply({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } }) })
+  assert.equal((await askModel({ GROK }, { model: 'grok-4.5', system: 's', user: 'u', maxTokens: 10 })).ok, true)
+  assert.equal((await askModel({ GROK, DB: dbWith({}) }, { model: 'grok-4.5', system: 's', user: 'u', maxTokens: 10, ownerEmail: 'who@example.com' })).ok, true)
+  assert.deepEqual(seen, [[false, 'grok-4.5'], [false, 'grok-4.5']])
+  const noKey = await askModel({ GROK: svc(() => reply({ error: 'Error: X AI API key not configured. Please add your Grok API key.' }, 401)) }, { model: 'grok-4.5', system: 's', user: 'u', maxTokens: 10 })
+  assert.match(noKey.error, /HTTP 401.*X AI API key not configured/)
+})
+
 test('hasModelConnection counts the AI binding and gemini-worker too', () => {
   assert.equal(hasModelConnection({ AI: { run() {} } }), true)
   assert.equal(hasModelConnection({ AI: { fetch() {} } }), false)
