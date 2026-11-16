@@ -66,6 +66,7 @@ function graphStoreErrorResponse(error, corsHeaders) {
 }
 import { listTemplates as gsListTemplates } from './templates-service.js'
 import { readPublishedDomainRegistry, mergePublishedDomains, recordPublishedSite } from './published-domains.js'
+import { cardSummaryQuery } from './summary-card.js'
 import { NODE_TYPES } from './node-types.js'
 import { allowedNodeTypes, registeredNodeTypes, nodeTypeRenderers, approvedRenderer, worldNodeTypes, worldTypeInfo, normalizeWorld } from './node-type-registry.js'
 import * as nodeTypeService from './node-type-service.js'
@@ -6565,6 +6566,9 @@ const restHandler = {
           const limit = parseIntWithBounds(url.searchParams.get('limit'), 80, 1, 250)
           const offset = parseIntWithBounds(url.searchParams.get('offset'), 0, 0, 1000000)
           const metaAreaParam = url.searchParams.get('metaArea') || ''
+          // fields=card: only id, title, updatedAt and thumbnail per graph (summary-card.js) — the
+          // graph portfolio lists every graph and needs nothing more (2026-11-16).
+          const cardOnly = url.searchParams.get('fields') === 'card'
           const hostname =
             request.headers.get('x-original-hostname') || new URL(request.url).hostname
 
@@ -6834,6 +6838,7 @@ const restHandler = {
             return result.results || result.rows || []
           }
           const pageRows = async (run, where, lim, off) => {
+            if (cardOnly) return run(cardSummaryQuery(where, sumOrderSql), [...whereBindings, lim, off])
             try {
               return await run(summaryQueryFor(where), [...whereBindings, lim, off])
             } catch (summaryQueryError) {
@@ -6887,7 +6892,7 @@ const restHandler = {
             rows = order.map((p) => pageById.get(`${p.si}:${p.id}`)).filter(Boolean)
           }
 
-          const domainRegistry = await readPublishedDomainRegistry(env)
+          const domainRegistry = cardOnly ? null : await readPublishedDomainRegistry(env)
 
           const summaries = rows
             .map((row) => {
@@ -6900,6 +6905,16 @@ const restHandler = {
                 !rowMetaAreas.some((area) => allowedMetaAreas.includes(area))
               ) {
                 return null
+              }
+
+              if (cardOnly) {
+                return {
+                  id: row.id,
+                  title: row.metadata_title || row.title || 'Untitled Graph',
+                  updatedAt: row.updated_at || row.created_date || null,
+                  thumbnail: pickSummaryThumbnail(row),
+                  ...(row._world ? { world: row._world } : {}),
+                }
               }
 
               const nodeTypes = String(row.node_types_csv || '')
