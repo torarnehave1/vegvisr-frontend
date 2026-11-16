@@ -1,6 +1,11 @@
 // Gemini Worker - Google Gemini API Integration
 // Converts OpenAI-style chat payloads into Gemini generateContent requests
 
+import {
+  toGeminiTools, toGeminiToolConfig, functionCallParts, functionResponsePart,
+  textFromParts, toolCallsFromParts,
+} from './chat-tools.js'
+
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta'
 const DEFAULT_IMAGE_MODEL = 'gemini-2.5-flash-image'
 const GEMINI_API_ROOT = 'https://generativelanguage.googleapis.com'
@@ -291,7 +296,9 @@ async function processGeminiChat(body, env, corsHeaders) {
     stream = false,
     userId,
     safetySettings,
-    generationConfig = {}
+    generationConfig = {},
+    tools,        // OpenAI-format function tools (chat-tools.js)
+    tool_choice
   } = body || {}
 
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -352,6 +359,14 @@ async function processGeminiChat(body, env, corsHeaders) {
 
   if (systemInstruction) {
     requestBody.systemInstruction = systemInstruction
+  }
+
+  // Function calling: declared only when the caller sent tools, so a plain chat is unchanged.
+  const geminiTools = tool_choice === 'none' ? null : toGeminiTools(tools)
+  if (geminiTools) {
+    requestBody.tools = geminiTools
+    const toolConfig = toGeminiToolConfig(tool_choice)
+    if (toolConfig) requestBody.toolConfig = toolConfig
   }
 
   const geminiResponse = await fetch(`${GEMINI_API_BASE}/models/${model}:generateContent?key=${geminiKey}`, {
@@ -571,9 +586,29 @@ async function handleImageGeneration(request, env, corsHeaders) {
 function convertMessagesForGemini(messages) {
   const contents = []
   let systemInstruction = null
+  // Which function each tool-call id named: an OpenAI tool message carries only the id.
+  const callNames = new Map()
+  // Results of one step's calls go back as ONE user turn, one functionResponse part per call.
+  let pendingResponses = []
+  const flushResponses = () => {
+    if (pendingResponses.length) contents.push({ role: 'user', parts: pendingResponses })
+    pendingResponses = []
+  }
 
   for (const message of messages) {
     if (!message || !message.role) continue
+
+    if (message.role === 'tool') {
+      pendingResponses.push(functionResponsePart(message, callNames))
+      continue
+    }
+    flushResponses()
+
+    if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length) {
+      const parts = [...normalizeGeminiParts(message.content), ...functionCallParts(message.tool_calls, callNames)]
+      if (parts.length) contents.push({ role: 'model', parts })
+      continue
+    }
 
     if (message.role === 'system') {
       const parts = normalizeGeminiParts(message.content)
@@ -589,6 +624,7 @@ function convertMessagesForGemini(messages) {
 
     contents.push({ role, parts })
   }
+  flushResponses()
 
   return { contents, systemInstruction }
 }
@@ -657,8 +693,10 @@ function convertPartObject(part) {
 
 function mapGeminiResponseToOpenAI(model, result) {
   const candidate = result.candidates?.[0]
-  const text = candidate?.content?.parts?.map(part => part.text).filter(Boolean).join('\n') || ''
-  const finishReason = candidate?.finishReason?.toLowerCase() || 'stop'
+  const parts = candidate?.content?.parts || []
+  const text = textFromParts(parts)
+  const toolCalls = toolCallsFromParts(parts)
+  const finishReason = toolCalls.length ? 'tool_calls' : (candidate?.finishReason?.toLowerCase() || 'stop')
   const usage = result.usageMetadata || {}
 
   return {
@@ -669,7 +707,7 @@ function mapGeminiResponseToOpenAI(model, result) {
     choices: [
       {
         index: 0,
-        message: { role: 'assistant', content: text },
+        message: { role: 'assistant', content: text, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) },
         finish_reason: finishReason
       }
     ],
