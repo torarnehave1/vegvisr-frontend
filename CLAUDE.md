@@ -256,7 +256,7 @@ wrangler deploy
 # Workers are NOT auto-deployed from GitHub
 ```
 
-**Five exceptions, all deployed by GitHub Actions behind the owner's approval:**
+**Six exceptions, all deployed by GitHub Actions behind the owner's approval:**
 
 - `flows-worker/` (the VEGR Flows engine) — `.github/workflows/deploy-flows-worker.yml`:
   unit tests → approval → `wrangler deploy` → `/health` check. Its `wrangler.toml` is tracked
@@ -271,6 +271,10 @@ wrangler deploy
 - `seo-worker/` (SEO pages: seo.vegvisr.org, www.vegvisr.org/graph/*, universi.no/graph/*) —
   `.github/workflows/deploy-seo-worker.yml`: syntax check → approval → `wrangler deploy` → live check.
   Its `wrangler.toml` is tracked too (routes + two KV ids, no secrets).
+- `calendar-worker` — its source is in ANOTHER repo (torarnehave1/calendar, `calendar-worker/`),
+  but it deploys from here: `.github/workflows/deploy-calendar-worker.yml` checks that repo out,
+  runs its unit tests → approval → `wrangler deploy`. It does not start when the calendar repo
+  changes: run it from Actions → "Deploy calendar-worker" → Run workflow.
 - `hello-mcp-worker/` — `.github/workflows/deploy-hello-mcp.yml`. No bindings, no secrets.
   Endpoint: `https://hello-mcp.torarnehave.workers.dev/mcp`.
 
@@ -284,7 +288,7 @@ wrangler deploy
   Superadmin only — discovered from the RUNNING worker by `dev-worker/worker-tools.js`, so an
   unapproved worker has no tools. Calls forward the arguments and nothing else.
 
-All five deploy jobs run in the GitHub environment `mcp-production`, which has a required reviewer.
+All six deploy jobs run in the GitHub environment `mcp-production`, which has a required reviewer.
 `CLOUDFLARE_API_TOKEN` is a secret of THAT ENVIRONMENT and must never be added as a repository
 secret — any workflow file on `main` can read a repository secret, which would bypass the approval.
 
