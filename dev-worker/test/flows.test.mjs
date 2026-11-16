@@ -167,7 +167,7 @@ describe('run_flow / get_flow_run', () => {
 })
 
 // ── flow-tools: one read-only tool, run as the flow's owner (2026-11-06) ──
-import { callToolForFlow, FLOW_SCOPES } from '../flow-tools.js'
+import { callToolForFlow, FLOW_SCOPES, contactLabelOfStep } from '../flow-tools.js'
 
 describe('callToolForFlow — a flow runs MCP tools as its owner, read-only', () => {
   test('a read-only tool runs as the owner and sees only the owner\'s graphs', async () => {
@@ -336,7 +336,7 @@ describe('callToolForFlow — an approved send', () => {
       const { env, raw } = withRun()
       const r = await send(env, { args })
       assert.equal(r.status, 403)
-      assert.match(r.error, /owner only/)
+      assert.match(r.error, /owner only|no cc or bcc/)
       assert.equal(claimStatus(raw), 'sending', 'a refused send leaves the claim unused')
     }
   })
@@ -348,7 +348,122 @@ describe('callToolForFlow — an approved send', () => {
       assert.equal(r.status, 403, toolName)
     }
     const sms = await callToolForFlow(env, { email: 'alice@example.com', toolName: 'send_sms', args: {}, approval: { runId: SEND_RUN, seq: 4 } })
-    assert.equal(sms.status, 403, 'send_sms is not a flow send tool yet')
+    assert.equal(sms.status, 403, 'send_sms with no number, from a step that is not a contact send, is refused')
+  })
+})
+
+// ── Sending to ContactHub contacts (2026-11-16, «Stillerom»): a forEach step over list_contacts ──
+describe('callToolForFlow — an approved send to the owner\'s ContactHub contacts with one label', () => {
+  const SEND_RUN = '2d3e4f5a-6b7c-4d8e-9f0a-b1c2d3e4f5a6'
+  const SPEC = {
+    steps: {
+      kontakter: { id: 'kontakter', kind: 'action', toolName: 'list_contacts', params: { label: 'STILLEROM' } },
+      godkjenn: { id: 'godkjenn', kind: 'approval' },
+      epost: { id: 'epost', kind: 'action', toolName: 'send_email', external: true, forEach: '{{kontakter.result.contacts}}' },
+      sms: { id: 'sms', kind: 'action', toolName: 'send_sms', external: true, forEach: '{{kontakter.result.contacts}}' },
+      fri: { id: 'fri', kind: 'action', toolName: 'send_email', external: true },
+      modell: { id: 'modell', kind: 'action', toolName: 'send_email', external: true, forEach: '{{agent.result.contacts}}' },
+      agent: { id: 'agent', kind: 'agent' },
+      alle: { id: 'alle', kind: 'action', toolName: 'list_contacts', params: {} },
+      helebok: { id: 'helebok', kind: 'action', toolName: 'send_sms', external: true, forEach: '{{alle.result.contacts}}' },
+    },
+  }
+  const MAIL = { fromEmail: 'alice@example.com', toEmail: 'Kari@Example.no', subject: 'Stillerom', bodyHtml: '<p>Velkommen</p>' }
+  const SMS = { toPhone: '900 00 011', message: 'Stillerom i kveld' }
+
+  /** agent-worker's /contacts/list: Kari carries STILLEROM, Ola does not. Records what was asked. */
+  function world({ nodeId = 'epost', tool = 'send_email', contactsDown = false } = {}) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    raw.exec(readFileSync(new URL('../../flows-worker/schema.sql', import.meta.url), 'utf8'))
+    raw.prepare("INSERT INTO flow_runs (id, flow_graph_id, owner_email, dry_run, status, spec_json, created_at) VALUES (?,?,?,0,'running',?,'2026-11-16')")
+      .run(SEND_RUN, FLOW_ID, 'alice@example.com', JSON.stringify(SPEC))
+    const step = raw.prepare('INSERT INTO flow_run_steps (run_id, seq, node_id, kind, status, detail_json, at) VALUES (?,?,?,?,?,?,?)')
+    step.run(SEND_RUN, 2, 'godkjenn', 'approval', 'approved', null, 'x')
+    step.run(SEND_RUN, 3, nodeId, 'action', 'sending', JSON.stringify({ toolName: tool }), 'x')
+    const asked = []
+    env.AGENT_WORKER = {
+      fetch: async (url, init) => {
+        const body = JSON.parse(init.body)
+        asked.push({ path: new URL(url).pathname, token: init.headers['X-API-Token'], ...body })
+        if (contactsDown) return new Response(JSON.stringify({ success: false, error: 'down' }), { status: 500 })
+        const all = [
+          { id: 'c1', name: 'Kari', emails: ['kari@example.no'], phones: ['+47 900 00 011'], labels: ['STILLEROM'] },
+          { id: 'c2', name: 'Ola', emails: ['ola@example.no'], phones: ['90000022'], labels: ['ANNET'] },
+        ]
+        const contacts = all.filter((c) => !body.label || c.labels.includes(body.label))
+        return new Response(JSON.stringify({ success: true, total: contacts.length, contacts }), { status: 200 })
+      },
+    }
+    return { env, raw, asked }
+  }
+  const go = (env, toolName, args) => callToolForFlow(env, { email: 'alice@example.com', toolName, args, approval: { runId: SEND_RUN, seq: 3 } })
+  const claim = (raw) => raw.prepare('SELECT status FROM flow_run_steps WHERE run_id = ? AND seq = 3').get(SEND_RUN)?.status
+
+  test('an e-mail to a contact with the label passes the gate, once; the label is asked for as the owner', async () => {
+    const { env, raw, asked } = world()
+    const r = await go(env, 'send_email', MAIL)
+    assert.notEqual(r.status, 403, JSON.stringify(r))
+    assert.equal(claim(raw), 'calling')
+    assert.deepEqual(asked[0], { path: '/contacts/list', token: 'sess-alice', label: 'STILLEROM', limit: 200, offset: 0 })
+    assert.equal((await go(env, 'send_email', MAIL)).status, 403, 'the same claim cannot send twice')
+  })
+
+  test('an SMS to a contact with the label passes the gate, whatever way the number is written', async () => {
+    const { env, raw } = world({ nodeId: 'sms', tool: 'send_sms' })
+    const r = await go(env, 'send_sms', SMS)
+    assert.notEqual(r.status, 403, JSON.stringify(r))
+    assert.equal(claim(raw), 'calling')
+  })
+
+  test('someone without the label, a stranger, a copy, or a number that is not Norwegian: refused, claim unused', async () => {
+    for (const [why, opts, tool, args, re] of [
+      ['a contact with another label', {}, 'send_email', { ...MAIL, toEmail: 'ola@example.no' }, /not one of your ContactHub contacts with label "STILLEROM"/],
+      ['a stranger', {}, 'send_email', { ...MAIL, toEmail: 'eve@evil.example' }, /not one of your ContactHub contacts/],
+      ['a cc', {}, 'send_email', { ...MAIL, cc: ['eve@evil.example'] }, /no cc or bcc/],
+      ['a bcc', {}, 'send_email', { ...MAIL, bcc: ['eve@evil.example'] }, /no cc or bcc/],
+      ['an SMS to another label', { nodeId: 'sms', tool: 'send_sms' }, 'send_sms', { ...SMS, toPhone: '90000022' }, /not one of your ContactHub contacts/],
+      ['a foreign number', { nodeId: 'sms', tool: 'send_sms' }, 'send_sms', { ...SMS, toPhone: '+46701234567' }, /not a Norwegian mobile number/],
+    ]) {
+      const { env, raw } = world(opts)
+      const r = await go(env, tool, args)
+      assert.equal(r.status, 403, why)
+      assert.match(r.error, re, why)
+      assert.equal(claim(raw), 'sending', why)
+    }
+  })
+
+  test('the step itself must be a forEach over a list_contacts step with a fixed label', async () => {
+    for (const [why, opts, tool, args] of [
+      ['a plain send step', { nodeId: 'fri' }, 'send_email', MAIL],
+      ['a list written by a model', { nodeId: 'modell' }, 'send_email', MAIL],
+      ['the whole address book', { nodeId: 'helebok', tool: 'send_sms' }, 'send_sms', SMS],
+      ['a step that is not in the spec', { nodeId: 'finnes-ikke' }, 'send_email', MAIL],
+      ['a prototype name', { nodeId: 'constructor' }, 'send_email', MAIL],
+    ]) {
+      const { env, raw, asked } = world(opts)
+      const r = await go(env, tool, args)
+      assert.equal(r.status, 403, why)
+      assert.equal(asked.length, 0, `${why}: ContactHub is not even asked`)
+      assert.equal(claim(raw), 'sending', why)
+    }
+  })
+
+  test('the owner can still be written to from any approved step, and ContactHub being down sends nothing', async () => {
+    const a = world({ nodeId: 'fri' })
+    assert.notEqual((await go(a.env, 'send_email', { ...MAIL, toEmail: 'alice@example.com' })).status, 403)
+    const b = world({ contactsDown: true })
+    const r = await go(b.env, 'send_email', MAIL)
+    assert.equal(r.status, 403)
+    assert.match(r.error, /Could not read your ContactHub contacts/)
+    assert.equal(claim(b.raw), 'sending')
+  })
+
+  test('contactLabelOfStep reads the label only from a literal', () => {
+    assert.equal(contactLabelOfStep(SPEC, 'epost'), 'STILLEROM')
+    assert.equal(contactLabelOfStep({ steps: { k: { kind: 'action', toolName: 'list_contacts', params: { label: '{{inputs.l}}' } }, s: { forEach: '{{k.result.contacts}}' } } }, 's'), null)
+    assert.equal(contactLabelOfStep({ steps: { k: { kind: 'action', toolName: 'search_contacts', params: { label: 'X' } }, s: { forEach: '{{k.result.contacts}}' } } }, 's'), null)
+    assert.equal(contactLabelOfStep(null, 's'), null)
   })
 })
 
@@ -429,6 +544,31 @@ describe('the owner approves the real e-mail: preview_email in a flow', () => {
     assert.match(text, /WAITING for your approval/)
     assert.match(text, /Fra: VEGR\.AI <post@vegr\.ai>\nTil: alice@example\.com\nEmne: Mine siste grafer\n\nHei Alice/)
     assert.match(text, /decide_flow_approval/)
+  })
+})
+
+describe('a run waiting to send to ContactHub contacts shows who and what', () => {
+  test('the e-mail, the SMS text and every recipient are in the waiting text', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const preview = { senderEmail: 'post@vegr.ai', fromName: 'VEGR.AI', toEmail: null, cc: [], subject: 'Stillerom torsdag', textPreview: 'Hei (navn)\n\nVelkommen til Stillerom.' }
+    const payload = {
+      emne: 'Stillerom torsdag', tekst: 'Velkommen til Stillerom.', sms: 'Stillerom torsdag kl. 20: https://realtime.vegvisr.org/stillerom',
+      mottakere: [{ id: 'c1', name: 'Kari Nordmann', emails: ['kari@example.no'], phones: ['+4790000011'], labels: ['STILLEROM'] }, { id: 'c2', name: 'Per Uten', emails: [], phones: [], labels: ['STILLEROM'] }],
+      epost: preview,
+    }
+    env.FLOWS_WORKER = {
+      fetch: async () => new Response(JSON.stringify({
+        ok: true,
+        run: { id: RUN_ID, flowGraphId: FLOW_ID, flowVersion: 1, flow: 'Stillerom', status: 'waiting', workflowStatus: 'waiting', dryRun: false, digest: null, error: null, createdAt: 'x', finishedAt: null },
+        steps: [{ seq: 2, nodeId: 'godkjenn', kind: 'approval', status: 'waiting', summary: 'waiting', edge: null, detail: { allowEdit: false, timeout: '24 hours', payload }, at: 'x' }],
+      }), { status: 200 }),
+    }
+    const text = (await (await connect(env, ALICE)).callTool({ name: 'get_flow_run', arguments: { runId: RUN_ID } })).content[0].text
+    assert.match(text, /Til: hver av mottakerne under\nEmne: Stillerom torsdag\n\nHei \(navn\)/)
+    assert.match(text, /sms:\nStillerom torsdag kl\. 20: https:\/\/realtime\.vegvisr\.org\/stillerom/)
+    assert.match(text, /mottakere \(2\):\n• Kari Nordmann — kari@example\.no · \+4790000011\n• Per Uten — ingen e-post · ingen mobil/)
+    assert.equal(text.match(/Velkommen til Stillerom\./g).length, 1, 'the e-mail text is not repeated under its payload key')
   })
 })
 

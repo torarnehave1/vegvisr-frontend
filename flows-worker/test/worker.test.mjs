@@ -113,6 +113,12 @@ function fakeRunner(env, { timeoutApprovals = false } = {}) {
   }
 }
 
+const CONTACTS = [
+  { id: 'c1', name: 'Kari Nordmann', emails: ['kari@example.no'], phones: ['+4790000001'], labels: ['STILLEROM'] },
+  { id: 'c2', name: 'Ola Hansen', emails: ['ola@example.no', 'ola2@example.no'], phones: ['123'], labels: ['STILLEROM'] },
+  { id: 'c3', name: 'Per Uten', emails: [], phones: ['900 00 003'], labels: ['STILLEROM'] },
+]
+
 /** knowledge-graph-worker's /internal/flows/call-tool: read-only tools answer, the rest are refused. */
 function fakeKG() {
   const calls = []
@@ -128,6 +134,14 @@ function fakeKG() {
       }
       if (body.toolName === 'preview_email') {
         return new Response(JSON.stringify({ ok: true, isError: false, structured: { success: true, sent: false, senderEmail: body.args.fromEmail, fromName: 'VEGR.AI', toEmail: body.args.toEmail, cc: [], subject: body.args.subject, textPreview: `Hei\n\n${body.args.variables?.tekst}` }, text: 'NOT SENT' }), { status: 200 })
+      }
+      if (body.toolName === 'list_contacts') {
+        return new Response(JSON.stringify({ ok: true, isError: false, structured: { success: true, count: CONTACTS.length, total: CONTACTS.length, contacts: CONTACTS }, text: 'contacts' }), { status: 200 })
+      }
+      if (body.toolName === 'send_sms') {
+        if (!body.approval) return new Response(JSON.stringify({ ok: false, status: 403, error: 'needs an approval' }), { status: 403 })
+        if (body.args.toPhone === '123') return new Response(JSON.stringify({ ok: true, isError: true, structured: { code: 'INVALID_INPUT', message: 'Not a Norwegian mobile number.' }, text: 'Not a Norwegian mobile number.' }), { status: 200 })
+        return new Response(JSON.stringify({ ok: true, isError: false, structured: { success: true, sent: true, toMasked: '+47 ••••••00' }, text: 'sent' }), { status: 200 })
       }
       if (body.toolName === 'list_my_graphs') {
         return new Response(JSON.stringify({ ok: true, isError: false, structured: { success: true, results: [{ graphId: 'g1', title: 'Min graf' }] }, text: '1 graph' }), { status: 200 })
@@ -366,4 +380,91 @@ test('retryLimit: a transcription is never tried twice; metadata.retries 0–3, 
   assert.equal(retryLimit({ kind: 'action', toolName: 'get_graph' }), 1)
   assert.equal(retryLimit({ kind: 'agent', retries: 0 }), 0)
   assert.equal(retryLimit({ kind: 'agent', retries: 9 }), 1)
+})
+
+
+// ── forEach: an approved e-mail and SMS to the ContactHub contacts with one label (2026-11-16) ──
+const STILLEROM = {
+  id: 'graph-stillerom', version: 1,
+  nodes: [
+    { id: 'f', type: 'flow', label: 'Stillerom', metadata: { kind: 'vegr-flow', status: 'test', limits: { maxExternalSends: 20 } } },
+    { id: 'kontakter', type: 'flow-step', label: 'Kontakter', metadata: { kind: 'action', toolName: 'list_contacts', params: { label: 'STILLEROM', limit: 200 } } },
+    { id: 'godkjenn', type: 'flow-step', label: 'Godkjenn', metadata: { kind: 'approval', payload: { emne: 'Stillerom {{inputs.tid}}', tekst: 'Velkommen {{inputs.tid}}', sms: 'Stillerom {{inputs.tid}}: lenke', mottakere: '{{kontakter.result.contacts}}' }, preview: { toolName: 'preview_email', params: { fromEmail: 'post@vegr.ai', subject: '{{payload.emne}}', bodyHtml: '<p>Hei {navn}</p><p>{tekst}</p>', variables: { navn: '(navn)', tekst: '{{payload.tekst}}' } } } } },
+    { id: 'epost', type: 'flow-step', label: 'E-post', metadata: { kind: 'action', toolName: 'send_email', forEach: '{{kontakter.result.contacts}}', params: { fromEmail: 'post@vegr.ai', toEmail: '{{item.emails.0}}', subject: '{{godkjenn.result.emne}}', bodyHtml: '<p>Hei {navn}</p><p>{tekst}</p>', variables: { navn: '{{item.name}}', tekst: '{{godkjenn.result.tekst}}' } } } },
+    { id: 'sms', type: 'flow-step', label: 'SMS', metadata: { kind: 'action', toolName: 'send_sms', forEach: '{{kontakter.result.contacts}}', params: { toPhone: '{{item.phones.0}}', message: '{{godkjenn.result.sms}}' } } },
+    { id: 'stopp', type: 'flow-step', label: 'Ikke sendt', metadata: { kind: 'note' } },
+  ],
+  edges: [{ source: 'f', target: 'kontakter' }, { source: 'kontakter', target: 'godkjenn' }, { source: 'godkjenn', target: 'epost', label: 'approved' }, { source: 'godkjenn', target: 'stopp', label: 'rejected' }, { source: 'epost', target: 'sms' }],
+}
+const startStillerom = (env, graph = STILLEROM) => post(env, { graph, aliases: ALIASES, actor: { email: 'tor@example.no' }, dryRun: false, inputs: { tid: 'torsdag kl. 20' } })
+
+test('Stillerom: the owner sees who and what, and after yes each contact gets one e-mail and one SMS', async () => {
+  const env = makeEnv()
+  const r = await startStillerom(env)
+  assert.equal(r.status, 200, JSON.stringify(r.body))
+  const runId = r.body.runId
+  const run = env.DB.runs.get(runId)
+  assert.equal(run.status, 'waiting')
+  const shown = JSON.parse(env.DB.steps.find((s) => s.node_id === 'godkjenn').detail_json).payload
+  assert.equal(shown.mottakere.length, 3, 'the owner sees the people who will get it')
+  assert.equal(shown.sms, 'Stillerom torsdag kl. 20: lenke')
+  assert.equal(shown.epost.subject, 'Stillerom torsdag kl. 20', 'the preview quotes the payload — one text')
+  assert.ok(!env.KG_WORKER.calls.some((c) => c.toolName.startsWith('send_')), 'nothing is sent before the yes')
+
+  await decideReq(env, runId, { email: 'tor@example.no', approved: true })
+  await (await env.FLOW_RUNNER.get(runId)).settled()
+  assert.equal(run.status, 'succeeded', run.error)
+
+  const mails = env.KG_WORKER.calls.filter((c) => c.toolName === 'send_email')
+  assert.deepEqual(mails.map((c) => c.args.toEmail), ['kari@example.no', 'ola@example.no'], 'one e-mail per contact that has an address')
+  assert.equal(mails[0].args.subject, 'Stillerom torsdag kl. 20')
+  assert.deepEqual(mails[0].args.variables, { navn: 'Kari Nordmann', tekst: 'Velkommen torsdag kl. 20' })
+  const texts = env.KG_WORKER.calls.filter((c) => c.toolName === 'send_sms')
+  assert.deepEqual(texts.map((c) => c.args.toPhone), ['+4790000001', '123', '900 00 003'])
+
+  const rows = env.DB.steps.filter((s) => s.run_id === runId)
+  assert.deepEqual(rows.map((s) => [s.seq, s.node_id, s.status]), [
+    [1, 'kontakter', 'ok'], [2, 'godkjenn', 'approved'],
+    [3, 'epost', 'sent'], [4, 'epost', 'sent'], [5, 'epost', 'error'],
+    [6, 'sms', 'sent'], [7, 'sms', 'error'], [8, 'sms', 'sent'],
+  ])
+  for (const c of [...mails, ...texts]) {
+    assert.equal(c.approval.runId, runId)
+    assert.ok(env.FLOW_RUNNER.stepNames.includes(`${c.toolName === 'send_sms' ? 'sms' : 'epost'}#${c.approval.seq} claim`), 'every message has its own claim')
+  }
+  assert.equal(new Set([...mails, ...texts].map((c) => c.approval.seq)).size, 5, 'no two messages share a claim')
+  assert.match(rows[4].summary, /Per Uten: failed: no value for \{\{item\.emails\.0\}\}/, 'a contact without an address is named, not sent to')
+  assert.match(rows[6].summary, /Ola Hansen: failed: send_sms/)
+  assert.doesNotMatch(rows[5].detail_json, /90000001/, 'a phone number is not written in full in the log')
+  assert.match(run.digest, /4 sent, 2 NOT sent/)
+})
+
+test('Stillerom: a no sends nothing', async () => {
+  const env = makeEnv()
+  const r = await startStillerom(env)
+  await decideReq(env, r.body.runId, { email: 'tor@example.no', approved: false })
+  await (await env.FLOW_RUNNER.get(r.body.runId)).settled()
+  assert.equal(env.DB.runs.get(r.body.runId).status, 'succeeded')
+  assert.ok(!env.KG_WORKER.calls.some((c) => c.toolName.startsWith('send_')))
+})
+
+test('Stillerom: more messages than limits.maxExternalSends allows — nothing at all is sent', async () => {
+  const env = makeEnv()
+  const tight = { ...STILLEROM, nodes: [{ ...STILLEROM.nodes[0], metadata: { kind: 'vegr-flow', status: 'test', limits: { maxExternalSends: 2 } } }, ...STILLEROM.nodes.slice(1)] }
+  const r = await startStillerom(env, tight)
+  await decideReq(env, r.body.runId, { email: 'tor@example.no', approved: true })
+  await (await env.FLOW_RUNNER.get(r.body.runId)).settled()
+  const run = env.DB.runs.get(r.body.runId)
+  assert.equal(run.status, 'failed')
+  assert.match(run.error, /3 messages to send, but the run may send 2 more/)
+  assert.ok(!env.KG_WORKER.calls.some((c) => c.toolName.startsWith('send_')), 'a list is never half sent because of the limit')
+})
+
+test('Stillerom: a dry run calls nothing and says who would be reached', async () => {
+  const env = makeEnv()
+  const r = await post(env, { graph: STILLEROM, aliases: ALIASES, actor: { email: 'tor@example.no' }, inputs: { tid: 'x' } })
+  const run = env.DB.runs.get(r.body.runId)
+  assert.equal(run.status, 'succeeded', run.error)
+  assert.equal(env.KG_WORKER.calls.length, 0)
+  assert.match(run.digest, /would call send_sms once for each item of \{\{kontakter\.result\.contacts\}\}.*label "STILLEROM"/)
 })

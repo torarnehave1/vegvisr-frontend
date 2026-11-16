@@ -1,7 +1,7 @@
 // VEGR Flows compiler + dry run (2026-11-06). Plain Node: node --test flows-worker/test
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { compileFlow, dryRun, templateRefs } from '../compile.js'
+import { forEachPlan, contactSource, compileFlow, dryRun, templateRefs } from '../compile.js'
 
 const ALIASES = [
   { alias: 'fast', model: 'claude-haiku-5-5', fallbackAlias: 'smart' },
@@ -44,17 +44,17 @@ test('the entry is found without an edge from the flow node when there is one ro
 
 test('an external action without an approval before it is refused', () => {
   const c = compileFlow({
-    id: 'g', nodes: [flowNode(), step('draft', 'agent', { model: 'smart', instructions: 'x' }), step('send', 'action', { toolName: 'send_sms', params: {} })],
+    id: 'g', nodes: [flowNode(), step('draft', 'agent', { model: 'smart', instructions: 'x' }), step('send', 'action', { toolName: 'send_email', params: {} })],
     edges: [edge('f', 'draft'), edge('draft', 'send')],
   }, ALIASES)
   assert.equal(c.ok, false)
-  assert.match(c.errors.join('\n'), /send_sms.*without an approval/)
+  assert.match(c.errors.join('\n'), /send_email.*without an approval/)
 })
 
 test('the same action after an approval compiles, and the dry run passes as approved', () => {
   const c = compileFlow({
     id: 'g',
-    nodes: [flowNode(), step('draft', 'agent', { model: 'smart', instructions: 'x' }), step('ok', 'approval', {}), step('send', 'action', { toolName: 'send_sms', params: { to: '{{inputs.phone}}' } }), step('stop', 'note')],
+    nodes: [flowNode(), step('draft', 'agent', { model: 'smart', instructions: 'x' }), step('ok', 'approval', {}), step('send', 'action', { toolName: 'send_email', params: { to: '{{inputs.phone}}' } }), step('stop', 'note')],
     edges: [edge('f', 'draft'), edge('draft', 'ok'), edge('ok', 'send', 'approved'), edge('ok', 'stop', 'rejected')],
   }, ALIASES)
   assert.equal(c.ok, true, JSON.stringify(c.errors))
@@ -142,4 +142,66 @@ test('an approval preview may not use a tool that reaches other people', () => {
   const c = compileFlow(g)
   assert.equal(c.ok, false)
   assert.match(c.errors.join('\n'), /preview may not use send_email/)
+})
+
+
+// ── forEach and sending to ContactHub contacts (2026-11-16) ──
+const contactsFlow = (send, lookup = { toolName: 'list_contacts', params: { label: 'STILLEROM' } }, extra = []) => compileFlow({
+  id: 'g',
+  nodes: [flowNode(), step('k', 'action', lookup), step('ok', 'approval', {}), step('send', 'action', send), ...extra],
+  edges: [edge('f', 'k'), edge('k', 'ok'), edge('ok', 'send', 'approved')],
+}, ALIASES)
+
+test('a send to the contacts of a list_contacts step with a fixed label compiles', () => {
+  const c = contactsFlow({ toolName: 'send_sms', forEach: '{{k.result.contacts}}', params: { toPhone: '{{item.phones.0}}', message: 'Hei {{item.name}}' } })
+  assert.equal(c.ok, true, JSON.stringify(c.errors))
+  assert.equal(c.spec.steps.send.maxItems, 50)
+  assert.deepEqual(contactSource(c.spec, c.spec.steps.send), { stepId: 'k', label: 'STILLEROM' })
+})
+
+test('recipients must come from ContactHub by a fixed label — not from a model, an input, the whole book or a typed address', () => {
+  const bad = [
+    [{ toolName: 'send_sms', params: { toPhone: '+4790000000', message: 'x' } }, undefined, /only to contacts looked up in ContactHub/],
+    [{ toolName: 'send_email', forEach: '{{k.result.contacts}}', params: { toEmail: 'a@b.no' } }, undefined, /params\.toEmail must come from the contact/],
+    [{ toolName: 'send_email', forEach: '{{k.result.contacts}}', params: { toEmail: '{{item.emails.0}}' } }, { toolName: 'list_contacts', params: {} }, /fixed label/],
+    [{ toolName: 'send_email', forEach: '{{k.result.contacts}}', params: { toEmail: '{{item.emails.0}}' } }, { toolName: 'list_contacts', params: { label: '{{inputs.label}}' } }, /fixed label/],
+    [{ toolName: 'send_email', forEach: '{{k.result.contacts}}', params: { toEmail: '{{item.emails.0}}' } }, { toolName: 'search_contacts', params: { query: 'x' } }, /fixed label/],
+    [{ toolName: 'send_email', forEach: '{{inputs.liste}}', params: { toEmail: '{{item.emails.0}}' } }, undefined, /fixed label/],
+    [{ toolName: 'send_group_alert', forEach: '{{k.result.contacts}}', params: {} }, undefined, /cannot be sent to a list of contacts/],
+    [{ toolName: 'send_sms', forEach: '{{k.result.contacts}}', maxItems: 500, params: { toPhone: '{{item.phones.0}}' } }, undefined, /maxItems must be 1–200/],
+    [{ toolName: 'send_sms', forEach: 'alle', params: { toPhone: '{{item.phones.0}}' } }, undefined, /forEach must be one reference/],
+  ]
+  for (const [send, lookup, why] of bad) {
+    const c = contactsFlow(send, lookup)
+    assert.equal(c.ok, false, JSON.stringify(send))
+    assert.match(c.errors.join('\n'), why)
+  }
+})
+
+test('a forEach send still needs an approval before it', () => {
+  const c = compileFlow({
+    id: 'g',
+    nodes: [flowNode(), step('k', 'action', { toolName: 'list_contacts', params: { label: 'X' } }), step('send', 'action', { toolName: 'send_email', forEach: '{{k.result.contacts}}', params: { toEmail: '{{item.emails.0}}' } })],
+    edges: [edge('f', 'k'), edge('k', 'send')],
+  }, ALIASES)
+  assert.equal(c.ok, false)
+  assert.match(c.errors.join('\n'), /without an approval/)
+})
+
+test('{{item}} belongs to forEach steps and {{payload}} to an approval preview — elsewhere they are unknown steps', () => {
+  const c = compileFlow({ id: 'g', nodes: [flowNode(), step('a', 'action', { toolName: 'get_graph', params: { graphId: '{{item.id}}' } }), step('ok', 'approval', { payload: { t: '{{payload.x}}' } })], edges: [edge('f', 'a'), edge('a', 'ok')] }, ALIASES)
+  assert.equal(c.ok, false)
+  assert.match(c.errors.join('\n'), /no step with id "item"/)
+  assert.match(c.errors.join('\n'), /no step with id "payload"/)
+})
+
+test('forEach also repeats a tool that reaches nobody, and the plan refuses a list that is not one or is too long', () => {
+  const c = compileFlow({ id: 'g', nodes: [flowNode(), step('l', 'action', { toolName: 'list_my_graphs' }), step('each', 'action', { toolName: 'get_graph', forEach: '{{l.result.results}}', maxItems: 2, params: { graphId: '{{item.graphId}}' } })], edges: [edge('f', 'l'), edge('l', 'each')] }, ALIASES)
+  assert.equal(c.ok, true, JSON.stringify(c.errors))
+  const st = (results) => ({ inputs: {}, trigger: {}, owner: { email: 'o@x.no' }, results: { l: { result: { results } } }, approved: false, sends: 0 })
+  assert.deepEqual(forEachPlan(c.spec, 'each', st([{ graphId: 'a' }]), 1).items, [{ graphId: 'a' }])
+  assert.match(forEachPlan(c.spec, 'each', st('tekst'), 1).outcome.stop, /is not a list/)
+  assert.match(forEachPlan(c.spec, 'each', st([1, 2, 3]), 1).outcome.stop, /3 items, more than this step's maxItems 2/)
+  assert.equal(forEachPlan(c.spec, 'each', st([]), 1).outcome.record.status, 'ok')
+  assert.match(forEachPlan(c.spec, 'each', { inputs: {}, results: {} }, 1).outcome.stop, /no value for \{\{l\.result\.results\}\}/)
 })

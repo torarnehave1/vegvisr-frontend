@@ -5212,9 +5212,24 @@ ${result.warnings.join('\n')}` : ''),
     const payload = w?.detail?.payload
     // An e-mail preview (a preview_email result in the payload) is shown as the e-mail itself.
     const pv = payload && typeof payload === 'object' ? Object.values(payload).find((v) => v && typeof v === 'object' && typeof v.subject === 'string' && typeof v.textPreview === 'string') : null
+    // A list of ContactHub contacts in the payload (a flow that sends to everyone with one label):
+    // the owner sees WHO gets it — name, first e-mail, first phone — not only what is sent.
+    const people = payload && typeof payload === 'object'
+      ? Object.entries(payload).filter(([, v]) => Array.isArray(v) && v.length && v.every((c) => c && typeof c === 'object' && (Array.isArray(c.emails) || Array.isArray(c.phones))))
+      : []
+    const peopleLines = people.flatMap(([key, list]) => [
+      '',
+      `${key} (${list.length}):`,
+      ...list.map((c) => `• ${c.name || '(uten navn)'} — ${c.emails?.[0] || 'ingen e-post'} · ${c.phones?.[0] || 'ingen mobil'}`),
+    ])
+    // With a preview, the other texts that wait (an SMS text beside the e-mail) are shown too,
+    // each under its own key — except the ones the preview already shows.
+    const others = pv
+      ? Object.entries(payload).filter(([, v]) => typeof v === 'string' && v.trim() && v !== pv.subject && !String(pv.textPreview).includes(v.trim())).flatMap(([k, v]) => ['', `${k}:`, v])
+      : []
     const shown = pv
-      ? [`Fra: ${pv.fromName ? `${pv.fromName} <${pv.senderEmail}>` : pv.senderEmail}`, `Til: ${pv.toEmail || '—'}`, ...(pv.cc?.length ? [`Kopi: ${pv.cc.join(', ')}`] : []), `Emne: ${pv.subject}`, '', pv.textPreview].join('\n')
-      : payload == null ? '' : typeof payload === 'string' ? payload : Object.values(payload).filter((v) => typeof v === 'string').join('\n\n') || JSON.stringify(payload, null, 2)
+      ? [`Fra: ${pv.fromName ? `${pv.fromName} <${pv.senderEmail}>` : pv.senderEmail}`, `Til: ${pv.toEmail || (people.length ? 'hver av mottakerne under' : '—')}`, ...(pv.cc?.length ? [`Kopi: ${pv.cc.join(', ')}`] : []), `Emne: ${pv.subject}`, '', pv.textPreview, ...others, ...peopleLines].join('\n')
+      : payload == null ? '' : typeof payload === 'string' ? payload : [Object.values(payload).filter((v) => typeof v === 'string').join('\n\n'), ...peopleLines].filter(Boolean).join('\n') || JSON.stringify(payload, null, 2)
     return [
       `Run ${run.id} of "${run.flow}" is WAITING for your approval at "${w?.nodeId || '?'}"${w?.detail?.timeout ? ` (times out after ${w.detail.timeout})` : ''}.`,
       ...flowStepLines(steps),
@@ -5249,9 +5264,12 @@ ${result.warnings.join('\n')}` : ''),
         'steps (list_my_graphs, get_graph, search_contacts …) run with the same tools and access as ' +
         'this chat; agent steps ask their model; an approval step PAUSES the run (status ' +
         '"waiting") and shows what waits for your yes — show it to the user, and pass their answer ' +
-        'to decide_flow_approval. Only after a yes does a send step run (send_email, to the owner ' +
-        'only), exactly once; no, or 24 hours without an answer, takes the "rejected" edge. Route, ' +
-        'wait and loop steps are still simulated. Returns a runId; pass waitSeconds to also get the ' +
+        'to decide_flow_approval. Only after a yes does a send step run, each message exactly once: ' +
+        'send_email to the owner, or — from an action step with forEach over the contacts of a ' +
+        'list_contacts step with a fixed label — send_email / send_sms to each of the owner\'s ' +
+        'ContactHub contacts with that label (the flow node\'s limits.maxExternalSends, default 5, ' +
+        'must cover every message). No, or 24 hours without an answer, takes the "rejected" edge. ' +
+        'Route, wait and loop steps are still simulated. Returns a runId; pass waitSeconds to also get the ' +
         'run as far as it got, or read it later with get_flow_run. Only the graph\'s owner can run ' +
         'it. Requires the graph:read scope.',
       inputSchema: {
@@ -5452,8 +5470,8 @@ ${result.warnings.join('\n')}` : ''),
       description:
         'Give YOUR decision on the approval step a live flow run is waiting for (run_flow or ' +
         'get_flow_run shows status "waiting" and the text that waits). approve: true lets the run ' +
-        'continue on its "approved" edge — a send step after it (send_email to you) then runs, ' +
-        'exactly once; approve: false takes the "rejected" edge and nothing is sent. Pass text to ' +
+        'continue on its "approved" edge — the send steps after it then run, each message exactly ' +
+        'once (to you, or to the ContactHub contacts the waiting text lists); approve: false takes the "rejected" edge and nothing is sent. Pass text to ' +
         'replace the waiting text with the user\'s own version (only when the step allows ' +
         'editing). Only call this with the user\'s explicit answer — never decide for them. ' +
         'Returns the run as far as it got. Requires the chat:write scope, because a yes can send.',
