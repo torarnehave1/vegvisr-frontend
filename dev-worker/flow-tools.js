@@ -62,7 +62,8 @@ export const FLOW_READ_TOOL_SCOPES = {
 }
 
 /**
- * "write-own" (2026-11-10): tools that only change the flow owner's own graphs, with the scope
+ * "write-own" (2026-11-10): tools that only change the flow owner's own graphs — and, since
+ * 2026-11-16, add an event without guests to the owner's own calendar — with the scope
  * lent for that call. No approval — nothing here reaches another person or the public web.
  * Deliberately NOT here: publish_html_node (public), set_graph_password, move_graph_to_world,
  * anything about users, groups, contacts or node types, and every tool that sends.
@@ -76,6 +77,9 @@ export const FLOW_WRITE_OWN_TOOLS = {
   update_node: 'graph:write',
   add_edge: 'graph:write',
   update_graph_metadata: 'graph:write',
+  // 2026-11-16 («Stillerom»): one plain event in the owner's OWN calendar. The tool takes no
+  // guests, so it reaches nobody — the same class as writing in one's own graph.
+  create_calendar_event: 'graph:write',
 }
 
 /** Tools a flow may run after an approval, with the one scope each needs. */
