@@ -337,6 +337,13 @@ const nodeComponent = computed(() => {
     }
   }
 
+  // kurs-steg: one step of a course (agent-worker world-course.js). A video step carries the video
+  // in `path` exactly as a realtime-video node does, so it plays in the same player; a text step
+  // has no path and is drawn as ordinary text. Decided here, before the registered-type lookup,
+  // because a registered renderer runs without network and is never handed `path`.
+  if (nodeType === 'kurs-steg') {
+    return props.node.path ? GNewRealtimeVideoNode : nodeComponents['default']
+  }
   if (nodeComponents[nodeType]) return nodeComponents[nodeType]
   // A type this viewer has no component for, but which is REGISTERED with an approved renderer
   // (graph_system_registry) — the rendering engine draws it. Built-in types never reach here.
