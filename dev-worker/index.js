@@ -22,6 +22,7 @@ import {
   sanitizeGraphData,
   encryptDataNodeInfo,
   decryptDataNodeInfo,
+  withEdgeIds,
 } from './graph-service.js'
 import { platformStore, resolveGraphStore, GraphStoreError, setLocationStatus, worldStoresFor, graphIdOfTrashId, reserveLocation, activateLocation, dropPendingLocation, publicWorldStoresByTag, defaultWorldFor, mayUseWorld } from './graph-store.js'
 
@@ -9151,12 +9152,8 @@ const restHandler = {
             imageHeight: node.imageHeight || null, // Ensure imageHeight is included
             path: node.path || null, // Ensure path is included
           }))
-          graphData.edges = graphData.edges.map((edge) => ({
-            ...edge, // Keep label/type/info — destructuring to {source,target} discarded them
-            id: `${edge.source}_${edge.target}`, // Ensure edge ID is set
-            source: edge.source,
-            target: edge.target,
-          }))
+          // Keep label/type/info and the stored id; only an edge without an id gets source_target.
+          graphData.edges = withEdgeIds(graphData.edges)
 
           // Decrypt data-node info fields before returning
           if (env.ENCRYPTION_MASTER_KEY && graphData.nodes) {

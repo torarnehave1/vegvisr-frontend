@@ -353,6 +353,33 @@ describe('getGraph shaping matches the REST contract', () => {
     assert.equal((await gs.getGraph(env, '')).code, gs.ERR.INVALID_INPUT)
     assert.equal((await gs.getGraph(env, crypto.randomUUID())).code, gs.ERR.GRAPH_NOT_FOUND)
   })
+  test('an edge keeps its own id; two edges between one pair keep two ids (2026-11-16)', async () => {
+    const { env } = freshDb()
+    const a = crypto.randomUUID()
+    const b = crypto.randomUUID()
+    // saveGraph: an explicit id is kept; a second edge on the same pair without one is made unique.
+    const r = await makeGraph(env, alice, {
+      nodes: [{ id: a, label: 'a' }, { id: b, label: 'b' }],
+      edges: [{ id: 'custom-1', source: a, target: b, label: 'x' }, { source: a, target: b, label: 'next' }, { source: a, target: b, label: 'error' }],
+    })
+    let g = await gs.getGraph(env, r.graphId)
+    assert.deepEqual(g.graph.edges.map((e) => e.id), ['custom-1', `${a}_${b}`, `${a}_${b}_error`])
+    // add_edge with its own id: the id it reports is the id a reader gets back.
+    const added = await gs.addEdge(env, { graphId: r.graphId, edge: { id: 'kalender_logg_error_2', source: b, target: a, label: 'error' }, actor: alice })
+    assert.equal(added.ok, true)
+    g = await gs.getGraph(env, r.graphId)
+    assert.ok(g.graph.edges.some((e) => e.id === added.edgeId && e.label === 'error'))
+    assert.equal(new Set(g.graph.edges.map((e) => e.id)).size, g.graph.edges.length)
+    // A history version reads the same way as the live graph.
+    const v = await gs.getGraphVersion?.(env, r.graphId, g.version)
+    if (v?.ok) assert.deepEqual(v.graph.edges.map((e) => e.id), g.graph.edges.map((e) => e.id))
+  })
+  test('withEdgeIds: reads keep stored ids, writes make them unique', () => {
+    const e = [{ id: 'x', source: 's', target: 't' }, { id: 'x', source: 's', target: 't', label: 'error' }, { source: 's', target: 't' }]
+    assert.deepEqual(gs.withEdgeIds(e).map((x) => x.id), ['x', 'x', 's_t'])
+    assert.deepEqual(gs.withEdgeIds(e, { unique: true }).map((x) => x.id), ['x', 'x_error', 's_t'])
+    assert.deepEqual(gs.withEdgeIds([{ source: 's', target: 't' }, { source: 's', target: 't' }], { unique: true }).map((x) => x.id), ['s_t', 's_t_2'])
+  })
   test('edge ids are normalised to source_target and timestamps attached', async () => {
     const { env } = freshDb()
     const n1 = crypto.randomUUID()

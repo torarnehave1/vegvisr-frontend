@@ -216,6 +216,33 @@ export async function decryptDataNodeInfo(encryptedBase64, masterKey) {
   return new TextDecoder().decode(decrypted)
 }
 
+/**
+ * Edge ids, one rule for every read and write: an edge keeps the id it was stored with; only an
+ * edge without one gets `source_target`. Before 2026-11-16 every path overwrote the id with
+ * `source_target`, so two edges between the same pair (a flow step's "next" and "error") came out
+ * with one id — and add_edge's explicit id was stored but never read back.
+ *
+ * unique (writes only): an id already used earlier in the same graph gets the edge's label, or a
+ * counter, appended — so a write never stores two edges with one id. Reads do not rename: what a
+ * reader sees is what is stored, so removeEdge by the id it was shown finds that edge.
+ */
+export function withEdgeIds(edges, { unique = false } = {}) {
+  const seen = new Set()
+  return (Array.isArray(edges) ? edges : []).map((edge) => {
+    const stored = edge?.id
+    let id = stored !== undefined && stored !== null && String(stored).trim() !== '' ? String(stored) : `${edge?.source}_${edge?.target}`
+    if (unique && seen.has(id)) {
+      const tag = String(edge?.label || '').replace(/[^A-Za-z0-9_-]/g, '')
+      const base = tag ? `${id}_${tag}` : id
+      let candidate = base
+      for (let n = 2; seen.has(candidate); n++) candidate = `${base}_${n}`
+      id = candidate
+    }
+    seen.add(id)
+    return { ...edge, id, source: edge?.source, target: edge?.target }
+  })
+}
+
 /** Node/edge enrichment applied on every write. Verbatim from /saveGraphWithHistory. */
 function enrichGraphData(graphData) {
   return {
@@ -231,12 +258,7 @@ function enrichGraphData(graphData) {
       visible: node.visible !== false,
       path: node.path || null,
     })),
-    edges: graphData.edges.map((edge) => ({
-      ...edge,
-      id: `${edge.source}_${edge.target}`,
-      source: edge.source,
-      target: edge.target,
-    })),
+    edges: withEdgeIds(graphData.edges, { unique: true }),
   }
 }
 
@@ -403,12 +425,7 @@ async function shapeGraphData(env, raw, opts = {}) {
     imageHeight: node.imageHeight || null,
     path: node.path || null,
   }))
-  graphData.edges = graphData.edges.map((edge) => ({
-    ...edge,
-    id: `${edge.source}_${edge.target}`,
-    source: edge.source,
-    target: edge.target,
-  }))
+  graphData.edges = withEdgeIds(graphData.edges)
 
   const { nodeId, nodeTitle } = opts
   if (nodeId || nodeTitle) {
