@@ -7783,7 +7783,8 @@ ${result.warnings.join('\n')}` : ''),
       title: 'Index of all graphs in one call',
       description:
         'Every graph in ONE call, oldest first, with light fields only: id, title, meta area, ' +
-        'publication state, node count, the node types it contains, the hostnames it is live at, ' +
+        'publication state, node count, the node types it contains, its card image (the address in ' +
+        'its first portfolio-image node, or null), the hostnames it is live at, ' +
         'created and updated dates (UTC) and World. No description ' +
         'and no content. scope "mine" (default) is the graphs you own, as list_my_graphs counts ' +
         'them; scope "all" is everything you can see, as search_graphs counts it. metaArea narrows ' +
@@ -7817,6 +7818,7 @@ ${result.warnings.join('\n')}` : ''),
             updatedAt: z.string().nullable(),
             world: z.string().nullable().describe("The World whose own storage holds this graph. Null: the platform's shared storage."),
             nodeTypes: z.array(z.string()).describe('The distinct node types in this graph, e.g. ["fulltext","youtube-video"].'),
+            image: z.string().nullable().describe("The graph's card image: the address held by its first portfolio-image node. Null when it has none."),
             publishedDomains: z.array(z.string()).describe('Hostnames this graph serves a live page at. Empty for a graph that publishes nowhere.'),
             nodes: z.array(z.object({ id: z.string(), label: z.string().nullable(), type: z.string().nullable() })).optional(),
             edges: z.array(z.object({ source: z.string(), target: z.string() })).optional(),

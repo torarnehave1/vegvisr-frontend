@@ -532,6 +532,12 @@ describe('graph_index: the whole collection in one call', () => {
     assert.deepEqual(all.graphs[0].nodeTypes, ['fulltext'])
     assert.deepEqual(all.graphs[1].nodeTypes, [])
     assert.deepEqual(all.graphs[0].publishedDomains, [])
+    // The card image: the path of the first portfolio-image node, null on a graph without one.
+    assert.equal(all.graphs[0].image, null)
+    await callOk(client, 'add_node', { graphId: b.graphId, node: { label: 'Kursbilde', type: 'portfolio-image', path: 'https://cdn.example.test/photos/kurs/x/kursbilde.jpg' } })
+    const withImage = await callOk(client, 'graph_index', {})
+    assert.equal(withImage.graphs[1].image, 'https://cdn.example.test/photos/kurs/x/kursbilde.jpg')
+    assert.equal(withImage.graphs[0].image, null)
 
     const nine = await callOk(client, 'graph_index', { metaArea: '#NINE', includeNodes: true })
     assert.equal(nine.total, 1)

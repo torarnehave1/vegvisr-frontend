@@ -2090,6 +2090,11 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
           FROM json_each(${nodesSql})
           WHERE json_extract(value, '$.publishedDomain') IS NOT NULL
         ), '') AS published_domains_csv,
+        (SELECT json_extract(value, '$.path')
+          FROM json_each(${nodesSql})
+          WHERE json_extract(value, '$.type') = 'portfolio-image'
+            AND json_extract(value, '$.path') IS NOT NULL
+          LIMIT 1) AS image_path,
         created_date,
         updated_at${nodeCols}
       FROM knowledge_graphs`
@@ -2127,6 +2132,9 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
     world: r._world || null,
     // Which node types the graph contains, so a map can filter on "has a youtube-video".
     nodeTypes: parseList(r.node_types_json).filter((t) => t != null).map(String).sort(),
+    // The graph's card image: the path of its first portfolio-image node, exactly as
+    // /getknowgraphsummaries picks portfolioImagePath. A map draws it on a course (2026-11-16).
+    image: typeof r.image_path === 'string' && r.image_path ? r.image_path : null,
     // The node's own stamp only; the caller merges it with the publish registry, as the lists do.
     publishedDomainsCsv: r.published_domains_csv || '',
     ...(includeNodes
