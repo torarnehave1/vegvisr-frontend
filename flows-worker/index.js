@@ -383,10 +383,11 @@ export class FlowRunner extends WorkflowEntrypoint {
       }
     }
 
-    // An agent step asks a model through the worker its model name points to — anthropic-worker,
-    // grok-worker or openai-worker (bindings: no token, the platform keys). See providers.js.
+    // An agent step asks a model through what its model name points to — anthropic-worker,
+    // grok-worker, openai-worker, gemini-worker or Cloudflare's model catalog (bindings: no token).
+    // The owner goes along because a gemini model answers with the owner's own key. See providers.js.
     const env = this.env
-    const callModel = hasModelConnection(env) ? (req) => askModel(env, req) : null
+    const callModel = hasModelConnection(env) ? (req) => askModel(env, { ...req, ownerEmail: owner }) : null
 
     const writeStep = async (seqNo, r) => db.prepare(
       `INSERT OR REPLACE INTO flow_run_steps (run_id, seq, node_id, kind, status, summary, detail_json, edge, at)

@@ -1,7 +1,7 @@
 // Which worker answers an agent step, how it is asked, and how its answer is read (providers.js).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { providerFor, buildModelRequest, parseModelResponse, askModel, hasModelConnection } from '../providers.js'
+import { providerFor, modelId, buildModelRequest, parseModelResponse, askModel, ownerUserId, hasModelConnection } from '../providers.js'
 import { compileFlow } from '../compile.js'
 
 test('the model name picks the worker', () => {
@@ -11,7 +11,9 @@ test('the model name picks the worker', () => {
   assert.equal(providerFor('Grok-4-1-fast'), 'grok')
   assert.equal(providerFor('gpt-5'), 'openai')
   assert.equal(providerFor('o3-mini'), 'openai')
-  assert.equal(providerFor('gemini-2.5-pro'), null)
+  assert.equal(providerFor('gemini-2.5-pro'), 'gemini')
+  assert.equal(providerFor('kimi-k3.1-pro'), 'kimi')
+  assert.equal(providerFor('mistral-large'), null)
   assert.equal(providerFor('smart'), null)
   assert.equal(providerFor(''), null)
 })
@@ -68,9 +70,9 @@ test('askModel sends a grok model to grok-worker and a claude model to anthropic
 test('askModel never sends a model to a worker that cannot know it', async () => {
   let calls = 0
   const env = { ANTHROPIC: svc(() => { calls += 1; return reply({}) }) }
-  const noWorker = await askModel(env, { model: 'gemini-2.5-pro', system: 's', user: 'u', maxTokens: 10 })
+  const noWorker = await askModel(env, { model: 'mistral-large', system: 's', user: 'u', maxTokens: 10 })
   assert.equal(noWorker.ok, false)
-  assert.match(noWorker.error, /no model worker for "gemini-2\.5-pro"/)
+  assert.match(noWorker.error, /no model worker for "mistral-large"/)
   const noBinding = await askModel(env, { model: 'grok-4', system: 's', user: 'u', maxTokens: 10 })
   assert.equal(noBinding.ok, false)
   assert.match(noBinding.error, /binding GROK is missing/)
@@ -100,10 +102,98 @@ const flowGraph = (model) => ({
 test('a flow with a grok or gpt model compiles; one with a model no worker answers does not', () => {
   assert.equal(compileFlow(flowGraph('grok-4'), []).ok, true)
   assert.equal(compileFlow(flowGraph('gpt-5'), []).ok, true)
-  const g = compileFlow(flowGraph('gemini-2.5-pro'), [])
+  assert.equal(compileFlow(flowGraph('gemini-2.5-pro'), []).ok, true)
+  assert.equal(compileFlow(flowGraph('kimi-k3.1-pro'), []).ok, true)
+  assert.equal(compileFlow(flowGraph('kimi/kimi-k3.1-pro'), []).ok, true)
+  const g = compileFlow(flowGraph('mistral-large'), [])
   assert.equal(g.ok, false)
   assert.match(g.errors.join(' '), /no worker for|has a worker for/)
-  const alias = compileFlow(flowGraph('odd'), [{ alias: 'odd', model: 'gemini-2.5-pro' }])
+  assert.match(g.errors.join(' '), /gemini…, kimi…/)
+  const alias = compileFlow(flowGraph('odd'), [{ alias: 'odd', model: 'mistral-large' }])
   assert.equal(alias.ok, false)
-  assert.match(alias.errors.join(' '), /alias:odd points to "gemini-2\.5-pro"/)
+  assert.match(alias.errors.join(' '), /alias:odd points to "mistral-large"/)
+})
+
+// ---- Gemini and Kimi (2026-11-16) -----------------------------------------------------------------
+
+const dbWith = (rows) => ({
+  prepare(sql) {
+    let args = []
+    const st = { bind(...a) { args = a; return st }, async first() { return rows[args[0]] ?? null } }
+    return st
+  },
+})
+
+test('the prefix from Agent-Builder\'s model panel is cut before the model is asked', () => {
+  assert.equal(modelId('kimi/kimi-k3.1-pro'), 'kimi-k3.1-pro')
+  assert.equal(modelId('gemini/gemini-2.5-flash'), 'gemini-2.5-flash')
+  assert.equal(modelId('grok/grok-4.5'), 'grok-4.5')
+  assert.equal(modelId('openai/gpt-5'), 'gpt-5')
+  assert.equal(modelId('claude-sonnet-5-5'), 'claude-sonnet-5-5')
+  assert.equal(providerFor('kimi/kimi-k3.1-pro'), 'kimi')
+  assert.equal(providerFor('gemini/gemini-2.5-flash'), 'gemini')
+  assert.equal(providerFor('openai/gpt-5'), 'openai')
+  assert.equal(providerFor('grok/grok-4.5'), 'grok')
+})
+
+test('gemini is asked with the owner\'s user id; kimi with nothing beside the model\'s own fields', () => {
+  const q = { model: 'gemini-2.5-flash', system: 'S', user: 'U', maxTokens: 900, userId: 'u-1' }
+  assert.deepEqual(buildModelRequest('gemini', q), { userId: 'u-1', model: 'gemini-2.5-flash', messages: [{ role: 'system', content: 'S' }, { role: 'user', content: 'U' }], max_tokens: 900 })
+  assert.deepEqual(buildModelRequest('kimi', { ...q, model: 'kimi-k3.1-pro' }), { messages: [{ role: 'system', content: 'S' }, { role: 'user', content: 'U' }], max_tokens: 900 })
+})
+
+test('askModel sends a gemini model to gemini-worker with the flow owner\'s user id', async () => {
+  const seen = []
+  const env = {
+    DB: dbWith({ 'tor@example.com': { user_id: 'owner-uuid' } }),
+    GEMINI: svc((url, body) => { seen.push([url, body.model, body.userId, body.max_tokens]); return reply({ choices: [{ message: { content: 'Hei fra Gemini' }, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 3 } }) }),
+  }
+  const r = await askModel(env, { model: 'gemini/gemini-2.5-flash', system: 's', user: 'u', maxTokens: 700, ownerEmail: 'Tor@Example.com' })
+  assert.deepEqual(r, { ok: true, text: 'Hei fra Gemini', usage: { input_tokens: 5, output_tokens: 3 }, stopReason: 'stop' })
+  assert.deepEqual(seen, [['https://gemini-worker/chat', 'gemini-2.5-flash', 'owner-uuid', 700]])
+})
+
+test('a gemini model is never asked without a known owner, and gemini-worker\'s own refusal is passed on', async () => {
+  let calls = 0
+  const GEMINI = svc(() => { calls += 1; return reply({}) })
+  const noEmail = await askModel({ GEMINI, DB: dbWith({}) }, { model: 'gemini-2.5-pro', system: 's', user: 'u', maxTokens: 10 })
+  assert.match(noEmail.error, /no owner e-mail/)
+  const unknown = await askModel({ GEMINI, DB: dbWith({}) }, { model: 'gemini-2.5-pro', system: 's', user: 'u', maxTokens: 10, ownerEmail: 'who@example.com' })
+  assert.match(unknown.error, /no user was found for who@example\.com/)
+  const noDb = await ownerUserId({}, 'tor@example.com')
+  assert.match(noDb.error, /binding DB is missing/)
+  assert.equal(calls, 0)
+  const noKey = await askModel(
+    { DB: dbWith({ 'tor@example.com': { user_id: 'owner-uuid' } }), GEMINI: svc(() => reply({ error: 'Google Gemini API key not configured for this user. Please add a Gemini/Google key.' }, 401)) },
+    { model: 'gemini-2.5-pro', system: 's', user: 'u', maxTokens: 10, ownerEmail: 'tor@example.com' },
+  )
+  assert.match(noKey.error, /HTTP 401.*Gemini API key not configured/)
+})
+
+test('askModel asks kimi through the AI binding: catalog id, the gateway, and only the model\'s own fields', async () => {
+  const seen = []
+  const AI = { async run(id, input, opts) { seen.push([id, input, opts]); return { choices: [{ message: { content: 'Hei fra Kimi', reasoning_content: 'tenker' }, finish_reason: 'stop' }], usage: { prompt_tokens: 7, completion_tokens: 4 } } } }
+  const r = await askModel({ AI }, { model: 'kimi-k3.1-pro', system: 's', user: 'u', maxTokens: 800, ownerEmail: 'tor@example.com' })
+  assert.deepEqual(r, { ok: true, text: 'Hei fra Kimi', usage: { input_tokens: 7, output_tokens: 4 }, stopReason: 'stop' })
+  assert.deepEqual(seen, [['moonshotai/kimi-k3.1-pro', { messages: [{ role: 'system', content: 's' }, { role: 'user', content: 'u' }], max_tokens: 800 }, { gateway: { id: 'default' } }]])
+  await askModel({ AI, AI_GATEWAY_ID: 'vegr' }, { model: 'kimi/kimi-k3.1-pro', system: '', user: 'u', maxTokens: 5 })
+  assert.deepEqual(seen[1], ['moonshotai/kimi-k3.1-pro', { messages: [{ role: 'user', content: 'u' }], max_tokens: 5 }, { gateway: { id: 'vegr' } }])
+})
+
+test('kimi failures are reported without throwing: no binding, a thrown run, an odd answer, reasoning but no text', async () => {
+  const noBinding = await askModel({}, { model: 'kimi-k3.1-pro', system: 's', user: 'u', maxTokens: 10 })
+  assert.match(noBinding.error, /Workers AI binding AI is missing/)
+  const thrown = await askModel({ AI: { async run() { throw new Error('gateway not found') } } }, { model: 'kimi-k3.1-pro', system: 's', user: 'u', maxTokens: 10 })
+  assert.match(thrown.error, /could not reach the model \(Cloudflare model catalog, moonshotai\/kimi-k3\.1-pro\): gateway not found/)
+  const odd = await askModel({ AI: { async run() { return { response: 'x' } } } }, { model: 'kimi-k3.1-pro', system: 's', user: 'u', maxTokens: 10 })
+  assert.match(odd.error, /unexpected format/)
+  const spent = await askModel({ AI: { async run() { return { choices: [{ message: { content: '', reasoning_content: 'lang tanke' }, finish_reason: 'length' }], usage: { prompt_tokens: 9, completion_tokens: 10 } } } } }, { model: 'kimi-k3.1-pro', system: 's', user: 'u', maxTokens: 10 })
+  assert.equal(spent.ok, false)
+  assert.match(spent.error, /stop reason max_tokens.*the answer held only: reasoning.*raise metadata\.maxTokens/)
+})
+
+test('hasModelConnection counts the AI binding and gemini-worker too', () => {
+  assert.equal(hasModelConnection({ AI: { run() {} } }), true)
+  assert.equal(hasModelConnection({ AI: { fetch() {} } }), false)
+  assert.equal(hasModelConnection({ GEMINI: { fetch() {} } }), true)
 })

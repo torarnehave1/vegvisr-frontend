@@ -11,7 +11,7 @@
  * Node shapes are the registered types `flow` / `flow-step` (see list_node_types) and the design
  * in the "VEGR Flows" graph (node "datamodel").
  */
-import { providerFor } from './providers.js'
+import { MODEL_FAMILIES, providerFor } from './providers.js'
 
 export const STEP_KINDS = ['action', 'agent', 'approval', 'route', 'wait', 'loop', 'subflow', 'note']
 
@@ -93,13 +93,13 @@ export function compileFlow(graph, aliases = []) {
       if (m.fallbackModel) step.resolvedFallback = resolveModel(m.fallbackModel, aliasMap)
       else if (r?.fallbackAlias) step.resolvedFallback = resolveModel(r.fallbackAlias, aliasMap)
       if (!aliasMap.has(m.model || 'auto') && !providerFor(m.model)) {
-        errors.push(`Agent step "${step.label}": model "${m.model || 'auto'}" is neither a model alias (${[...aliasMap.keys()].join(', ') || 'none loaded'}) nor a model id the engine has a worker for (claude…, grok…, gpt…/o…).`)
+        errors.push(`Agent step "${step.label}": model "${m.model || 'auto'}" is neither a model alias (${[...aliasMap.keys()].join(', ') || 'none loaded'}) nor a model id the engine has a worker for (${MODEL_FAMILIES}).`)
       }
       // The same check for what the name resolves to: an alias or fallback pointing at a model no
       // worker here answers would compile and then fail live.
       for (const rm of [step.resolvedModel, step.resolvedFallback]) {
         if (rm?.via !== 'explicit' && rm?.model && !providerFor(rm.model)) {
-          errors.push(`Agent step "${step.label}": ${rm.via} points to "${rm.model}", which the engine has no worker for (claude…, grok…, gpt…/o…).`)
+          errors.push(`Agent step "${step.label}": ${rm.via} points to "${rm.model}", which the engine has no worker for (${MODEL_FAMILIES}).`)
         }
       }
       step.tools = Array.isArray(m.tools) ? m.tools : []
@@ -409,6 +409,10 @@ const PRICES = [
   [/haiku/i, 1, 5],
   [/sonnet/i, 3, 15],
   [/opus/i, 5, 25],
+  // The same rough prices Agent-Builder counts with (worker/agent-loop.js, 2026-11-16).
+  [/gemini.*flash/i, 0.3, 2.5],
+  [/gemini/i, 1.25, 10],
+  [/kimi/i, 2, 10],
 ]
 export function estimateCostUsd(model, usage) {
   const p = PRICES.find(([re]) => re.test(String(model || ''))) || [null, 15, 75]
@@ -532,7 +536,7 @@ export async function liveStep(spec, stepId, state, hooks = {}) {
   }
 
   if (s.kind === 'agent') {
-    if (!hooks.callModel) return failed('no model connection (ANTHROPIC binding) on the flow engine', null)
+    if (!hooks.callModel) return failed('no model connection on the flow engine (none of the model bindings is set)', null)
     const rin = strict(s.input || {})
     const rins = strict(s.instructions || '')
     if (rin.missing.length || rins.missing.length) return unresolved([...rins.missing, ...rin.missing], null)

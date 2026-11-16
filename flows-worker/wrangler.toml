@@ -40,6 +40,17 @@ service = "grok-worker"
 binding = "OPENAI"
 service = "openai-worker"
 
+# 2026-11-16: gemini… → gemini-worker's /chat, which answers with the flow OWNER's own Gemini key
+# (the owner's user id is read from config in D1 and sent along).
+[[services]]
+binding = "GEMINI"
+service = "gemini-worker"
+
+# 2026-11-16: kimi… → Cloudflare's model catalog (moonshotai/<model>) through the AI binding and
+# the account's AI Gateway "default"; a third-party model there, paid from the prepaid credits.
+[ai]
+binding = "AI"
+
 # Phase 2 (2026-11-07): ONE minute-cron runs every scheduled flow; each flow's own schedule,
 # in its own time zone, lives in D1 flow_triggers (see schedule.js).
 [triggers]
