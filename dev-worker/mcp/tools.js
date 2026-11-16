@@ -1290,6 +1290,73 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
     },
   )
 
+  // ── remove_edge (2026-11-16) ──────────────────────────────────────────────
+  //
+  // The one thing add_edge could not undo. Without it a step could be added to a flow graph but
+  // never moved: «Stillerom» got its calendar step last, after the sends, because the edge from
+  // the approval to the first send could not be taken away. Nodes are never touched, the version
+  // before stays in the graph's history, and expectedVersion is required as for update_node.
+  server.registerTool(
+    'remove_edge',
+    {
+      title: 'Remove one edge from a graph',
+      description:
+        'Remove ONE edge between two nodes, without sending the whole graph. The nodes stay. Name ' +
+        'the edge by edgeId (get_graph lists them as "<source>_<target>" unless one was given), or ' +
+        'by source + target — add label when two edges join the same pair. If none or more than ' +
+        'one edge matches, nothing is removed and the answer says why. expectedVersion is ' +
+        'REQUIRED: read it from get_graph. The version before stays in get_graph_history. To MOVE ' +
+        'a step in a flow graph: remove the old edge, then add_edge the new ones. Requires the ' +
+        'graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph containing the edge.'),
+        edgeId: z.string().optional().describe('The edge id. Use this, or source + target.'),
+        source: z.string().optional().describe('Source node id, with target, instead of edgeId.'),
+        target: z.string().optional().describe('Target node id, with source, instead of edgeId.'),
+        label: z.string().optional().describe('The edge label, when two edges join the same source and target.'),
+        expectedVersion: z.number().int().describe('The version you read from get_graph. Required.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        edgeId: z.string(),
+        source: z.string(),
+        target: z.string(),
+        label: z.string().nullable(),
+        currentVersion: z.number(),
+        newVersion: z.number(),
+        title: z.string().nullable(),
+        metaArea: z.string().nullable(),
+        publicationState: z.string(),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      // Takes something away (the history keeps it); a second identical call finds nothing.
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ graphId, edgeId, source, target, label, expectedVersion }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const access = await gs.checkAccess(env, actor, graphId, 'write')
+      if (!access.ok) return fromService(access)
+
+      const result = await gs.removeEdge(env, { graphId, edgeId: edgeId ?? null, source: source ?? null, target: target ?? null, label: label ?? null, expectedVersion, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      return ok(
+        { success: true, ...payload },
+        `Removed edge ${result.edgeId} (${result.source} → ${result.target}${result.label ? `, "${result.label}"` : ''}) from graph ${graphId}. ` +
+          `Version ${result.currentVersion} → ${result.newVersion}. The nodes are untouched.\nViewer: ${result.viewerUrl}`,
+      )
+    },
+  )
+
   // ── get_graph_links ───────────────────────────────────────────────────────
   server.registerTool(
     'get_graph_links',
@@ -8277,6 +8344,7 @@ export const TOOL_NAMES = [
   'get_graph_version',
   'add_node',
   'add_edge',
+  'remove_edge',
   'get_graph_links',
   'update_node',
   'reorder_nodes',

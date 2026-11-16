@@ -284,7 +284,8 @@ describe('18. tools/list', () => {
     // flagged destructive, and it is the only tool on graph:delete (a connection without that
     // scope is refused — see 'delete_graph, list_deleted_graphs, restore_graph'). It moves the
     // graph to a trash it can be restored from; list_deleted_graphs only reads that trash.
-    // Still no tool deletes a node, an edge or a message.
+    // Still no tool deletes a node or a message. (An edge can be taken away since 2026-11-16 —
+    // see remove_edge below.)
     assert.deepEqual(tools.filter((t) => /delete/i.test(t.name)).map((t) => t.name).sort(), ['delete_graph', 'list_deleted_graphs'])
     assert.equal(tools.find((t) => t.name === 'delete_graph').annotations.destructiveHint, true)
     assert.equal(tools.find((t) => t.name === 'list_deleted_graphs').annotations.readOnlyHint, true)
@@ -294,9 +295,19 @@ describe('18. tools/list', () => {
     // It removes a person's access to a group; the person stays registered, their account is
     // untouched, and every message they wrote remains. Owner-only, and re-adding is a separate
     // deliberate act — which is why it is the one tool flagged destructive.
-    const removals = tools.filter((t) => /remove/i.test(t.name)).map((t) => t.name)
-    assert.deepEqual(removals, ['remove_group_member'])
+    //
+    // remove_edge arrived on 2026-11-16, on the owner's decision: a step in a flow graph could be
+    // added but never moved, because no tool could take an edge away («Stillerom» got its
+    // calendar step after the sends for that reason). It removes ONE edge and no content: the
+    // nodes and their text stay, expectedVersion is required, and the version before stays in
+    // the graph's history. Pinned here: it can name one edge and nothing else.
+    const removals = tools.filter((t) => /remove/i.test(t.name)).map((t) => t.name).sort()
+    assert.deepEqual(removals, ['remove_edge', 'remove_group_member'])
     assert.equal(tools.find((t) => t.name === 'remove_group_member').annotations.destructiveHint, true)
+    const re = tools.find((t) => t.name === 'remove_edge')
+    assert.equal(re.annotations.destructiveHint, true)
+    assert.deepEqual(Object.keys(re.inputSchema.properties).sort(), ['edgeId', 'expectedVersion', 'graphId', 'label', 'source', 'target'])
+    assert.ok(re.inputSchema.required.includes('expectedVersion'))
   })
 })
 
@@ -509,6 +520,60 @@ describe('add_edge connects two existing nodes', () => {
     assert.equal((await callErr(ro, 'add_edge', { graphId: g.graphId, edge: { source: 'a', target: 'b' } })).code, gs.ERR.INSUFFICIENT_SCOPE)
     const { client: bob } = await connect(env, BOB_RW)
     assert.equal((await callErr(bob, 'add_edge', { graphId: g.graphId, edge: { source: 'a', target: 'b' } })).code, gs.ERR.FORBIDDEN_GRAPH)
+  })
+})
+
+describe('remove_edge takes one edge away and leaves the nodes', () => {
+  const NODES = [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }, { id: 'c', label: 'C' }]
+  const make = async (client, edges) => callOk(client, 'create_graph', { title: 'T', metaArea: '#X', nodes: NODES, edges })
+
+  test('by source + target: the edge is gone, the nodes stay, the version before is kept', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await make(client, [{ source: 'a', target: 'b', label: 'approved' }, { source: 'b', target: 'c' }])
+    const r = await callOk(client, 'remove_edge', { graphId: g.graphId, source: 'a', target: 'b', expectedVersion: 1 })
+    assert.deepEqual([r.edgeId, r.source, r.target, r.label, r.newVersion], ['a_b', 'a', 'b', 'approved', 2])
+    const read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.deepEqual([read.nodeCount, read.edgeCount], [3, 1])
+    const before = await callOk(client, 'get_graph_version', { graphId: g.graphId, version: 1 })
+    assert.equal(before.edgeCount ?? before.edges?.length, 2, 'the history still has the edge')
+  })
+
+  test('moving a step: remove the old edge, add the new ones', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await make(client, [{ source: 'a', target: 'c', label: 'approved' }])
+    await callOk(client, 'remove_edge', { graphId: g.graphId, edgeId: 'a_c', expectedVersion: 1 })
+    await callOk(client, 'add_edge', { graphId: g.graphId, edge: { source: 'a', target: 'b', label: 'approved' }, expectedVersion: 2 })
+    await callOk(client, 'add_edge', { graphId: g.graphId, edge: { source: 'b', target: 'c', label: 'next' }, expectedVersion: 3 })
+    assert.equal((await callOk(client, 'get_graph', { graphId: g.graphId })).edgeCount, 2)
+  })
+
+  test('two edges between the same pair need the label; an edge that is not there removes nothing', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await make(client, [{ id: 'e1', source: 'a', target: 'b', label: 'approved' }, { id: 'e2', source: 'a', target: 'b', label: 'rejected' }])
+    const both = await callErr(client, 'remove_edge', { graphId: g.graphId, source: 'a', target: 'b', expectedVersion: 1 })
+    assert.match(both.message, /2 edges match.*Nothing was removed/)
+    const none = await callErr(client, 'remove_edge', { graphId: g.graphId, source: 'b', target: 'c', expectedVersion: 1 })
+    assert.match(none.message, /No edge b → c.*Nothing was removed/)
+    assert.equal((await callOk(client, 'get_graph', { graphId: g.graphId })).version, 1)
+    const r = await callOk(client, 'remove_edge', { graphId: g.graphId, source: 'a', target: 'b', label: 'rejected', expectedVersion: 1 })
+    assert.equal(r.label, 'rejected', 'the label picks the one')
+    assert.equal((await callOk(client, 'get_graph', { graphId: g.graphId })).edgeCount, 1)
+  })
+
+  test('a stale version, a missing name, no graph:write and someone else\'s graph are refused', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await make(client, [{ source: 'a', target: 'b' }])
+    assert.equal((await callErr(client, 'remove_edge', { graphId: g.graphId, source: 'a', target: 'b', expectedVersion: 7 })).code, gs.ERR.VERSION_CONFLICT)
+    assert.equal((await callErr(client, 'remove_edge', { graphId: g.graphId, source: 'a', expectedVersion: 1 })).code, gs.ERR.INVALID_INPUT)
+    const { client: ro } = await connect(env, ALICE_RO)
+    assert.equal((await callErr(ro, 'remove_edge', { graphId: g.graphId, source: 'a', target: 'b', expectedVersion: 1 })).code, gs.ERR.INSUFFICIENT_SCOPE)
+    const { client: bob } = await connect(env, BOB_RW)
+    assert.equal((await callErr(bob, 'remove_edge', { graphId: g.graphId, source: 'a', target: 'b', expectedVersion: 1 })).code, gs.ERR.FORBIDDEN_GRAPH)
+    assert.equal((await callOk(client, 'get_graph', { graphId: g.graphId })).edgeCount, 1)
   })
 })
 
