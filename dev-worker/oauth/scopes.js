@@ -75,7 +75,9 @@ export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'grap
 /** Human text for the consent screen. Covers every known scope, advertised or not. */
 export const SCOPE_TEXT = {
   'graph:read': 'Lese kunnskapsgrafene dine',
-  'graph:write': 'Opprette og endre innholdet ditt — grafer, noder, bilder og metadata, og legge til kontakter i din egen adressebok',
+  // Widened 2026-11-16 for create_calendar_event — same class: your own content, added to. The
+  // event has no guests, so nothing reaches anyone; inviting people stays under chat:write.
+  'graph:write': 'Opprette og endre innholdet ditt — grafer, noder, bilder og metadata, legge til kontakter i din egen adressebok og avtaler (uten gjester) i din egen kalender',
   'graph:publish': 'Gjøre innhold synlig for folk som ikke er innlogget',
   'graph:delete': 'Slette grafer (de ligger i papirkurven i 30 dager, så er de borte)',
   'chat:write': 'Sende meldinger som når andre mennesker, og styre hvem som er med i gruppene dine',

@@ -93,3 +93,63 @@ export async function getMyDay(env, { actor, date, days = 1 }) {
   events.sort((a, b) => (a.date + (a.allDay ? '00:00' : a.start)).localeCompare(b.date + (b.allDay ? '00:00' : b.start)))
   return { ok: true, from: first, to: last, timeZone: TZ, count: events.length, events }
 }
+
+/**
+ * Add ONE plain event to the caller's OWN primary calendar (MCP create_calendar_event, 2026-11-16).
+ *
+ * Through calendar-worker's POST /api/calendar/events, over the same binding and with the same
+ * rule as getMyDay: whose calendar it is comes from the VERIFIED token, never from an argument.
+ * No guests can be named — the event reaches nobody — and an event with the same title at the
+ * same start is answered as it is (created: false), so asking twice leaves one entry.
+ *
+ * `start` is local time (Oslo unless timeZone says otherwise), e.g. "2026-11-19T12:00".
+ */
+export async function createCalendarEvent(env, { actor, title, start, end, durationMinutes, location, description, timeZone }) {
+  if (!actor?.email) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  if (!env.CALENDAR_WORKER?.fetch) {
+    return fail(ERR.INTERNAL_ERROR, 'The CALENDAR_WORKER service binding is not configured on this worker.')
+  }
+  if (!String(title || '').trim()) return fail(ERR.INVALID_INPUT, 'title is required.')
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(String(start || '').trim())) {
+    return fail(ERR.INVALID_INPUT, 'start must be local time like 2026-11-19T12:00 (date, T, hour:minute). Nothing was added.')
+  }
+  const body = {
+    summary: String(title).trim(),
+    start: String(start).trim(),
+    ...(end ? { end: String(end).trim() } : {}),
+    ...(durationMinutes != null ? { durationMinutes: Number(durationMinutes) } : {}),
+    ...(location ? { location: String(location) } : {}),
+    ...(description ? { description: String(description) } : {}),
+    timeZone: timeZone ? String(timeZone) : TZ,
+  }
+  let res
+  let data
+  try {
+    res = await env.CALENDAR_WORKER.fetch('https://calendar-worker/api/calendar/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Email': actor.email },
+      body: JSON.stringify(body),
+    })
+    data = await res.json().catch(() => ({}))
+  } catch (e) {
+    console.error('[my-day] calendar-worker unreachable:', e.message)
+    return fail(ERR.INTERNAL_ERROR, `Could not reach the calendar service: ${e.message}`)
+  }
+  if (res.status === 404) {
+    return fail(ERR.INTERNAL_ERROR, 'The calendar service does not have the route for adding an event yet (calendar-worker must be deployed with POST /api/calendar/events). Nothing was added.')
+  }
+  if (!res.ok || data?.success !== true) {
+    return fail(ERR.INVALID_INPUT, `${data?.error || `Calendar request failed (status ${res.status}).`} Nothing was added.`)
+  }
+  return {
+    ok: true,
+    created: data.created === true,
+    eventId: data.id ? String(data.id) : null,
+    title: String(data.summary || body.summary),
+    start: data.start ? String(data.start) : body.start,
+    end: data.end ? String(data.end) : null,
+    timeZone: body.timeZone,
+    location: data.location ? String(data.location) : null,
+    link: data.htmlLink ? String(data.htmlLink) : null,
+  }
+}

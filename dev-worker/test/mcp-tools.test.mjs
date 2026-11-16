@@ -2392,6 +2392,70 @@ describe('get_my_day and list_sent_sms read the caller\'s own calendar and sent 
   })
 })
 
+describe('create_calendar_event adds one event without guests to the caller\'s own calendar (graph:write)', () => {
+  function withCalendar(reply = { success: true, created: true, id: 'ev1', summary: 'Stillerom', start: '2026-11-19T12:00:00+01:00', end: '2026-11-19T12:20:00+01:00', location: 'https://realtime.vegvisr.org/?openroom', htmlLink: 'https://calendar.google.com/x' }, status = 200) {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const calls = []
+    env.CALENDAR_WORKER = {
+      fetch: async (url, init) => {
+        calls.push({ url: new URL(url), method: init.method, email: init.headers['X-User-Email'], body: JSON.parse(init.body) })
+        return new Response(JSON.stringify(reply), { status })
+      },
+    }
+    return { env, calls }
+  }
+  const STILLE = { title: 'Stillerom', start: '2026-11-19T12:00', durationMinutes: 20, location: 'https://realtime.vegvisr.org/?openroom' }
+
+  test('the event is asked for as the caller, in Oslo time, and the answer says nobody was told', async () => {
+    const { env, calls } = withCalendar()
+    const { client } = await connect(env, ALICE_RW)
+    const r = await client.callTool({ name: 'create_calendar_event', arguments: STILLE })
+    assert.notEqual(r.isError, true, JSON.stringify(r))
+    assert.deepEqual([calls[0].method, calls[0].url.pathname, calls[0].email], ['POST', '/api/calendar/events', 'alice@example.com'])
+    assert.deepEqual(calls[0].body, { summary: 'Stillerom', start: '2026-11-19T12:00', durationMinutes: 20, location: 'https://realtime.vegvisr.org/?openroom', timeZone: 'Europe/Oslo' })
+    assert.deepEqual([sc(r).created, sc(r).eventId, sc(r).link], [true, 'ev1', 'https://calendar.google.com/x'])
+    assert.match(r.content[0].text, /Added to your calendar: "Stillerom", 2026-11-19 12:00–12:20 \(Europe\/Oslo\)/)
+    assert.match(r.content[0].text, /No guests — nothing was sent to anyone/)
+  })
+
+  test('an event that is already there is reported as such', async () => {
+    const { env } = withCalendar({ success: true, created: false, id: 'old', summary: 'Stillerom', start: '2026-11-19T12:00:00+01:00', end: '2026-11-19T12:20:00+01:00' })
+    const { client } = await connect(env, ALICE_RW)
+    const r = await client.callTool({ name: 'create_calendar_event', arguments: STILLE })
+    assert.equal(sc(r).created, false)
+    assert.match(r.content[0].text, /Already in your calendar — nothing was added/)
+  })
+
+  test('there is no way to name a guest, and a time that is not local date-time never reaches the calendar', async () => {
+    const { env, calls } = withCalendar()
+    const { client } = await connect(env, ALICE_RW)
+    for (const start of ['torsdag kl. 12:00 i uken', '2026-11-19T11:00:00Z', '2026-11-19T12:00:00+01:00']) {
+      const e = await callErr(client, 'create_calendar_event', { ...STILLE, start })
+      assert.match(e.message, /local time like 2026-11-19T12:00/)
+    }
+    assert.equal(calls.length, 0)
+    const { tools } = await client.listTools()
+    const t = tools.find((x) => x.name === 'create_calendar_event')
+    assert.deepEqual(Object.keys(t.inputSchema.properties).sort(), ['description', 'durationMinutes', 'end', 'location', 'start', 'timeZone', 'title'])
+    assert.equal(t.annotations.openWorldHint, false)
+    assert.equal(t.annotations.readOnlyHint, false)
+  })
+
+  test('without graph:write it is refused; a calendar service without the route, or one that says no, adds nothing', async () => {
+    const a = withCalendar()
+    const e = await callErr((await connect(a.env, ALICE_RO)).client, 'create_calendar_event', STILLE)
+    assert.equal(e.requiredScope, 'graph:write')
+    assert.equal(a.calls.length, 0)
+
+    const old = withCalendar({ error: 'Not found' }, 404)
+    assert.match((await callErr((await connect(old.env, ALICE_RW)).client, 'create_calendar_event', STILLE)).message, /calendar-worker must be deployed/)
+
+    const no = withCalendar({ success: false, error: 'Google Calendar is not connected for this account.' }, 409)
+    assert.match((await callErr((await connect(no.env, ALICE_RW)).client, 'create_calendar_event', STILLE)).message, /not connected.*Nothing was added/)
+  })
+})
+
 describe('meeting reports: set (graph:write), preview + send (chat:write) via agent-worker', () => {
   function withAgent(reply = {}, status = 200) {
     const { env, raw } = freshDb()
