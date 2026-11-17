@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { providerFor, modelId, buildModelRequest, parseModelResponse, askModel, ownerUserId, hasModelConnection } from '../providers.js'
-import { compileFlow } from '../compile.js'
+import { compileFlow, estimateCostUsd } from '../compile.js'
 
 test('the model name picks the worker', () => {
   assert.equal(providerFor('claude-sonnet-5-5'), 'anthropic')
@@ -215,4 +215,22 @@ test('hasModelConnection counts the AI binding and gemini-worker too', () => {
   assert.equal(hasModelConnection({ AI: { run() {} } }), true)
   assert.equal(hasModelConnection({ AI: { fetch() {} } }), false)
   assert.equal(hasModelConnection({ GEMINI: { fetch() {} } }), true)
+})
+
+
+// ---- Prices for the cost cap (2026-11-17) -----------------------------------------------------------
+
+test('grok and gpt models are counted at their own list prices, not as the dearest model', () => {
+  const usage = { input_tokens: 1_000_000, output_tokens: 1_000_000 }
+  assert.equal(estimateCostUsd('grok-4.5', usage), 8)
+  assert.equal(estimateCostUsd('grok-4.3', usage), 3.75)
+  assert.equal(estimateCostUsd('gpt-5.6-sol', usage), 35)
+  assert.equal(estimateCostUsd('gpt-5.6-terra', usage), 17.5)
+  assert.equal(estimateCostUsd('gpt-5.6-luna', usage), 7)
+  assert.equal(estimateCostUsd('kimi-k3.1-pro', usage), 12)
+  assert.equal(estimateCostUsd('claude-sonnet-5-5', usage), 18)
+  // A model with no row still counts as the dearest, so the cap never undercounts.
+  assert.equal(estimateCostUsd('mistral-large', usage), 90)
+  // The live grok run of 16 Nov: about 62 000 tokens in and 6 601 out.
+  assert.ok(Math.abs(estimateCostUsd('grok-4.5', { input_tokens: 62055, output_tokens: 6601 }) - 0.1637) < 0.001)
 })

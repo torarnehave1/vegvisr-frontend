@@ -482,6 +482,14 @@ const PRICES = [
   [/gemini.*flash/i, 0.3, 2.5],
   [/gemini/i, 1.25, 10],
   [/kimi/i, 2, 10],
+  // Grok and GPT (2026-11-17). Without a row they counted as the dearest ($15/$75), so a run that
+  // cost about $0.16 at xAI showed $1.43. List prices, not promotions: GPT-5.6 Sol is $4/$20 on
+  // promotion through at least 21 Nov 2026, and the list price is kept so the cap never undercounts.
+  [/grok-4\.3/i, 1.25, 2.5],
+  [/grok/i, 2, 6],
+  [/gpt.*luna/i, 1, 6],
+  [/gpt.*terra/i, 2.5, 15],
+  [/^(gpt|o\d)/i, 5, 30],
 ]
 export function estimateCostUsd(model, usage) {
   const p = PRICES.find(([re]) => re.test(String(model || ''))) || [null, 15, 75]
