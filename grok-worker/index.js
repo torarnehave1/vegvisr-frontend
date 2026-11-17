@@ -431,14 +431,11 @@ export default {
               name.startsWith('sources_')
             )
           })
-          const toolCapableModels = [
-            'grok-4',
-            'grok-4-fast',
-            'grok-4-fast-non-reasoning',
-            'grok-4-1-fast',
-            'grok-4-1-fast-non-reasoning'
-          ]
-          const effectiveModel = hasTools && !toolCapableModels.includes(model)
+          // Every Grok 4 generation model takes tools (grok-4, -latest, 4-fast, 4-1-fast, 4.3, 4.5, …).
+          // Before 2026-11-17 this was a fixed list of five ids, so grok-4.5 and grok-4.3 were quietly
+          // swapped for grok-4-1-fast whenever tools were sent. Only older/vision models fall back now.
+          const toolCapable = /^grok-4([.-]|$)/.test(String(model || '')) && !/vision|image/.test(String(model))
+          const effectiveModel = hasTools && !toolCapable
             ? 'grok-4-1-fast'
             : model
           const useResponsesApi = hasTools && !hasClientTools
