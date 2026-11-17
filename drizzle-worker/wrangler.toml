@@ -1,0 +1,39 @@
+# drizzle-worker — app tables + admin SQL for the Vegvisr apps (Contacts, Agent-Builder).
+# Binding names and ids only: no tokens or passwords (the repo is public).
+#
+# Added 2026-11-17 together with the login check (src/auth.js). Until then this worker had no
+# tracked config and was deployed by hand; these values are copied from the deployed worker's
+# settings (Cloudflare API, 2026-11-17) so `wrangler deploy` from this folder changes the code only.
+name = "drizzle-worker"
+main = "src/index.js"
+compatibility_date = "2025-01-15"
+account_id = "5d9b2060ef095c777711a8649c24914e"
+
+# The ONLY public way in. src/auth.js relies on this: a request whose hostname is not
+# "drizzle-worker" (the service-binding name) is treated as public and must carry a token.
+# Keep workers_dev off, and do not add routes or custom domains without reading auth.js.
+workers_dev = false
+preview_urls = false
+routes = [
+  { pattern = "drizzle.vegvisr.org/*", zone_name = "vegvisr.org" }
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "vegvisr_org"
+database_id = "507d1efd-1dda-45ef-971f-52d2c8e8afe8"
+
+[[d1_databases]]
+binding = "CHAT_DB"
+database_name = "hallo_vegvisr_chat"
+database_id = "1abe2080-33ae-442b-9552-5203caa6c0e0"
+
+[[d1_databases]]
+binding = "CALENDAR_DB"
+database_name = "calendar_db"
+database_id = "ebdf13a5-f969-4048-8407-b4970805a4b2"
+
+[[d1_databases]]
+binding = "STATS_DB"
+database_name = "agent-stats-db"
+database_id = "d500865b-a53a-40b4-9784-8bd288f51575"

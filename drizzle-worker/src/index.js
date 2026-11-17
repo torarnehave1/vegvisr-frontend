@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/d1';
 import { eq, sql } from 'drizzle-orm';
 import { appTables, appColumns } from './schema.js';
+import { authorize } from './auth.js';
 
 // ── Helpers ──
 
@@ -10,7 +11,7 @@ function corsHeaders(request) {
   return {
     'Access-Control-Allow-Origin': allowed ? origin : 'https://vegvisr.org',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Token',
   };
 }
 
@@ -451,9 +452,12 @@ async function handleQuery(db, d1, body, request) {
   }, 200, request);
 }
 
-async function handleListTables(db, url, request) {
-  // userId param scopes the list to that user's tables (same as graphId)
-  const graphId = url.searchParams.get('graphId') || url.searchParams.get('userId');
+async function handleListTables(db, url, request, gate) {
+  // userId param scopes the list to that user's tables (same as graphId).
+  // A public caller's scope is decided by auth.js (their own tables; Superadmin: as asked).
+  const graphId = gate && !gate.internal
+    ? gate.listGraphId
+    : (url.searchParams.get('graphId') || url.searchParams.get('userId'));
   let tables;
   if (graphId) {
     tables = await db.select().from(appTables).where(eq(appTables.graphId, graphId));
@@ -1601,9 +1605,31 @@ export default {
     const db = drizzle(d1);  // Drizzle ORM for typed metadata queries
 
     try {
+      // ── Who is calling, and may they? (auth.js, 2026-11-17) ──
+      // Public callers need a token and may only touch their own tables; raw SQL and the other
+      // admin routes need Superadmin. Service-binding callers (https://drizzle-worker/…) pass.
+      const gate = await authorize({
+        request,
+        lookupCaller: async (token) => {
+          const row = await env.DB
+            .prepare('SELECT user_id, oauth_id, email, Role FROM config WHERE emailVerificationToken = ?')
+            .bind(token).first();
+          return row ? { userId: row.user_id, oauthId: row.oauth_id, email: row.email, role: row.Role } : null;
+        },
+        lookupTableOwner: async (tableId) => {
+          try {
+            const row = await env.DB.prepare('SELECT graph_id FROM app_tables WHERE id = ?').bind(tableId).first();
+            return row ? row.graph_id : null;
+          } catch {
+            return null; // app_tables not created yet
+          }
+        },
+      });
+      if (!gate.ok) return json({ error: gate.error }, gate.status, request);
+
       // ── Health check (no DB needed) ──
       if (request.method === 'GET' && path === '/health') {
-        return json({ status: 'healthy', worker: 'drizzle-worker', timestamp: new Date().toISOString() }, 200, request);
+        return json({ status: 'healthy', worker: 'drizzle-worker', auth: 'required', timestamp: new Date().toISOString() }, 200, request);
       }
 
       // ── OpenAPI spec (no DB needed) ──
@@ -1637,7 +1663,7 @@ export default {
         return await handleQuery(db, d1, await request.json(), request);
       }
       if (request.method === 'GET' && path === '/tables') {
-        return await handleListTables(db, url, request);
+        return await handleListTables(db, url, request, gate);
       }
       if (request.method === 'GET' && path.startsWith('/table/')) {
         const tableId = path.split('/table/')[1];

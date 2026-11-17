@@ -2,9 +2,11 @@
   "name": "drizzle-worker",
   "private": true,
   "scripts": {
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
     "drizzle-orm": "^0.44.0"
-  }
+  },
+  "type": "module"
 }
