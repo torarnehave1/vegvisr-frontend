@@ -230,6 +230,9 @@ async function handleChat(request, env, corsHeaders) {
     // Add function calling parameters
     if (tools && Array.isArray(tools) && tools.length > 0) {
       requestBody.tools = tools;
+      // GPT-5.6 reasons by default, and /v1/chat/completions refuses function tools together with
+      // reasoning ("set reasoning_effort to 'none'"), so every tool call to it failed (2026-11-17).
+      if (/^gpt-5\.6/.test(model)) requestBody.reasoning_effort = body.reasoning_effort || 'none';
     }
     if (tool_choice !== undefined) {
       requestBody.tool_choice = tool_choice;

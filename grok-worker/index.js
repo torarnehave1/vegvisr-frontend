@@ -450,7 +450,12 @@ export default {
             ? {
                 model: effectiveModel,
                 input: buildResponsesInput(messages),
-                tools,
+                // The Responses API wants flat function tools ({type, name, parameters}); callers send
+                // the Chat Completions shape ({type, function:{name, …}}). Before 2026-11-17 these went
+                // through unchanged and xAI refused them ("tools[0]: missing field `name`").
+                tools: tools.map((t) => (t && t.function
+                  ? { type: 'function', name: t.function.name, description: t.function.description, parameters: t.function.parameters }
+                  : t)),
                 temperature,
                 stream,
                 ...(tool_choice ? { tool_choice } : {})
