@@ -271,6 +271,13 @@ async function handleListSessions(url, env, user) {
     query += ' AND graph_id = ?'
     bindings.push(graphId)
   }
+  // ?provider= lists one client's sessions, so another client's many sessions cannot crowd them
+  // out of the 100 newest (added 2026-11-17 for Garnet).
+  const provider = url.searchParams.get('provider')
+  if (provider) {
+    query += ' AND provider = ?'
+    bindings.push(provider)
+  }
 
   query += ' ORDER BY updated_at DESC LIMIT 100'
 
@@ -583,7 +590,8 @@ async function handleListMessages(url, env, user) {
   if (deniedMsg) return deniedMsg
 
   const { results } = await env.DB.prepare(
-    'SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at DESC LIMIT ?'
+    // rowid breaks ties: a question and its answer saved in the same second keep their order.
+    'SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?'
   )
     .bind(sessionId, limit)
     .all()
@@ -887,7 +895,8 @@ async function ensureSchema(env) {
 // Samtaler fra disse klientene kan bare leses og endres med et gyldig X-API-Token
 // for eieren. De andre klientene sender fortsatt bare e-post/ID-headere (uverifisert)
 // og virker som foer, men ser ikke disse oektene. Se lipi-app-topology / 2026-10-28.
-const PROTECTED_PROVIDERS = new Set(['lipi'])
+// garnet (garnet.vegr.ai chat, 2026-11-17): the person's questions about their own graphs.
+const PROTECTED_PROVIDERS = new Set(['lipi', 'garnet'])
 
 async function getUserContext(request, env) {
   const ctx = {
