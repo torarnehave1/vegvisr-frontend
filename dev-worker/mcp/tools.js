@@ -51,6 +51,7 @@ import * as workerSource from '../worker-source-service.js'
 import * as workerTools from '../worker-tools.js'
 import * as componentPublish from '../component-publish-service.js'
 import * as mystmkra from '../mystmkra-import.js'
+import * as ixf from './index-filter.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared schemas
@@ -7920,33 +7921,48 @@ ${result.warnings.join('\n')}` : ''),
         'nodes of each matching graph, not only the nodes of that type. Made for maps, timelines ' +
         'and counts over the whole collection; the rows are in the structured result, and the text ' +
         'is only a summary — to read graphs as lines use list_my_graphs, to read one use get_graph. ' +
+        'Optional narrowing, all combinable: world (a World domain, or "shared"), metaAreas (any of ' +
+        'several tags), published ("live" | "published" | "private"), createdFrom / createdTo (UTC ' +
+        'dates; a bare YYYY-MM-DD createdTo includes that day). total counts every match; offset and ' +
+        'limit page through them; brief:true returns only graphId, title, metaArea, world, createdAt ' +
+        'per graph — use it to read a long selection without flooding the conversation. ' +
         'Requires the graph:read scope.',
       inputSchema: {
         scope: z.enum(['mine', 'all']).optional().describe('"mine" (default): graphs you own. "all": every graph you can see, in every World you can use.'),
         metaArea: z.string().optional().describe('Narrow to a meta-area tag, e.g. "#NINE".'),
         nodeType: z.string().optional().describe('Only graphs containing a node of this type, e.g. "micro-story". Exact match, as list_node_types spells it.'),
         includeNodes: z.boolean().optional().describe('Also return each graph\'s nodes (id, label, type) and edges. Needs metaArea or nodeType.'),
+        world: z.string().optional().describe('Only graphs stored in this World, e.g. "sodesign.no"; "shared" for the platform\'s shared storage.'),
+        metaAreas: z.array(z.string()).optional().describe('Only graphs carrying ANY of these meta-area tags, e.g. ["#NINE", "#BOOK"].'),
+        published: z.enum(['live', 'published', 'private']).optional().describe('"live": served at a hostname. "published": publication state published. "private": anything not published.'),
+        createdFrom: z.string().optional().describe('Only graphs created at or after this UTC date or date-time, e.g. "2025-01-01".'),
+        createdTo: z.string().optional().describe('Only graphs created at or before this UTC date or date-time; a bare date includes the whole day.'),
+        offset: z.number().int().min(0).optional().describe('Skip this many matches (paging). Default 0.'),
+        limit: z.number().int().min(1).max(5000).optional().describe('Return at most this many matches. Default: all.'),
+        brief: z.boolean().optional().describe('Return only graphId, title, metaArea, world and createdAt per graph.'),
       },
       outputSchema: {
         success: z.boolean(),
         scope: z.string(),
         metaArea: z.string().nullable(),
         nodeType: z.string().nullable().describe('The node type the index was narrowed to, or null.'),
-        total: z.number(),
+        total: z.number().describe('Every graph that matches, before offset/limit.'),
+        offset: z.number().optional(),
+        returned: z.number().optional().describe('How many rows are in graphs[] (after offset/limit).'),
         worlds: z.array(z.string()).optional().describe('Every World domain whose own storage you can use, also those with no graphs yet.'),
         graphs: z.array(
           z.object({
             graphId: z.string(),
             title: z.string().nullable(),
             metaArea: z.string().nullable(),
-            publicationState: z.string(),
-            nodeCount: z.number(),
+            publicationState: z.string().optional(),
+            nodeCount: z.number().optional(),
             createdAt: z.string().nullable().describe("When the graph was first saved (UTC, the row's created_date)."),
-            updatedAt: z.string().nullable(),
+            updatedAt: z.string().nullable().optional(),
             world: z.string().nullable().describe("The World whose own storage holds this graph. Null: the platform's shared storage."),
-            nodeTypes: z.array(z.string()).describe('The distinct node types in this graph, e.g. ["fulltext","youtube-video"].'),
-            image: z.string().nullable().describe("The graph's card image: the address held by its first portfolio-image node. Null when it has none."),
-            publishedDomains: z.array(z.string()).describe('Hostnames this graph serves a live page at. Empty for a graph that publishes nowhere.'),
+            nodeTypes: z.array(z.string()).optional().describe('The distinct node types in this graph, e.g. ["fulltext","youtube-video"]. Absent with brief.'),
+            image: z.string().nullable().optional().describe("The graph's card image: the address held by its first portfolio-image node. Null when it has none."),
+            publishedDomains: z.array(z.string()).optional().describe('Hostnames this graph serves a live page at. Empty for a graph that publishes nowhere.'),
             nodes: z.array(z.object({ id: z.string(), label: z.string().nullable(), type: z.string().nullable() })).optional(),
             edges: z.array(z.object({ source: z.string(), target: z.string() })).optional(),
           }),
@@ -7954,18 +7970,31 @@ ${result.warnings.join('\n')}` : ''),
       },
       annotations: READ_ONLY,
     },
-    async ({ scope, metaArea, nodeType, includeNodes }) => {
+    async ({ scope, metaArea, nodeType, includeNodes, world, metaAreas, published, createdFrom, createdTo, offset, limit, brief }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:read')
       if (scopeErr) return scopeErr
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const extra = { world, metaAreas, published, createdFrom, createdTo }
+      const badFilter = ixf.checkIndexFilters(extra)
+      if (badFilter) return err(gs.ERR.INVALID_INPUT, badFilter)
 
       const r = await gs.graphIndex(env, { scope, metaArea, nodeType, includeNodes: Boolean(includeNodes), actor })
       if (!r.ok) return fromService(r)
 
       const { ok: _o, graphs: rawGraphs, ...rest } = r
-      const payload = { ...rest, graphs: withDomains(rawGraphs, await sites.readPublishedDomainRegistry(env)) }
+      // The extra filters read publishedDomains, so they run after the registry is attached.
+      const matched = ixf.filterIndexRows(withDomains(rawGraphs, await sites.readPublishedDomainRegistry(env)), extra)
+      const paged = ixf.pageRows(matched, { offset, limit })
+      const payload = {
+        ...rest,
+        total: matched.length,
+        ...(offset || limit ? { offset: offset || 0 } : {}),
+        returned: paged.length,
+        graphs: brief ? paged.map(ixf.briefRow) : paged,
+      }
+      r.total = matched.length
       r.graphs = payload.graphs
       const byYear = new Map()
       for (const g of r.graphs) {
@@ -7980,13 +8009,14 @@ ${result.warnings.join('\n')}` : ''),
           (dated.length ? `, created ${String(dated[0].createdAt).slice(0, 10)} to ${String(dated[dated.length - 1].createdAt).slice(0, 10)}.` : '.')
       const years = [...byYear.entries()].map(([y, n]) => `${y}: ${n}`).join(' · ')
       // A short collection is listed; a long one would flood a chat, so the text says where the rows are.
-      const lines = r.total <= 60
-        ? r.graphs.map((g) => `• ${g.title || '(untitled)'} — ${g.graphId} · ${g.nodeCount} nodes` +
-            `${g.nodeTypes.length ? ` · types: ${g.nodeTypes.join(', ')}` : ''}` +
-            `${g.publishedDomains.length ? ` · live at ${g.publishedDomains.join(', ')}` : ''}` +
+      const lines = r.graphs.length <= 60
+        ? r.graphs.map((g) => `• ${g.title || '(untitled)'} — ${g.graphId}${g.nodeCount !== undefined ? ` · ${g.nodeCount} nodes` : ''}` +
+            `${g.nodeTypes?.length ? ` · types: ${g.nodeTypes.join(', ')}` : ''}` +
+            `${g.publishedDomains?.length ? ` · live at ${g.publishedDomains.join(', ')}` : ''}` +
             `${g.world ? ` · world ${g.world}` : ''}${createdText(g.createdAt)}`)
         : ['The rows themselves are in the structured result (graphs[]). This text is a summary only: for readable lines use list_my_graphs or search_graphs.']
-      return ok({ success: true, ...payload }, [head, ...(r.total ? [`Created per year — ${years}`] : []), ...lines].join('\n'))
+      const page = payload.returned < r.total ? [`Rows ${(offset || 0) + 1}–${(offset || 0) + payload.returned} of ${r.total} (offset/limit); the year counts are for these rows.`] : []
+      return ok({ success: true, ...payload }, [head, ...page, ...(r.total ? [`Created per year — ${years}`] : []), ...lines].join('\n'))
     },
   )
 

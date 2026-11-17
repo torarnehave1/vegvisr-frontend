@@ -643,6 +643,31 @@ describe('graph_index: the whole collection in one call', () => {
     assert.equal((await callOk(client, 'graph_index', {})).nodeType, null)
   })
 
+  test('world, metaAreas, published, created range, paging and brief narrow the index', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const a = await callOk(client, 'create_graph', { title: 'Gammel', metaArea: '#NINE' })
+    const b = await callOk(client, 'create_graph', { title: 'Midt', metaArea: '#BOOK #X' })
+    const c = await callOk(client, 'create_graph', { title: 'Ny', metaArea: '#Y' })
+    for (const [g, d] of [[a, '2024-02-01 10:00:00'], [b, '2025-06-30 12:00:00'], [c, '2026-05-01 10:00:00']])
+      await env.vegvisr_org.prepare('UPDATE knowledge_graphs SET created_date = ? WHERE id = ?').bind(d, g.graphId).run()
+
+    const two = await callOk(client, 'graph_index', { metaAreas: ['#nine', '#book'] })
+    assert.deepEqual(two.graphs.map((g) => g.title), ['Gammel', 'Midt'])
+    assert.equal(two.total, 2)
+    const upTo = await callOk(client, 'graph_index', { createdTo: '2025-06-30' })
+    assert.deepEqual(upTo.graphs.map((g) => g.title), ['Gammel', 'Midt'])
+    assert.equal((await callOk(client, 'graph_index', { createdFrom: '2025-01-01', createdTo: '2025-12-31' })).total, 1)
+    assert.equal((await callOk(client, 'graph_index', { world: 'shared' })).total, 3)
+    assert.equal((await callOk(client, 'graph_index', { world: 'sodesign.no' })).total, 0)
+    assert.equal((await callOk(client, 'graph_index', { published: 'published' })).total, 0)
+    const page = await callOk(client, 'graph_index', { offset: 1, limit: 1, brief: true })
+    assert.equal(page.total, 3)
+    assert.equal(page.returned, 1)
+    assert.deepEqual(page.graphs, [{ graphId: b.graphId, title: 'Midt', metaArea: '#BOOK #X', world: null, createdAt: '2025-06-30 12:00:00' }])
+    assert.equal((await callErr(client, 'graph_index', { createdFrom: 'i fjor' })).code, gs.ERR.INVALID_INPUT)
+  })
+
   test('scope "mine" never returns another user\'s graph, and "all" only their published ones', async () => {
     const { env } = freshDb()
     const { client: alice } = await connect(env, ALICE_RW)
