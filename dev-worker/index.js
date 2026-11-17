@@ -2206,6 +2206,44 @@ const restHandler = {
         })
       }
 
+      // Sent copy for mail sent by ANOTHER worker (2026-11-17). Agent-Builder's chat send_email goes
+      // straight to email-worker, so nothing put a copy in the sender's own Sent folder — only MCP's
+      // send_email did (email-service.js). Rather than a second IMAP implementation in agent-worker,
+      // the chat calls this after a successful send and gets the same fileSentCopy: same stored
+      // `imap:<address>` password, same folder measuring and memory. Binding only, like the flow
+      // routes above; the caller has already decided its user may send from `address`.
+      // Best-effort by contract — always 200 with { filed, reason }, never a failed send.
+      if (pathname === '/internal/file-sent-copy' && request.method === 'POST') {
+        if (url.hostname !== 'knowledge-graph-worker') {
+          return new Response(JSON.stringify({ error: 'Reachable only over a service binding.' }), {
+            status: 403, headers: { 'Content-Type': 'application/json' },
+          })
+        }
+        const body = await request.json().catch(() => ({}))
+        const address = String(body.address || '').trim().toLowerCase()
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address) || !body.toEmail || !body.subject || !body.html) {
+          return new Response(JSON.stringify({ filed: false, reason: 'address, toEmail, subject and html are required' }), {
+            status: 400, headers: { 'Content-Type': 'application/json' },
+          })
+        }
+        let r
+        try {
+          r = await fileSentCopy(env, {
+            address,
+            toEmail: String(body.toEmail),
+            cc: Array.isArray(body.cc) ? body.cc : [],
+            bcc: Array.isArray(body.bcc) ? body.bcc : [],
+            subject: String(body.subject),
+            html: String(body.html),
+            fromName: body.fromName ? String(body.fromName) : undefined,
+            messageId: body.messageId ? String(body.messageId) : null,
+          })
+        } catch (e) {
+          r = { filed: false, reason: `unexpected: ${e.message}` }
+        }
+        return new Response(JSON.stringify(r), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+
       // Compatibility route for cached NIBI member pages. The chat worker is the
       // canonical owner, but older bundles still call this host.
       if (pathname === '/plugin/landing' && request.method === 'GET') {
