@@ -1,0 +1,96 @@
+# Deploys drizzle-worker (app tables + admin SQL behind drizzle.vegvisr.org) from GitHub:
+# unit tests → the owner's approval → wrangler deploy → live check.
+#
+# Same gate as deploy-flows-worker.yml and deploy-dev-worker.yml: the deploy job runs in the
+# `mcp-production` environment, which has a required reviewer, and CLOUDFLARE_API_TOKEN exists
+# ONLY as a secret of that environment. Never add it as a repository secret.
+#
+# Added 2026-11-17 with the login check (drizzle-worker/src/auth.js). Until then this worker had
+# no CI and no tracked wrangler.toml, and it answered anyone without login.
+#
+# ORDER MATTERS the first time: the Contacts app and Agent-Builder's Data Explorer must already
+# send the token (Contacts PR #3, Agent-Builder PR #6) before this deploy is approved, or they
+# get 401 from the new code.
+name: Deploy drizzle-worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'drizzle-worker/**'
+      - '.github/workflows/deploy-drizzle-worker.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-drizzle-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 1/3 unit tests (login + ownership rules)
+        run: node --test drizzle-worker/test/*.test.mjs
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: mcp-production
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 5d9b2060ef095c777711a8649c24914e
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # wrangler comes from the repo root; drizzle-orm from the worker's own package.
+      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts
+        working-directory: drizzle-worker
+
+      - name: Check the Cloudflare token is set
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Environment secret CLOUDFLARE_API_TOKEN is missing — gh secret set CLOUDFLARE_API_TOKEN --env mcp-production"
+            exit 1
+          fi
+
+      - name: 2/3 deploy
+        working-directory: drizzle-worker
+        run: ../node_modules/.bin/wrangler deploy
+
+      - name: 3/3 live check (new code answers, and refuses a caller without a token)
+        run: |
+          ok=""
+          for i in 1 2 3 4 5 6; do
+            body=$(curl -s --max-time 10 https://drizzle.vegvisr.org/health || true)
+            echo "attempt $i: $body"
+            case "$body" in *'"auth":"required"'*) ok=1; break;; esac
+            sleep 5
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::drizzle.vegvisr.org/health does not answer with the login check after deploy"
+            exit 1
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://drizzle.vegvisr.org/tables)
+          echo "GET /tables without a token: $code"
+          if [ "$code" != "401" ]; then
+            echo "::error::GET /tables without a token answered $code, expected 401"
+            exit 1
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST https://drizzle.vegvisr.org/raw-query \
+            -H 'Content-Type: application/json' -d '{"sql":"SELECT 1"}')
+          echo "POST /raw-query without a token: $code"
+          if [ "$code" != "401" ]; then
+            echo "::error::POST /raw-query without a token answered $code, expected 401"
+            exit 1
+          fi
