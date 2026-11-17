@@ -7925,7 +7925,8 @@ ${result.warnings.join('\n')}` : ''),
         'several tags), published ("live" | "published" | "private"), createdFrom / createdTo (UTC ' +
         'dates; a bare YYYY-MM-DD createdTo includes that day). total counts every match; offset and ' +
         'limit page through them; brief:true returns only graphId, title, metaArea, world, createdAt ' +
-        'per graph — use it to read a long selection without flooding the conversation. ' +
+        'per graph — use it to read a long selection without flooding the conversation. order:"newest" ' +
+        'lists the newest first. ' +
         'Requires the graph:read scope.',
       inputSchema: {
         scope: z.enum(['mine', 'all']).optional().describe('"mine" (default): graphs you own. "all": every graph you can see, in every World you can use.'),
@@ -7940,6 +7941,7 @@ ${result.warnings.join('\n')}` : ''),
         offset: z.number().int().min(0).optional().describe('Skip this many matches (paging). Default 0.'),
         limit: z.number().int().min(1).max(5000).optional().describe('Return at most this many matches. Default: all.'),
         brief: z.boolean().optional().describe('Return only graphId, title, metaArea, world and createdAt per graph.'),
+        order: z.enum(['oldest', 'newest']).optional().describe('"oldest" (default) or "newest" first, by createdAt; applied before offset/limit.'),
       },
       outputSchema: {
         success: z.boolean(),
@@ -7970,7 +7972,7 @@ ${result.warnings.join('\n')}` : ''),
       },
       annotations: READ_ONLY,
     },
-    async ({ scope, metaArea, nodeType, includeNodes, world, metaAreas, published, createdFrom, createdTo, offset, limit, brief }) => {
+    async ({ scope, metaArea, nodeType, includeNodes, world, metaAreas, published, createdFrom, createdTo, offset, limit, brief, order }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:read')
       if (scopeErr) return scopeErr
@@ -7986,7 +7988,7 @@ ${result.warnings.join('\n')}` : ''),
       const { ok: _o, graphs: rawGraphs, ...rest } = r
       // The extra filters read publishedDomains, so they run after the registry is attached.
       const matched = ixf.filterIndexRows(withDomains(rawGraphs, await sites.readPublishedDomainRegistry(env)), extra)
-      const paged = ixf.pageRows(matched, { offset, limit })
+      const paged = ixf.pageRows(order === 'newest' ? [...matched].reverse() : matched, { offset, limit })
       const payload = {
         ...rest,
         total: matched.length,

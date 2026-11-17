@@ -665,6 +665,9 @@ describe('graph_index: the whole collection in one call', () => {
     assert.equal(page.total, 3)
     assert.equal(page.returned, 1)
     assert.deepEqual(page.graphs, [{ graphId: b.graphId, title: 'Midt', metaArea: '#BOOK #X', world: null, createdAt: '2025-06-30 12:00:00' }])
+    const newest = await callOk(client, 'graph_index', { order: 'newest', limit: 2, brief: true })
+    assert.deepEqual(newest.graphs.map((g) => g.title), ['Ny', 'Midt'])
+    assert.equal(newest.total, 3)
     assert.equal((await callErr(client, 'graph_index', { createdFrom: 'i fjor' })).code, gs.ERR.INVALID_INPUT)
   })
 
