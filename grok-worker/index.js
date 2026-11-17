@@ -487,6 +487,7 @@ export default {
           }
 
           const data = await xaiResponse.json()
+          console.log(`grok chat: asked ${model}, sent ${effectiveModel}, xAI ran ${data.model || '?'}, tools ${hasTools ? tools.length : 0}`)
 
           const responsePayload = useResponsesApi ? toOpenAIStyleResponse(data) : data
           const finalPayload = hasTools ? applyFallbackToolCalls(responsePayload, tools) : responsePayload
