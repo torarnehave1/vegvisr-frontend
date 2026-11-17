@@ -209,6 +209,7 @@ function toOpenAIStyleResponse(responsesData) {
   }
 
   return {
+    model: responsesData.model, // the model xAI actually ran, so callers can see it
     choices: [
       {
         message
