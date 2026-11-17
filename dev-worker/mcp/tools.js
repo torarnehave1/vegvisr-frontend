@@ -7933,6 +7933,7 @@ ${result.warnings.join('\n')}` : ''),
         metaArea: z.string().nullable(),
         nodeType: z.string().nullable().describe('The node type the index was narrowed to, or null.'),
         total: z.number(),
+        worlds: z.array(z.string()).optional().describe('Every World domain whose own storage you can use, also those with no graphs yet.'),
         graphs: z.array(
           z.object({
             graphId: z.string(),

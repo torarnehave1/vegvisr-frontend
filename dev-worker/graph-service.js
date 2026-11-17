@@ -2238,5 +2238,8 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
       : {}),
   }))
 
-  return { ok: true, scope: all ? 'all' : 'mine', metaArea: areaFilter ? String(metaArea) : null, nodeType: typeFilter || null, total: graphs.length, graphs }
+  // Every World the caller can use, also one with no graphs yet, so a map can offer it as a
+  // place to move a graph to (2026-11-17).
+  const worlds = stores.filter((s) => s.kind === 'world' && s.world).map((s) => s.world)
+  return { ok: true, scope: all ? 'all' : 'mine', metaArea: areaFilter ? String(metaArea) : null, nodeType: typeFilter || null, total: graphs.length, worlds, graphs }
 }
