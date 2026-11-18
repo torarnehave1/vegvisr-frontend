@@ -7997,7 +7997,7 @@ ${result.warnings.join('\n')}` : ''),
       title: 'Index of all graphs in one call',
       description:
         'Every graph in ONE call, oldest first, with light fields only: id, title, meta area, ' +
-        'publication state, node count, the node types it contains, its card image (the address in ' +
+        'publication state, node count, version number, the node types it contains, its card image (the address in ' +
         'its first portfolio-image node, or null), the hostnames it is live at, ' +
         'created and updated dates (UTC) and World. No description ' +
         'and no content. scope "mine" (default) is the graphs you own, as list_my_graphs counts ' +
@@ -8010,8 +8010,9 @@ ${result.warnings.join('\n')}` : ''),
         'is only a summary — to read graphs as lines use list_my_graphs, to read one use get_graph. ' +
         'Optional narrowing, all combinable: world (a World domain, or "shared"), metaAreas (any of ' +
         'several tags), published ("live" | "published" | "private"), createdFrom / createdTo (UTC ' +
-        'dates; a bare YYYY-MM-DD createdTo includes that day). total counts every match; offset and ' +
-        'limit page through them; brief:true returns only graphId, title, metaArea, world, createdAt ' +
+        'dates; a bare YYYY-MM-DD createdTo includes that day), minVersion (only graphs at this version ' +
+        'number or higher). total counts every match; offset and ' +
+        'limit page through them; brief:true returns only graphId, title, metaArea, world, createdAt, version ' +
         'per graph — use it to read a long selection without flooding the conversation. order:"newest" ' +
         'lists the newest first. ' +
         'Requires the graph:read scope.',
@@ -8025,9 +8026,10 @@ ${result.warnings.join('\n')}` : ''),
         published: z.enum(['live', 'published', 'private']).optional().describe('"live": served at a hostname. "published": publication state published. "private": anything not published.'),
         createdFrom: z.string().optional().describe('Only graphs created at or after this UTC date or date-time, e.g. "2025-01-01".'),
         createdTo: z.string().optional().describe('Only graphs created at or before this UTC date or date-time; a bare date includes the whole day.'),
+        minVersion: z.number().int().min(1).optional().describe('Only graphs whose version number is this or higher, e.g. 51 for "over 50".'),
         offset: z.number().int().min(0).optional().describe('Skip this many matches (paging). Default 0.'),
         limit: z.number().int().min(1).max(5000).optional().describe('Return at most this many matches. Default: all.'),
-        brief: z.boolean().optional().describe('Return only graphId, title, metaArea, world and createdAt per graph.'),
+        brief: z.boolean().optional().describe('Return only graphId, title, metaArea, world, createdAt and version per graph.'),
         order: z.enum(['oldest', 'newest']).optional().describe('"oldest" (default) or "newest" first, by createdAt; applied before offset/limit.'),
       },
       outputSchema: {
@@ -8046,6 +8048,7 @@ ${result.warnings.join('\n')}` : ''),
             metaArea: z.string().nullable(),
             publicationState: z.string().optional(),
             nodeCount: z.number().optional(),
+            version: z.number().nullable().optional().describe("The graph's version number: how many times it has been saved with a version. Null when the graph carries none."),
             createdAt: z.string().nullable().describe("When the graph was first saved (UTC, the row's created_date)."),
             updatedAt: z.string().nullable().optional(),
             world: z.string().nullable().describe("The World whose own storage holds this graph. Null: the platform's shared storage."),
@@ -8059,13 +8062,13 @@ ${result.warnings.join('\n')}` : ''),
       },
       annotations: READ_ONLY,
     },
-    async ({ scope, metaArea, nodeType, includeNodes, world, metaAreas, published, createdFrom, createdTo, offset, limit, brief, order }) => {
+    async ({ scope, metaArea, nodeType, includeNodes, world, metaAreas, published, createdFrom, createdTo, minVersion, offset, limit, brief, order }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:read')
       if (scopeErr) return scopeErr
       const actor = actorFromAuth(auth, props)
       if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
-      const extra = { world, metaAreas, published, createdFrom, createdTo }
+      const extra = { world, metaAreas, published, createdFrom, createdTo, minVersion }
       const badFilter = ixf.checkIndexFilters(extra)
       if (badFilter) return err(gs.ERR.INVALID_INPUT, badFilter)
 
@@ -8100,6 +8103,7 @@ ${result.warnings.join('\n')}` : ''),
       // A short collection is listed; a long one would flood a chat, so the text says where the rows are.
       const lines = r.graphs.length <= 60
         ? r.graphs.map((g) => `• ${g.title || '(untitled)'} — ${g.graphId}${g.nodeCount !== undefined ? ` · ${g.nodeCount} nodes` : ''}` +
+            `${g.version ? ` · v${g.version}` : ''}` +
             `${g.nodeTypes?.length ? ` · types: ${g.nodeTypes.join(', ')}` : ''}` +
             `${g.publishedDomains?.length ? ` · live at ${g.publishedDomains.join(', ')}` : ''}` +
             `${g.world ? ` · world ${g.world}` : ''}${createdText(g.createdAt)}`)

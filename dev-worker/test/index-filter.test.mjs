@@ -39,9 +39,17 @@ test('filters combine', () => assert.equal(ids({ world: 'sodesign.no', published
 test('paging and brief rows', () => {
   assert.deepEqual(pageRows(rows, { offset: 1, limit: 2 }).map((g) => g.graphId), ['b', 'c'])
   assert.deepEqual(pageRows(rows, {}).length, 4)
-  assert.deepEqual(Object.keys(briefRow(rows[0])), ['graphId', 'title', 'metaArea', 'world', 'createdAt'])
+  assert.deepEqual(Object.keys(briefRow(rows[0])), ['graphId', 'title', 'metaArea', 'world', 'createdAt', 'version'])
 })
 test('an unreadable date is refused in words', () => {
   assert.match(checkIndexFilters({ createdTo: 'last tuesday' }), /createdTo/)
   assert.equal(checkIndexFilters({ createdFrom: '2025-01-01', createdTo: '2025-02-01T12:00:00Z' }), null)
+})
+
+test('minVersion keeps graphs at that version or higher; a graph without a number drops out', () => {
+  const v = [{ graphId: 'a', version: 3 }, { graphId: 'b', version: 51 }, { graphId: 'c', version: null }, { graphId: 'd' }]
+  assert.equal(filterIndexRows(v, { minVersion: 51 }).map((g) => g.graphId).join(''), 'b')
+  assert.equal(filterIndexRows(v, { minVersion: 1 }).map((g) => g.graphId).join(''), 'ab')
+  assert.match(checkIndexFilters({ minVersion: 0 }), /minVersion/)
+  assert.equal(checkIndexFilters({ minVersion: 51 }), null)
 })

@@ -2296,6 +2296,7 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
         COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '') AS meta_area,
         COALESCE(json_extract(${dataSql}, '$.metadata.publicationState'), 'private') AS publication_state,
         COALESCE(json_array_length(${nodesSql}), 0) AS node_count,
+        COALESCE(CAST(json_extract(${dataSql}, '$.metadata.version') AS INTEGER), 0) AS version,
         (SELECT json_group_array(DISTINCT json_extract(value, '$.type'))
           FROM json_each(${nodesSql})
           WHERE json_extract(value, '$.type') IS NOT NULL) AS node_types_json,
@@ -2341,6 +2342,11 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
     metaArea: r.meta_area || null,
     publicationState: r.publication_state || 'private',
     nodeCount: r.node_count ?? 0,
+    // The graph's version number as the graph itself carries it (metadata.version), read in the
+    // same pass as the other fields (2026-11-18: a map lights graphs up by version, and one history
+    // read per graph is 1,300+ requests). The history's newest number is the one writes compare
+    // against; the two agree for all but a handful of graphs. Null: the graph carries no number.
+    version: Number(r.version) > 0 ? Number(r.version) : null,
     createdAt: r.created_date || null,
     updatedAt: r.updated_at || null,
     world: r._world || null,

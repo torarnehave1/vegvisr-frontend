@@ -10,8 +10,9 @@
 //   published    "live" (served at a hostname) · "published" · "private" (anything not published)
 //   createdFrom  createdAt >= this (ISO date or date-time, UTC)
 //   createdTo    createdAt <= this; a bare date (YYYY-MM-DD) includes that whole day
+//   minVersion   version >= this (2026-11-18); a graph with no version number drops out
 //   offset/limit paging over the matches; total counts every match
-//   brief        rows with graphId, title, metaArea, world, createdAt only
+//   brief        rows with graphId, title, metaArea, world, createdAt, version only
 
 export const SHARED_WORLD = 'shared'
 
@@ -42,11 +43,12 @@ function bound(value, end) {
 export function checkIndexFilters(f) {
   if (f.createdFrom !== undefined && bound(f.createdFrom, false) === undefined) return `createdFrom is not a date: ${f.createdFrom}`
   if (f.createdTo !== undefined && bound(f.createdTo, true) === undefined) return `createdTo is not a date: ${f.createdTo}`
+  if (f.minVersion !== undefined && !(Number.isInteger(f.minVersion) && f.minVersion >= 1)) return `minVersion must be a whole number from 1: ${f.minVersion}`
   return null
 }
 
 export function hasIndexFilters(f) {
-  return Boolean(f.world || (f.metaAreas && f.metaAreas.length) || f.published || f.createdFrom || f.createdTo)
+  return Boolean(f.world || (f.metaAreas && f.metaAreas.length) || f.published || f.createdFrom || f.createdTo || f.minVersion)
 }
 
 export function filterIndexRows(rows, f) {
@@ -67,6 +69,7 @@ export function filterIndexRows(rows, f) {
       if (from !== null && t < from) return false
       if (to !== null && t > to) return false
     }
+    if (f.minVersion && !(Number(g.version) >= f.minVersion)) return false
     return true
   })
 }
@@ -76,4 +79,4 @@ export function pageRows(rows, { offset, limit }) {
   return limit ? rows.slice(start, start + limit) : rows.slice(start)
 }
 
-export const briefRow = (g) => ({ graphId: g.graphId, title: g.title, metaArea: g.metaArea, world: g.world, createdAt: g.createdAt })
+export const briefRow = (g) => ({ graphId: g.graphId, title: g.title, metaArea: g.metaArea, world: g.world, createdAt: g.createdAt, version: g.version ?? null })
