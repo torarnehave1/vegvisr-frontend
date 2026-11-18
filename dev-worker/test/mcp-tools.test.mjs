@@ -766,6 +766,65 @@ describe('graph_index: the whole collection in one call', () => {
   })
 })
 
+describe('search_text: whole-word search in the stored content', () => {
+  test('finds a word in any text field, skips html-nodes, keeps to graphIds and offers a spelling', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const a = await callOk(client, 'create_graph', { title: 'Livspuls', metaArea: '#A' })
+    const b = await callOk(client, 'create_graph', { title: 'Lipi', metaArea: '#LIPI' })
+    const c = await callOk(client, 'create_graph', { title: 'En side', metaArea: '#A' })
+    const n1 = await callOk(client, 'add_node', { graphId: a.graphId, node: { label: 'Notat', type: 'fulltext', info: 'Kohesjon i gruppen. ØKONOMI teller.' } })
+    const n2 = await callOk(client, 'add_node', { graphId: b.graphId, node: { label: 'yoga', type: 'info', info: 'forening', metadata: { meaning: { translation: 'kohesjon, å binde sammen' } } } })
+    await callOk(client, 'add_node', { graphId: c.graphId, node: { label: 'Siden', type: 'html-node', info: '<!DOCTYPE html><p>kohesjon</p>' } })
+
+    const all = await callOk(client, 'search_text', { query: 'Kohesjon' })
+    assert.deepEqual(all.matched.map((m) => m.graphId).sort(), [a.graphId, b.graphId].sort())
+    assert.equal(all.candidates, 3, 'the html-node graph was a candidate and was ruled out')
+    assert.equal(all.partial, false)
+    assert.deepEqual(all.matched.find((m) => m.graphId === a.graphId).nodeIds, [n1.nodeId])
+    assert.deepEqual(all.matched.find((m) => m.graphId === b.graphId).nodeIds, [n2.nodeId], 'text in metadata is found')
+
+    // Stored in upper case with a letter lower() does not fold.
+    assert.deepEqual((await callOk(client, 'search_text', { query: 'økonomi' })).matched.map((m) => m.graphId), [a.graphId])
+    // A whole word: "kohes" is no word; with * it is.
+    assert.equal((await callOk(client, 'search_text', { query: 'kohes' })).total, 0)
+    assert.equal((await callOk(client, 'search_text', { query: 'kohes*' })).total, 2)
+    // The title.
+    const title = await callOk(client, 'search_text', { query: 'livspuls' })
+    assert.deepEqual(title.matched.map((m) => [m.graphId, m.inTitle]), [[a.graphId, true]])
+
+    // Only the graphs named.
+    const onMap = await callOk(client, 'search_text', { query: 'kohesjon', graphIds: [b.graphId, c.graphId] })
+    assert.deepEqual(onMap.matched.map((m) => m.graphId), [b.graphId])
+
+    // Nothing found: the closest word that exists in the named graphs.
+    const typo = await callOk(client, 'search_text', { query: 'kohesion', graphIds: [a.graphId, b.graphId, c.graphId] })
+    assert.equal(typo.total, 0)
+    assert.deepEqual(typo.suggestions, ['kohesjon'])
+    const noMap = await callOk(client, 'search_text', { query: 'kohesion' })
+    assert.deepEqual(noMap.suggestions, [])
+    assert.match(noMap.suggestionNote, /graphIds/)
+
+    assert.equal((await callErr(client, 'search_text', { query: 'a' })).code, gs.ERR.INVALID_INPUT)
+  })
+
+  test('never reaches another user\'s private graph, with or without graphIds', async () => {
+    const { env } = freshDb()
+    const { client: alice } = await connect(env, ALICE_RW)
+    const { client: bob } = await connect(env, BOB_RW)
+    const secret = await callOk(alice, 'create_graph', { title: 'Alices', metaArea: '#Z' })
+    await callOk(alice, 'add_node', { graphId: secret.graphId, node: { label: 'n', info: 'fjellrev i natten' } })
+    const own = await callOk(bob, 'create_graph', { title: 'Bobs', metaArea: '#Z' })
+    await callOk(bob, 'add_node', { graphId: own.graphId, node: { label: 'n', info: 'fjellrev om dagen' } })
+    assert.deepEqual((await callOk(bob, 'search_text', { query: 'fjellrev' })).matched.map((m) => m.graphId), [own.graphId])
+    assert.equal((await callOk(bob, 'search_text', { query: 'fjellrev', graphIds: [secret.graphId] })).total, 0)
+    // Spelling help does not read it either: "natten" stands only in Alice's graph.
+    const typo = await callOk(bob, 'search_text', { query: 'nattem', graphIds: [secret.graphId, own.graphId] })
+    assert.deepEqual(typo.suggestions, [])
+    assert.deepEqual((await callOk(alice, 'search_text', { query: 'fjellrev', scope: 'mine' })).matched.map((m) => m.graphId), [secret.graphId])
+  })
+})
+
 describe('delete_graph, list_deleted_graphs, restore_graph', () => {
   const ALICE_DEL = { ...ALICE_RW, auth: { ...ALICE_RW.auth, scope: ['graph:read', 'graph:write', 'graph:delete'] } }
   const BOB_DEL = { ...BOB_RW, auth: { ...BOB_RW.auth, scope: ['graph:read', 'graph:write', 'graph:delete'] } }
@@ -1348,6 +1407,8 @@ describe('annotations tell the client the truth about each tool', () => {
       ['list_meta_areas', {}],
       ['graph_index', {}],
       ['graph_index', { scope: 'all', metaArea: '#X', includeNodes: true }],
+      ['search_text', { query: 'finnes-ikke' }],
+      ['search_text', { query: 'finnes*', graphIds: [g.graphId] }],
       ['list_published_sites', {}],
       ['get_graph', { graphId: g.graphId }],
       ['get_graph_links', { graphId: g.graphId }],

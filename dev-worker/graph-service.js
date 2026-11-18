@@ -19,6 +19,7 @@
  * format. That is what lets one implementation serve both HTTP/REST and MCP/JSON-RPC.
  */
 
+import { parseQuery, matchGraph, collectWords, suggest } from './mcp/search-text.js'
 import { platformStore, resolveGraphStore, GraphStoreError, reserveLocation, activateLocation, dropPendingLocation, relocateGraph, worldStoresFor, defaultWorldFor, setLocationStatus, graphIdOfTrashId } from './graph-store.js'
 
 /**
@@ -2211,6 +2212,193 @@ const INDEX_MAX_GRAPHS = 20000
 const INDEX_NODES_MAX_GRAPHS = 600
 
 /**
+ * The WHERE of "every graph the actor owns" (all = false) or "may see" (all = true), per store,
+ * with the caller's own clauses added. One rule for graph_index and search_text, so a search can
+ * never reach a graph the index would not list.
+ */
+async function indexWhereFor(env, actor, all, clauses = [], binds = []) {
+  if (all) {
+    const vis = visibilityClause(actor)
+    return (store) => {
+      const c = store.kind === 'world' ? [...clauses] : [...(vis.sql ? [vis.sql] : []), ...clauses]
+      const b = store.kind === 'world' ? [...binds] : [...vis.bindings, ...binds]
+      return { whereSql: c.length ? `WHERE ${c.join(' AND ')}` : '', bindings: b }
+    }
+  }
+  // The same "mine" as listMyGraphs: created by me on the platform; in a World store the
+  // World's graphs — except for a Superadmin who is not that World's founder.
+  const founderOf = new Set()
+  if (actor.isSuperadmin) {
+    for (const ws of await worldStoresFor(env, { ...actor, isSuperadmin: false })) founderOf.add(ws.world)
+  }
+  return (store) => {
+    const ownAll = store.kind === 'world' && (!actor.isSuperadmin || founderOf.has(store.world))
+    const c = [...(ownAll ? [] : [`LOWER(COALESCE(creator_email, '')) = ?`]), ...clauses]
+    const b = [...(ownAll ? [] : [actor.email]), ...binds]
+    return { whereSql: c.length ? `WHERE ${c.join(' AND ')}` : '', bindings: b }
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Text search over the stored content of the graphs (2026-11-18)
+// ────────────────────────────────────────────────────────────────────────
+
+// How much stored graph content one search may read. A word that stands in most of a large
+// collection would otherwise pull every graph through the Worker; past this the answer says so.
+const SEARCH_MAX_BYTES = 60 * 1024 * 1024
+const SEARCH_CHUNK_BYTES = 3 * 1024 * 1024
+const SEARCH_CHUNK_ROWS = 40
+// Spelling help reads every graph that was searched, so it is given for a map, not a collection.
+const SUGGEST_MAX_GRAPHS = 600
+// Up to this many graphIds are looked up by key; more than that is cheaper as one pass.
+const SEARCH_IDS_BY_KEY = 800
+
+/**
+ * Which graphs contain the text, and in which nodes.
+ *
+ * Two steps, no index. The database names the candidates: the rows whose stored JSON contains the
+ * longest fixed part of the search text anywhere (instr, so no LIKE pattern and no 50-byte limit).
+ * The Worker then reads those rows a few at a time and decides: a whole-word match, in a text value
+ * of a node whose type is searched (mcp/search-text.js). A hit that stands only in an html-node,
+ * a field name or an address is no hit.
+ *
+ * graphIds narrows the search to those graphs (the map a client is showing). Who may see what is
+ * graph_index's rule, through the same indexWhereFor.
+ *
+ * With no hit and one plain word, the answer carries the closest words that DO exist in the
+ * searched graphs. That reads those graphs once more, so it is done only for graphIds of at most
+ * SUGGEST_MAX_GRAPHS.
+ */
+export async function searchText(env, { query, scope = 'all', graphIds = null, actor }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  const all = scope !== 'mine'
+  if (!all && !actor.email) {
+    return fail(ERR.FORBIDDEN_GRAPH, 'This token has no user identity, so it owns no graphs.')
+  }
+  const q = parseQuery(query)
+  if (q.error) return fail(ERR.INVALID_INPUT, q.error)
+  const only = Array.isArray(graphIds) ? new Set(graphIds.map(String)) : null
+
+  return guarded(async () => {
+    const lowerData = `LOWER(data)`
+    const textClause = `(${q.literals.map(() => `instr(${lowerData}, ?) > 0`).join(' OR ')})`
+    const whereCandidates = await indexWhereFor(env, actor, all, [textClause], q.literals)
+    const whereAny = await indexWhereFor(env, actor, all)
+    const stores = [platformStore(env), ...(await worldStoresFor(env, actor))]
+
+    let budget = SEARCH_MAX_BYTES
+    let partial = false
+    // Read the named graphs of one store a few at a time, smallest first, until the budget is spent.
+    // items: [{ id, size? }]. With sizes a query stays near SEARCH_CHUNK_BYTES; without them the
+    // chunks are small, since one stored graph can be 2 MB.
+    const readGraphs = async (store, where, items, each) => {
+      let i = 0
+      while (i < items.length) {
+        if (budget <= 0) {
+          partial = true
+          return
+        }
+        const chunk = []
+        let bytes = 0
+        while (i < items.length && chunk.length < SEARCH_CHUNK_ROWS) {
+          const size = items[i].size ?? SEARCH_CHUNK_BYTES / 8
+          if (chunk.length && bytes + size > SEARCH_CHUNK_BYTES) break
+          bytes += size
+          chunk.push(items[i].id)
+          i++
+        }
+        const idSql = `id IN (${chunk.map(() => '?').join(',')})`
+        const rows = await store.all(
+          `SELECT id, data FROM knowledge_graphs ${where.whereSql ? `${where.whereSql} AND ${idSql}` : `WHERE ${idSql}`}`,
+          [...where.bindings, ...chunk],
+        )
+        for (const r of rows) {
+          budget -= typeof r.data === 'string' ? r.data.length : 0
+          let graph = null
+          try {
+            graph = JSON.parse(r.data)
+          } catch {
+            continue
+          }
+          each(String(r.id), graph)
+        }
+      }
+    }
+
+    const matched = []
+    let candidates = 0
+    let examined = 0
+    for (const store of stores) {
+      const w = whereCandidates(store)
+      if (!w) continue
+      // A map of a few hundred graphs is asked for by id, so only those rows are read; a larger
+      // set (or none) is one pass over the store, narrowed afterwards. 80 ids a query keeps under
+      // D1's 100 bound parameters.
+      let named = []
+      if (only && only.size <= SEARCH_IDS_BY_KEY) {
+        const ids = [...only]
+        for (let i = 0; i < ids.length; i += 80) {
+          const part = ids.slice(i, i + 80)
+          const idSql = `id IN (${part.map(() => '?').join(',')})`
+          named.push(...(await store.all(`SELECT id, LENGTH(data) AS size FROM knowledge_graphs ${w.whereSql} AND ${idSql}`, [...w.bindings, ...part])))
+        }
+      } else {
+        named = await store.all(`SELECT id, LENGTH(data) AS size FROM knowledge_graphs ${w.whereSql}`, w.bindings)
+      }
+      const mine = named.filter((r) => !only || only.has(String(r.id))).sort((a, b) => (a.size || 0) - (b.size || 0))
+      candidates += mine.length
+      const items = mine.map((r) => ({ id: String(r.id), size: r.size || 0 }))
+      await readGraphs(store, whereAny(store), items, (id, graph) => {
+        examined++
+        const hit = matchGraph(graph, q.rx)
+        if (hit) {
+          matched.push({
+            graphId: id,
+            title: graph?.metadata?.title || null,
+            world: store.world || null,
+            inTitle: hit.inTitle,
+            nodeIds: hit.nodeIds,
+          })
+        }
+      })
+    }
+
+    // Spelling help: the nearest words that exist in the graphs that were searched.
+    let suggestions = []
+    let suggestionNote = null
+    if (!matched.length && q.plain && !partial) {
+      if (!only) suggestionNote = 'No spelling help without graphIds: it reads every searched graph.'
+      else if (only.size > SUGGEST_MAX_GRAPHS) suggestionNote = `No spelling help for more than ${SUGGEST_MAX_GRAPHS} graphs.`
+      else {
+        const vocab = new Map()
+        const items = [...only].map((id) => ({ id }))
+        for (const store of stores) {
+          const w = whereAny(store)
+          if (!w) continue
+          await readGraphs(store, w, items, (_id, graph) => collectWords(graph, vocab))
+        }
+        if (partial) suggestionNote = 'Spelling help read only a part of the graphs.'
+        suggestions = suggest(q.query, vocab)
+      }
+    }
+
+    matched.sort((a, b) => Number(b.inTitle) - Number(a.inTitle) || b.nodeIds.length - a.nodeIds.length || String(a.title || '').localeCompare(String(b.title || '')))
+    return {
+      ok: true,
+      query: q.query,
+      scope: all ? 'all' : 'mine',
+      total: matched.length,
+      candidates,
+      examined,
+      partial,
+      suggestions,
+      suggestionNote,
+      matched,
+    }
+  })
+}
+
+/**
  * Every graph the actor owns (scope 'mine') or may see (scope 'all'), oldest first, in ONE query
  * per store and with light fields only.
  *
@@ -2254,28 +2442,7 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
   ]
   const areaBind = [...(areaFilter ? [areaFilter.binding] : []), ...(typeFilter ? [typeFilter] : [])]
 
-  let whereFor
-  if (all) {
-    const vis = visibilityClause(actor)
-    whereFor = (store) => {
-      const c = store.kind === 'world' ? [...areaClause] : [...(vis.sql ? [vis.sql] : []), ...areaClause]
-      const b = store.kind === 'world' ? [...areaBind] : [...vis.bindings, ...areaBind]
-      return { whereSql: c.length ? `WHERE ${c.join(' AND ')}` : '', bindings: b }
-    }
-  } else {
-    // The same "mine" as listMyGraphs: created by me on the platform; in a World store the
-    // World's graphs — except for a Superadmin who is not that World's founder.
-    const founderOf = new Set()
-    if (actor.isSuperadmin) {
-      for (const ws of await worldStoresFor(env, { ...actor, isSuperadmin: false })) founderOf.add(ws.world)
-    }
-    whereFor = (store) => {
-      const ownAll = store.kind === 'world' && (!actor.isSuperadmin || founderOf.has(store.world))
-      const c = [...(ownAll ? [] : [`LOWER(COALESCE(creator_email, '')) = ?`]), ...areaClause]
-      const b = [...(ownAll ? [] : [actor.email]), ...areaBind]
-      return { whereSql: c.length ? `WHERE ${c.join(' AND ')}` : '', bindings: b }
-    }
-  }
+  const whereFor = await indexWhereFor(env, actor, all, areaClause, areaBind)
 
   const nodeCols = includeNodes
     ? `,

@@ -8115,6 +8115,82 @@ ${result.warnings.join('\n')}` : ''),
     },
   )
 
+  // ── search_text ───────────────────────────────────────────────────────────
+  //
+  // Added 2026-11-18 for the search field in Garnet: write a whole word, press Enter, and the map
+  // keeps the graphs that contain it. search_graphs looks only at a node's label and info, so text
+  // a node type keeps elsewhere (a sanskrit-ord node's metadata) was never found; this reads every
+  // text value of every searched node type. The rules are in mcp/search-text.js.
+  server.registerTool(
+    'search_text',
+    {
+      title: 'Find the graphs that contain a word',
+      description:
+        'Whole-word text search in the stored content of graphs: which graphs contain the text, and ' +
+        'in which nodes. A word matches as a whole word, upper and lower case alike; * stands for any ' +
+        'letters ("puls*" finds "pulsen", "*puls" finds "livspuls"); several words are a phrase. ' +
+        'Every text value of a node is read, whatever the node type keeps it in (info, metadata …), ' +
+        'and the graph title and description. Not searched: nodes that hold code, layout or ' +
+        'configuration (html-node, css-node, component, json-node, agent and system set-up …), ' +
+        'ids, types, colours and addresses; of a diagram or chart only the name. graphIds narrows ' +
+        'the search to those graphs, e.g. the ones a map shows; without it everything in scope is ' +
+        'searched. scope "all" (default) is every graph you can see, "mine" the ones you own. When ' +
+        'nothing is found for one plain word and graphIds was given (at most 600), suggestions holds ' +
+        'the closest words that do exist in those graphs. partial:true means the search stopped at ' +
+        'its reading limit: narrow it with graphIds. For a search that ranks and pages, and looks ' +
+        'only at titles, descriptions, labels and info, use search_graphs. Requires the graph:read scope.',
+      inputSchema: {
+        query: z.string().min(1).max(100).describe('The word or phrase. * stands for any letters inside a word.'),
+        graphIds: z.array(z.string()).max(5000).optional().describe('Search only these graphs, e.g. the graphs a map is showing.'),
+        scope: z.enum(['mine', 'all']).optional().describe('"all" (default): every graph you can see. "mine": graphs you own.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        query: z.string().describe('The search text as it was read.'),
+        scope: z.string(),
+        total: z.number().describe('How many graphs contain the text.'),
+        candidates: z.number().describe('Graphs whose stored content held the text somewhere, before the rules were applied.'),
+        examined: z.number().describe('Candidates that were read and checked.'),
+        partial: z.boolean().describe('True when the reading limit stopped the search before every candidate was checked.'),
+        suggestions: z.array(z.string()).describe('Closest existing words when nothing was found. Empty otherwise.'),
+        suggestionNote: z.string().nullable().describe('Why no spelling help was given, when that is the case.'),
+        matched: z.array(
+          z.object({
+            graphId: z.string(),
+            title: z.string().nullable(),
+            world: z.string().nullable(),
+            inTitle: z.boolean().describe('The text stands in the graph title or description.'),
+            nodeIds: z.array(z.string()).describe('The nodes that contain the text.'),
+          }),
+        ),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ query, graphIds, scope }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const r = await gs.searchText(env, { query, scope, graphIds: graphIds ?? null, actor })
+      if (!r.ok) return fromService(r)
+      const { ok: _o, ...payload } = r
+      const head = r.total
+        ? `${r.total} graph${r.total === 1 ? '' : 's'} contain${r.total === 1 ? 's' : ''} "${r.query}".`
+        : `No graph contains "${r.query}".`
+      const lines = r.matched.slice(0, 60).map((g) =>
+        `• ${g.title || '(untitled)'} — ${g.graphId} · ${g.inTitle ? 'title' : ''}${g.inTitle && g.nodeIds.length ? ' and ' : ''}` +
+        `${g.nodeIds.length ? `${g.nodeIds.length} node${g.nodeIds.length === 1 ? '' : 's'}` : ''}${g.world ? ` · world ${g.world}` : ''}`)
+      const notes = [
+        ...(r.matched.length > 60 ? [`Showing 60 of ${r.total}; all are in the structured result (matched[]).`] : []),
+        ...(r.partial ? ['The search stopped at its reading limit, so there may be more. Narrow it with graphIds.'] : []),
+        ...(r.suggestions.length ? [`Did you mean: ${r.suggestions.join(', ')}?`] : []),
+        ...(r.suggestionNote ? [r.suggestionNote] : []),
+      ]
+      return ok({ success: true, ...payload }, [head, ...notes, ...lines].join('\n'))
+    },
+  )
+
   // ── list_published_sites ──────────────────────────────────────────────────
   //
   // The portfolio's "Published sites" chip, as data. brand-worker writes an HTML_PAGES key
@@ -8588,6 +8664,7 @@ export const TOOL_NAMES = [
   'list_my_graphs',
   'list_meta_areas',
   'graph_index',
+  'search_text',
   'delete_graph',
   'list_deleted_graphs',
   'restore_graph',
