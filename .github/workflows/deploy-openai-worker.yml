@@ -73,3 +73,7 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -F 'model=gpt-transcribe' https://openai.vegvisr.org/gpt-transcribe)
           echo "POST /gpt-transcribe without file → HTTP $code"
           case "$code" in 400) ;; *) echo "::error::/gpt-transcribe did not answer 400 for a missing file"; exit 1;; esac
+          # The live route answers 426 to a plain GET (it only speaks WebSocket).
+          code=$(curl -s -o /dev/null -w '%{http_code}' https://openai.vegvisr.org/live-transcribe)
+          echo "GET /live-transcribe without upgrade → HTTP $code"
+          case "$code" in 426) ;; *) echo "::error::/live-transcribe did not answer 426"; exit 1;; esac

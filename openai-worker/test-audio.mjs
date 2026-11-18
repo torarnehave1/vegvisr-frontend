@@ -95,5 +95,38 @@ const call = async (path, fields, env = {}) => {
   ok('switch on: srt requests stay on whisper-1', sent.form.get('model') === 'whisper-1');
 }
 
+// ── /live-transcribe (gpt-live-transcribe) ──
+{
+  const res = await worker.fetch(new Request('https://openai.vegvisr.org/live-transcribe'), { OPENAI_API_KEY: 'k' });
+  ok('/live-transcribe without a WebSocket upgrade → 426', res.status === 426);
+}
+{
+  // The session settings builder is pure; take it out of the source and run it.
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  const grab = (name) => {
+    const i = src.indexOf(`function ${name}(`);
+    let depth = 0;
+    for (let k = src.indexOf('{', src.indexOf(')', i)); k < src.length; k++) {
+      if (src[k] === '{') depth++;
+      else if (src[k] === '}') { depth--; if (!depth) return src.slice(i, k + 1); }
+    }
+  };
+  const consts = src.slice(src.indexOf("const LIVE_MODEL"), src.indexOf('async function liveUser'));
+  const mod = consts + grab('liveSessionUpdate') + '\nexport { liveSessionUpdate };';
+  const { liveSessionUpdate } = await import('data:text/javascript,' + encodeURIComponent(mod));
+
+  const s = liveSessionUpdate({ languages: ['no', 'EN', 'bad code!'], keywords: ['VEGR.AI', 'bio<x>\n', ''], prompt: ' Samtale ', delay: 'low' });
+  const t = s.session.audio.input.transcription;
+  ok('live: session.update of type transcription', s.type === 'session.update' && s.session.type === 'transcription');
+  ok('live: 24 kHz PCM, no server pause detection', s.session.audio.input.format.rate === 24000 && s.session.audio.input.turn_detection === null);
+  ok('live: model gpt-live-transcribe', t.model === 'gpt-live-transcribe');
+  ok('live: languages cleaned (bad code dropped, lower case)', JSON.stringify(t.languages) === '["no","en"]', JSON.stringify(t.languages));
+  ok('live: keywords cleaned of < > and line breaks', JSON.stringify(t.keywords) === '["VEGR.AI","bio x"]', JSON.stringify(t.keywords));
+  ok('live: prompt trimmed, delay kept', t.prompt === 'Samtale' && t.delay === 'low');
+  const bare = liveSessionUpdate({ delay: 'turbo' }).session.audio.input.transcription;
+  ok('live: nothing extra sent when nothing is given (and an unknown delay is dropped)', JSON.stringify(bare) === '{"model":"gpt-live-transcribe"}');
+}
+
 if (fail) { console.error(`\n${fail} failed`); process.exit(1); }
 console.log('\nall passed');

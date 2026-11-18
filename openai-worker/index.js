@@ -146,6 +146,11 @@ export default {
         return await handleAudio(request, env, corsHeaders);
       }
 
+      // Live speech to text (gpt-live-transcribe) over a WebSocket — signed-in users only
+      if (pathname === '/live-transcribe') {
+        return handleLiveTranscribe(request, env, corsHeaders);
+      }
+
       // Successor to whisper-1 (shuts down 26 Feb 2027) — forces model gpt-transcribe
       if (pathname === '/gpt-transcribe' && request.method === 'POST') {
         return await handleAudio(request, env, corsHeaders, 'gpt-transcribe');
@@ -961,6 +966,189 @@ async function handleAudio(request, env, corsHeaders, forcedModel = null) {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
+}
+
+// ── Live transcription ────────────────────────────────────────────────────
+//
+// GET /live-transcribe (WebSocket). The browser cannot hold the OpenAI key, and OpenAI shows no
+// browser route for a pure transcription session, so this worker stands in the middle:
+//
+//   browser → worker   1st text message: {type:'start', token, languages?, keywords?, prompt?, delay?}
+//                        token = the VEGR.AI login token (config.emailVerificationToken). Refused
+//                        without it: the session spends paid minutes on our key.
+//                      binary messages: raw PCM16, mono, 24 kHz (any chunk size)
+//                      {type:'commit'} — end of a turn (the model has no server-side pause detection)
+//                      {type:'stop'}   — closes the session
+//   worker → browser   {type:'live.ready'} once OpenAI has the session, {type:'live.error', message}
+//                      and every OpenAI event as it comes (…input_audio_transcription.delta /
+//                      .completed / .failed, input_audio_buffer.committed, error)
+//
+// A session ends after LIVE_MAX_MS so a forgotten tab cannot run up the bill.
+const LIVE_MODEL = 'gpt-live-transcribe';
+const LIVE_MAX_MS = 10 * 60 * 1000;
+const LIVE_DELAYS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+
+async function liveUser(env, token) {
+  if (!token || typeof token !== 'string' || !env.DB) return null;
+  try {
+    return await env.DB.prepare('SELECT user_id, email FROM config WHERE emailVerificationToken = ? LIMIT 1')
+      .bind(token).first();
+  } catch (e) {
+    console.error('live: login lookup failed', e.message);
+    return null;
+  }
+}
+
+// The transcription session OpenAI is given. Same rules as gpt-transcribe: `languages` (plural),
+// keywords on one line without < > CR LF. Pure, so the test can check it.
+function liveSessionUpdate(opts = {}) {
+  const transcription = { model: LIVE_MODEL };
+  const languages = (Array.isArray(opts.languages) ? opts.languages : [])
+    .filter((l) => typeof l === 'string' && /^[a-z]{2,3}(-[a-z]{2})?$/i.test(l.trim())).map((l) => l.trim().toLowerCase());
+  if (languages.length) transcription.languages = languages;
+  const keywords = (Array.isArray(opts.keywords) ? opts.keywords : [])
+    .filter((k) => typeof k === 'string').map((k) => k.replace(/[<>\r\n]/g, ' ').trim()).filter(Boolean).slice(0, 100);
+  if (keywords.length) transcription.keywords = keywords;
+  if (typeof opts.prompt === 'string' && opts.prompt.trim()) transcription.prompt = opts.prompt.trim().slice(0, 2000);
+  if (LIVE_DELAYS.includes(opts.delay)) transcription.delay = opts.delay;
+  return {
+    type: 'session.update',
+    session: {
+      type: 'transcription',
+      audio: {
+        input: {
+          format: { type: 'audio/pcm', rate: 24000 },
+          transcription,
+          turn_detection: null
+        }
+      }
+    }
+  };
+}
+
+function bytesToBase64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+async function handleLiveTranscribe(request, env, corsHeaders) {
+  if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') {
+    return new Response(JSON.stringify({ error: 'Expected a WebSocket (Upgrade: websocket)' }), {
+      status: 426,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+
+  const pair = new WebSocketPair();
+  const client = pair[0];
+  const browser = pair[1];
+  browser.accept();
+
+  let upstream = null;      // the OpenAI socket
+  let ready = false;        // OpenAI has acknowledged the session
+  let started = false;      // a 'start' message has been accepted
+  let closed = false;
+  const queue = [];         // what the browser sent before OpenAI was ready
+  let timer = null;
+
+  const toBrowser = (obj) => {
+    if (closed) return;
+    try { browser.send(typeof obj === 'string' ? obj : JSON.stringify(obj)); } catch (_) { /* gone */ }
+  };
+  const close = (code = 1000, reason = '') => {
+    if (closed) return;
+    closed = true;
+    if (timer) clearTimeout(timer);
+    try { upstream?.close(1000, 'done'); } catch (_) {}
+    try { browser.close(code, reason.slice(0, 120)); } catch (_) {}
+  };
+  const fail = (message, code = 1011) => {
+    toBrowser({ type: 'live.error', message });
+    close(code, message);
+  };
+  const forward = (msg) => {
+    if (!upstream) return;
+    try { upstream.send(msg); } catch (e) { fail('Lost the connection to OpenAI'); }
+  };
+  const markReady = () => {
+    if (ready || closed) return;
+    ready = true;
+    toBrowser({ type: 'live.ready', model: LIVE_MODEL });
+    while (queue.length) handleClient(queue.shift());
+  };
+  const handleClient = (data) => {
+    if (typeof data === 'string') {
+      let m = null;
+      try { m = JSON.parse(data); } catch (_) { return; }
+      if (m?.type === 'commit') forward(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+      else if (m?.type === 'stop') close(1000, 'stopped');
+      return;
+    }
+    const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer || data);
+    if (bytes.length) forward(JSON.stringify({ type: 'input_audio_buffer.append', audio: bytesToBase64(bytes) }));
+  };
+
+  browser.addEventListener('message', async (event) => {
+    if (closed) return;
+    if (!started) {
+      if (typeof event.data !== 'string') return fail('Send {type:"start", token} first', 4400);
+      let m = null;
+      try { m = JSON.parse(event.data); } catch (_) { /* below */ }
+      if (!m || m.type !== 'start') return fail('Send {type:"start", token} first', 4400);
+      started = true;
+      const user = await liveUser(env, m.token);
+      if (!user) return fail('Sign in to use live transcription', 4401);
+      const userKey = await getUserApiKey(env, user.user_id, 'openai');
+      const key = userKey || env.OPENAI_API_KEY;
+      if (!key) return fail('OpenAI API key not configured', 4500);
+
+      let resp;
+      try {
+        resp = await fetch('https://api.openai.com/v1/realtime?intent=transcription', {
+          headers: { Upgrade: 'websocket', Authorization: `Bearer ${key}` }
+        });
+      } catch (e) {
+        return fail('Could not reach OpenAI: ' + e.message);
+      }
+      if (!resp.webSocket) {
+        const body = await resp.text().catch(() => '');
+        return fail(`OpenAI refused the live session (HTTP ${resp.status}) ${body.slice(0, 200)}`);
+      }
+      upstream = resp.webSocket;
+      upstream.accept();
+      console.log('🎙️ live session', { email: user.email, key: userKey ? 'user' : 'system' });
+
+      upstream.addEventListener('message', (e) => {
+        const text = typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data);
+        let ev = null;
+        try { ev = JSON.parse(text); } catch (_) { /* pass through as is */ }
+        if (!ready && (ev?.type === 'session.updated' || ev?.type === 'transcription_session.updated')) markReady();
+        if (ev?.type === 'error' && !ready) {
+          toBrowser(text);
+          return fail(ev.error?.message || 'OpenAI refused the session settings');
+        }
+        toBrowser(text);
+      });
+      upstream.addEventListener('close', () => close(1000, 'OpenAI closed the session'));
+      upstream.addEventListener('error', () => fail('The connection to OpenAI failed'));
+
+      upstream.send(JSON.stringify(liveSessionUpdate(m)));
+      // If OpenAI names its acknowledgement differently, do not hang: an error would have arrived by now.
+      setTimeout(() => { if (!ready && !closed) markReady(); }, 4000);
+      timer = setTimeout(() => fail('The live session reached its 10-minute limit', 4408), LIVE_MAX_MS);
+      return;
+    }
+    if (!ready) {
+      if (queue.length < 600) queue.push(event.data); // ~60 s of 100 ms chunks while OpenAI answers
+      return;
+    }
+    handleClient(event.data);
+  });
+  browser.addEventListener('close', () => close());
+  browser.addEventListener('error', () => close());
+
+  return new Response(null, { status: 101, webSocket: client });
 }
 
 // Read a list field from FormData: `name[]` (repeated), `name` (repeated), or one comma-separated value.
