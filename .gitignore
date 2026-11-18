@@ -51,6 +51,8 @@ main-worker/wrangler.toml
 !/dev-worker/wrangler.toml
 # seo-worker: same rule — names, ids and routes only (.github/workflows/deploy-seo-worker.yml).
 !/seo-worker/wrangler.toml
+# openai-worker: same rule — keys stay in Cloudflare (.github/workflows/deploy-openai-worker.yml).
+!/openai-worker/wrangler.toml
 nodetest.js
 
 # Documentation with potential secrets

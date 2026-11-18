@@ -1,0 +1,75 @@
+# Deploys openai-worker (openai.vegvisr.org — chat, images, audio transcription, branding)
+# from GitHub: syntax check + tests → the owner's approval → wrangler deploy → live check.
+#
+# Same gate as deploy-dev-worker.yml: the deploy job runs in the `mcp-production` environment,
+# which has a required reviewer, and CLOUDFLARE_API_TOKEN exists ONLY as a secret of that
+# environment. Never add it as a repository secret.
+#
+# openai-worker/wrangler.toml is tracked (public repo): names, ids and routes only.
+# `--keep-vars` keeps OPENAI_API_KEY / ENCRYPTION_MASTER_KEY, which are set in Cloudflare and
+# are NOT in the toml — without it a deploy would delete them and break every route.
+name: Deploy openai-worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'openai-worker/**'
+      - '.github/workflows/deploy-openai-worker.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-openai-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 1/3 syntax check + audio tests (whisper-1 / gpt-transcribe)
+        run: |
+          node --check openai-worker/index.js
+          node openai-worker/test-audio.mjs
+
+  deploy:
+    needs: check
+    runs-on: ubuntu-latest
+    environment: mcp-production
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 5d9b2060ef095c777711a8649c24914e
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+
+      - name: Check the Cloudflare token is set
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Environment secret CLOUDFLARE_API_TOKEN is missing — gh secret set CLOUDFLARE_API_TOKEN --env mcp-production"
+            exit 1
+          fi
+
+      - name: 2/3 deploy
+        working-directory: openai-worker
+        run: npx wrangler deploy --keep-vars
+
+      - name: 3/3 live check (openai.vegvisr.org answers, audio route reachable)
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' https://openai.vegvisr.org/models)
+          echo "openai.vegvisr.org/models → HTTP $code"
+          case "$code" in 5*|000) echo "::error::openai-worker does not answer after deploy"; exit 1;; esac
+          # An empty POST must give our own 4xx (missing file), not a 404 or a crash.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -F 'model=gpt-transcribe' https://openai.vegvisr.org/gpt-transcribe)
+          echo "POST /gpt-transcribe without file → HTTP $code"
+          case "$code" in 400) ;; *) echo "::error::/gpt-transcribe did not answer 400 for a missing file"; exit 1;; esac

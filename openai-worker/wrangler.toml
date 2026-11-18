@@ -1,0 +1,25 @@
+# openai-worker — OpenAI proxy (chat, images, audio transcription, branding) → openai.vegvisr.org
+#
+# Tracked in git (public repo): names, ids and routes ONLY — never a key.
+# OPENAI_API_KEY and ENCRYPTION_MASTER_KEY live in Cloudflare, not here. CI deploys with
+# `wrangler deploy --keep-vars`, so values set in Cloudflare are never wiped by a deploy.
+# Deployed by .github/workflows/deploy-openai-worker.yml (test → owner's approval → deploy).
+name = "openai-worker"
+main = "index.js"
+compatibility_date = "2025-01-15"
+workers_dev = true
+
+routes = [
+  { pattern = "openai.vegvisr.org/*", zone_name = "vegvisr.org" }
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "vegvisr_org"
+database_id = "507d1efd-1dda-45ef-971f-52d2c8e8afe8"
+
+# The whisper-1 switch. whisper-1 shuts down 26 Feb 2027. Uncomment to send every caller that
+# still asks for whisper-1 (json/text output) to gpt-transcribe instead — no app needs changing.
+# Requests for srt / vtt / verbose_json stay on whisper-1, since only it has timestamps.
+# [vars]
+# TRANSCRIBE_WHISPER1_AS = "gpt-transcribe"

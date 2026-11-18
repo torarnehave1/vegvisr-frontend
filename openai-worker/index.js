@@ -146,6 +146,11 @@ export default {
         return await handleAudio(request, env, corsHeaders);
       }
 
+      // Successor to whisper-1 (shuts down 26 Feb 2027) — forces model gpt-transcribe
+      if (pathname === '/gpt-transcribe' && request.method === 'POST') {
+        return await handleAudio(request, env, corsHeaders, 'gpt-transcribe');
+      }
+
       // Branding JSON generation
       if (pathname === '/branding/generate' && request.method === 'POST') {
         return await handleBrandingGenerate(request, env, corsHeaders);
@@ -783,21 +788,41 @@ async function handleImageEdits(request, env, corsHeaders) {
 }
 
 // Handle audio transcription endpoint
-async function handleAudio(request, env, corsHeaders) {
+async function handleAudio(request, env, corsHeaders, forcedModel = null) {
   try {
     console.log('🎤 Audio transcription request received');
     const formData = await request.formData();
     console.log('📋 FormData keys:', Array.from(formData.keys()));
 
     const file = formData.get('file');
-    const model = formData.get('model') || 'whisper-1';
+    const requestedModel = forcedModel || formData.get('model') || 'whisper-1';
     const language = formData.get('language');
     const prompt = formData.get('prompt');
     const response_format = formData.get('response_format') || 'json';
     const temperature = formData.get('temperature');
     const userId = formData.get('userId');
 
-    console.log('📊 Request params:', { model, language, userId, hasFile: !!file });
+    // whisper-1 shuts down 26 Feb 2027. TRANSCRIBE_WHISPER1_AS (e.g. "gpt-transcribe") moves every
+    // caller that still asks for whisper-1 over in one place — but only for plain json/text output,
+    // because srt/vtt/verbose_json (timestamps) exist only on whisper-1.
+    let model = requestedModel;
+    const redirectTo = env.TRANSCRIBE_WHISPER1_AS;
+    if (model === 'whisper-1' && redirectTo && (response_format === 'json' || response_format === 'text')) {
+      model = redirectTo;
+    }
+    const isGptTranscribe = model.startsWith('gpt-transcribe');
+
+    if (isGptTranscribe && !(response_format === 'json' || response_format === 'text')) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: `response_format "${response_format}" is only available on whisper-1; gpt-transcribe returns json or text`
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    console.log('📊 Request params:', { requestedModel, model, language, userId, hasFile: !!file });
 
     if (!file) {
       console.error('❌ Missing file in FormData');
@@ -837,10 +862,24 @@ async function handleAudio(request, env, corsHeaders) {
 
     openaiFormData.append('file', outgoingFile);
     openaiFormData.append('model', model);
-    if (language) openaiFormData.append('language', language);
     if (prompt) openaiFormData.append('prompt', prompt);
-    openaiFormData.append('response_format', response_format);
-    if (temperature) openaiFormData.append('temperature', temperature);
+
+    if (isGptTranscribe) {
+      // gpt-transcribe: `languages[]` replaces `language` (never send both), optional `keywords[]`,
+      // and no response_format / temperature.
+      const languages = listField(formData, 'languages');
+      if (!languages.length && language) languages.push(language);
+      for (const code of languages) openaiFormData.append('languages[]', code);
+      // The API rejects the whole request if a keyword contains < > CR or LF.
+      for (const kw of listField(formData, 'keywords')) {
+        const clean = kw.replace(/[<>\r\n]/g, ' ').trim();
+        if (clean) openaiFormData.append('keywords[]', clean);
+      }
+    } else {
+      if (language) openaiFormData.append('language', language);
+      openaiFormData.append('response_format', response_format);
+      if (temperature) openaiFormData.append('temperature', temperature);
+    }
 
     const openaiResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
@@ -888,7 +927,28 @@ async function handleAudio(request, env, corsHeaders) {
       );
     }
 
-    // Success: pass through OpenAI JSON
+    if (isGptTranscribe) {
+      // Keep the whisper-1 shape callers already read: `text`, and `language` from `languages[0].code`.
+      let data = {};
+      try { data = JSON.parse(rawText); } catch (_) { data = { text: rawText }; }
+      if (response_format === 'text') {
+        return new Response(data.text || '', {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'text/plain; charset=utf-8' }
+        });
+      }
+      const detected = Array.isArray(data.languages) && data.languages[0] && data.languages[0].code;
+      return new Response(JSON.stringify({
+        ...data,
+        ...(detected && !data.language ? { language: detected } : {}),
+        model
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // whisper-1: pass through OpenAI's response as before
     return new Response(rawText, {
       status: openaiResponse.status,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -901,6 +961,20 @@ async function handleAudio(request, env, corsHeaders) {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
+}
+
+// Read a list field from FormData: `name[]` (repeated), `name` (repeated), or one comma-separated value.
+function listField(formData, name) {
+  const raw = [...formData.getAll(`${name}[]`), ...formData.getAll(name)]
+    .filter(v => typeof v === 'string');
+  const out = [];
+  for (const v of raw) {
+    for (const part of (raw.length === 1 ? v.split(',') : [v])) {
+      const t = part.trim();
+      if (t) out.push(t);
+    }
+  }
+  return out;
 }
 
 // Generate branding JSON
@@ -1189,7 +1263,17 @@ function handleModels(env, corsHeaders) {
         max_file_size: '25MB',
         supported_formats: ['mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'wav', 'webm'],
         pricing: '$0.006 per minute',
-        description: 'General-purpose speech recognition model for transcription and translation'
+        description: 'General-purpose speech recognition model for transcription and translation. Deprecated by OpenAI — shuts down 26 Feb 2027.'
+      },
+      {
+        id: 'gpt-transcribe',
+        name: 'GPT Transcribe',
+        formats: ['json', 'text'],
+        features: ['transcription', 'language detection', 'multilingual', 'keywords', 'languages hint'],
+        max_file_size: '25MB',
+        supported_formats: ['flac', 'mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'ogg', 'wav', 'webm'],
+        pricing: '$0.0045 per minute',
+        description: 'Successor to whisper-1 for recorded audio. Send language (one) or languages[], and optional keywords[]. No timestamps/srt/vtt.'
       }
     ]
   };
@@ -1616,6 +1700,38 @@ function handleOpenApiJson(corsHeaders) {
           responses: {
             200: { description: 'Transcription result', content: { 'application/json': { schema: { type: 'object', properties: { text: { type: 'string' } } } } } },
             400: { description: 'Missing file' },
+            401: { description: 'API key not configured' }
+          }
+        }
+      },
+      '/gpt-transcribe': {
+        post: {
+          tags: ['Audio'],
+          summary: 'Transcribe with gpt-transcribe (whisper-1 successor)',
+          description: 'Forces model gpt-transcribe. `language` (one code) is turned into `languages[]`; `keywords` help with names and terms. Returns json (text, languages, language = first detected code, model) or plain text. No timestamps, srt or vtt.',
+          requestBody: {
+            required: true,
+            content: {
+              'multipart/form-data': {
+                schema: {
+                  type: 'object',
+                  required: ['file'],
+                  properties: {
+                    file: { type: 'string', format: 'binary' },
+                    language: { type: 'string', description: 'One ISO 639-1 code, e.g. no' },
+                    'languages[]': { type: 'array', items: { type: 'string' }, description: 'Several expected languages' },
+                    'keywords[]': { type: 'array', items: { type: 'string' }, description: 'Literal terms expected in the audio (no < > or line breaks)' },
+                    prompt: { type: 'string' },
+                    response_format: { type: 'string', enum: ['json', 'text'], default: 'json' },
+                    userId: { type: 'string' }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: 'Transcription result', content: { 'application/json': { schema: { type: 'object', properties: { text: { type: 'string' }, language: { type: 'string' }, languages: { type: 'array', items: { type: 'object', properties: { code: { type: 'string' } } } }, model: { type: 'string' } } } } } },
+            400: { description: 'Missing file, or a response_format only whisper-1 has' },
             401: { description: 'API key not configured' }
           }
         }
