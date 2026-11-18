@@ -10,7 +10,7 @@ compatibility_date = "2025-01-15"
 workers_dev = true
 
 routes = [
-  { pattern = "openai.vegvisr.org/*", zone_name = "vegvisr.org" }
+  { pattern = "openai.vegvisr.org/*", zone_id = "9178eccd3a7e3d71d8ae09defb09422a" }
 ]
 
 [[d1_databases]]
