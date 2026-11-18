@@ -808,6 +808,131 @@ export async function addEdge(env, { graphId, edge, expectedVersion = null, acto
 }
 
 /**
+ * Add many nodes and edges in ONE saved version (MCP add_nodes, 2026-11-18).
+ *
+ * Asked for after «Gruppe 2026-09-24»: the group flow wrote 10 nodes and 5 edges one call at a
+ * time and the graph got 15 versions in 20 seconds. The history keeps only the 20 newest versions,
+ * so building a graph pushed its own meaningful history out. Same rules as addNode/addEdge:
+ *   - nothing existing is rewritten;
+ *   - a node or edge whose id is already in the graph is SKIPPED and reported (so a flow that runs
+ *     again writes nothing twice — what EXISTS_IS_OK does for single add_node/add_edge steps);
+ *   - an edge may join nodes added in the same call;
+ *   - everything is checked first: one bad edge or a duplicate id inside the call writes nothing;
+ *   - nothing new to add → no new version.
+ */
+export const ADD_MANY_MAX_NODES = 100
+export const ADD_MANY_MAX_EDGES = 300
+
+export async function addElements(env, { graphId, nodes = [], edges = [], expectedVersion = null, actor = null, caller = undefined }) {
+  if (!graphId) return fail(ERR.INVALID_INPUT, 'graphId is required.')
+  if (!Array.isArray(nodes) || !Array.isArray(edges)) return fail(ERR.INVALID_INPUT, 'nodes and edges must be lists.')
+  if (!nodes.length && !edges.length) return fail(ERR.INVALID_INPUT, 'Give at least one node or edge.')
+  if (nodes.length > ADD_MANY_MAX_NODES) return fail(ERR.INVALID_INPUT, `At most ${ADD_MANY_MAX_NODES} nodes in one call.`)
+  if (edges.length > ADD_MANY_MAX_EDGES) return fail(ERR.INVALID_INPUT, `At most ${ADD_MANY_MAX_EDGES} edges in one call.`)
+  if (nodes.some((n) => !n || typeof n !== 'object')) return fail(ERR.INVALID_INPUT, 'Every node must be an object.')
+  if (edges.some((e) => !e || typeof e !== 'object' || !e.source || !e.target)) {
+    return fail(ERR.INVALID_INPUT, 'Every edge needs a source and a target.')
+  }
+
+  const located = await storeFor(env, { graphId, actor: caller === undefined ? actor : caller })
+  if (located.error) return located.error
+  const { store } = located
+  return guarded(async () => {
+  const result = await store.getRow(graphId)
+  if (!result) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
+
+  const graphData = JSON.parse(result.data)
+  if (!Array.isArray(graphData.nodes)) graphData.nodes = []
+  if (!Array.isArray(graphData.edges)) graphData.edges = []
+
+  const current = await store.currentVersion(graphId)
+  if (expectedVersion !== null && expectedVersion !== undefined) {
+    if (!Number.isInteger(expectedVersion)) {
+      return fail(ERR.INVALID_INPUT, 'expectedVersion must be an integer when provided.')
+    }
+    if (current !== expectedVersion) {
+      return fail(ERR.VERSION_CONFLICT, 'Grafen er endret siden den ble lest.', { currentVersion: current })
+    }
+  }
+
+  // Nodes: ids (UUID v4 when none is given), duplicates inside the call refused, existing ones skipped.
+  const existingNodes = new Set(graphData.nodes.map((n) => n.id))
+  const seen = new Set()
+  const newNodes = []
+  const skippedNodes = []
+  for (const node of nodes) {
+    const n = { ...node, id: node.id || crypto.randomUUID() }
+    if (seen.has(n.id)) return fail(ERR.INVALID_INPUT, `Node id ${n.id} appears twice in this call.`)
+    seen.add(n.id)
+    if (existingNodes.has(n.id)) skippedNodes.push(n.id)
+    else newNodes.push(n)
+  }
+
+  // Edges: both ends must exist after this call; existing edge ids skipped.
+  const allIds = new Set([...existingNodes, ...newNodes.map((n) => n.id)])
+  const existingEdges = new Set(graphData.edges.map((e) => e.id))
+  const seenEdges = new Set()
+  const newEdges = []
+  const skippedEdges = []
+  for (const edge of edges) {
+    const missing = [edge.source, edge.target].filter((id) => !allIds.has(id))
+    if (missing.length) {
+      return fail(ERR.INVALID_INPUT, `Edge ${edge.source} → ${edge.target}: no node with id ${missing.join(' or ')} in graph ${graphId} or in this call. Nothing was written.`)
+    }
+    const e = {
+      id: edge.id || `${edge.source}_${edge.target}`,
+      source: edge.source,
+      target: edge.target,
+      ...(edge.label ? { label: String(edge.label) } : {}),
+      ...(edge.type ? { type: String(edge.type) } : {}),
+    }
+    if (seenEdges.has(e.id)) return fail(ERR.INVALID_INPUT, `Edge id ${e.id} appears twice in this call.`)
+    seenEdges.add(e.id)
+    if (existingEdges.has(e.id)) skippedEdges.push(e.id)
+    else newEdges.push(e)
+  }
+
+  const base = {
+    ok: true,
+    graphId,
+    addedNodeIds: newNodes.map((n) => n.id),
+    addedEdgeIds: newEdges.map((e) => e.id),
+    skippedNodeIds: skippedNodes,
+    skippedEdgeIds: skippedEdges,
+    currentVersion: current,
+    title: graphData.metadata?.title || null,
+    metaArea: graphData.metadata?.metaArea || null,
+    publicationState: graphData.metadata?.publicationState || 'private',
+    ...graphLinks(graphId, store.world),
+  }
+  if (!newNodes.length && !newEdges.length) return { ...base, newVersion: current, written: false }
+
+  for (const n of newNodes) {
+    if (n.type === 'data-node' && n.info && env.ENCRYPTION_MASTER_KEY) {
+      n.info = await encryptDataNodeInfo(n.info, env.ENCRYPTION_MASTER_KEY)
+      if (!n.metadata) n.metadata = {}
+      n.metadata.encrypted = true
+    }
+    graphData.nodes.push(n)
+  }
+  graphData.edges.push(...newEdges)
+
+  const newVersion = current + 1
+  if (!graphData.metadata) graphData.metadata = {}
+  graphData.metadata.version = newVersion
+
+  await store.commit({
+    id: graphId,
+    data: JSON.stringify(graphData),
+    version: newVersion,
+    now: new Date().toISOString(),
+  })
+
+  return { ...base, newVersion, written: true }
+  })
+}
+
+/**
  * Remove ONE edge from a graph (MCP remove_edge, 2026-11-16). Nodes are never touched.
  *
  * Asked for when a step had to be moved inside a flow graph and nothing could take an edge away,

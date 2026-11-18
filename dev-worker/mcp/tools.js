@@ -993,6 +993,11 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
             .filter((k) => node[k] != null && !(Array.isArray(node[k]) && !node[k].length))
             .map((k) => `${k}: ${Array.isArray(node[k]) ? node[k].join(', ') : node[k]}\n`)
             .join('') +
+          // metadata shown too (2026-11-18): a flow step's tool and params live there, and a
+          // client that only reads the text could not see what a step does.
+          (node.metadata && typeof node.metadata === 'object' && Object.keys(node.metadata).length
+            ? `metadata: ${JSON.stringify(node.metadata, null, 2)}\n`
+            : '') +
           (info ? `info (${info.length} chars):\n${info}` : 'info: (empty)')
       } else {
         const lines = g.nodes.map((n) => {
@@ -1150,6 +1155,11 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
             .filter((k) => node[k] != null && !(Array.isArray(node[k]) && !node[k].length))
             .map((k) => `${k}: ${Array.isArray(node[k]) ? node[k].join(', ') : node[k]}\n`)
             .join('') +
+          // metadata shown too (2026-11-18): a flow step's tool and params live there, and a
+          // client that only reads the text could not see what a step does.
+          (node.metadata && typeof node.metadata === 'object' && Object.keys(node.metadata).length
+            ? `metadata: ${JSON.stringify(node.metadata, null, 2)}\n`
+            : '') +
           (info ? `info (${info.length} chars):\n${info}` : 'info: (empty)')
       } else {
         const lines = g.nodes.map((n) => {
@@ -1287,6 +1297,83 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
         { success: true, ...payload },
         `Added edge ${result.edgeId} (${edge.source} → ${edge.target}) to graph ${graphId}. ` +
           `Version ${result.currentVersion} → ${result.newVersion}.\nViewer: ${result.viewerUrl}`,
+      )
+    },
+  )
+
+  // ── add_nodes (2026-11-18) ────────────────────────────────────────────────
+  //
+  // Many nodes and edges in ONE saved version. A flow (or anyone) building a graph used to call
+  // add_node / add_edge once per item, and every call is a version: «Gruppe 2026-09-24» got 15
+  // versions in 20 seconds and the 20-version history was full of its own construction.
+  server.registerTool(
+    'add_nodes',
+    {
+      title: 'Add many nodes and edges in one version',
+      description:
+        'Append several nodes and the edges between them in ONE saved version — use this instead of ' +
+        `calling add_node / add_edge once per item when building a graph. Up to ${gs.ADD_MANY_MAX_NODES} nodes ` +
+        `and ${gs.ADD_MANY_MAX_EDGES} edges. Existing nodes and edges are never rewritten: an id already in the ` +
+        'graph is skipped and reported (so running the same call again writes nothing twice). Edges may ' +
+        'join nodes added in the same call. Everything is checked first; one bad edge writes nothing. ' +
+        'Nothing new to add means no new version. Requires the graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph to add to.'),
+        nodes: z.array(NodeInput).max(gs.ADD_MANY_MAX_NODES).default([]).describe('The nodes, in the order they should appear.'),
+        edges: z.array(EdgeInput).max(gs.ADD_MANY_MAX_EDGES).default([]).describe('Edges between nodes already in the graph or in this call.'),
+        expectedVersion: z
+          .number()
+          .int()
+          .optional()
+          .describe('The version you last read. If the graph has moved on, the write is refused with VERSION_CONFLICT.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        addedNodeIds: z.array(z.string()),
+        addedEdgeIds: z.array(z.string()),
+        skippedNodeIds: z.array(z.string()),
+        skippedEdgeIds: z.array(z.string()),
+        written: z.boolean(),
+        currentVersion: z.number(),
+        newVersion: z.number(),
+        title: z.string().nullable(),
+        metaArea: z.string().nullable(),
+        publicationState: z.string(),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      // Appends only; a repeat call skips what is there, so it is idempotent for fixed ids.
+      annotations: ADDITIVE_WRITE,
+    },
+    async ({ graphId, nodes = [], edges = [], expectedVersion }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const access = await gs.checkAccess(env, actor, graphId, 'write')
+      if (!access.ok) return fromService(access)
+      for (const type of new Set(nodes.map((n) => n.type))) {
+        const refused = await nodeTypeRefusal(env, type, access.world || null)
+        if (refused) return refused
+      }
+
+      const result = await gs.addElements(env, { graphId, nodes, edges, expectedVersion: expectedVersion ?? null, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      const skipped = result.skippedNodeIds.length + result.skippedEdgeIds.length
+      return ok(
+        { success: true, ...payload },
+        (result.written
+          ? `Added ${result.addedNodeIds.length} node(s) and ${result.addedEdgeIds.length} edge(s) to graph ${graphId} in one version. ` +
+            `Version ${result.currentVersion} → ${result.newVersion}.`
+          : `Nothing new to add to graph ${graphId}; version stays ${result.currentVersion}.`) +
+          (skipped ? ` Skipped ${skipped} already there: ${[...result.skippedNodeIds, ...result.skippedEdgeIds].join(', ')}.` : '') +
+          `\nViewer: ${result.viewerUrl}`,
       )
     },
   )
@@ -8377,6 +8464,7 @@ export const TOOL_NAMES = [
   'get_graph_version',
   'add_node',
   'add_edge',
+  'add_nodes',
   'remove_edge',
   'get_graph_links',
   'update_node',

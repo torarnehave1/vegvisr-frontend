@@ -70,7 +70,7 @@ const sc = (r) => r.structuredContent
 
 async function callOk(client, name, args) {
   const r = await client.callTool({ name, arguments: args })
-  assert.notEqual(r.isError, true, `${name} failed: ${JSON.stringify(sc(r))}`)
+  assert.notEqual(r.isError, true, `${name} failed: ${JSON.stringify(sc(r) ?? r.content)}`)
   return sc(r)
 }
 
@@ -520,6 +520,82 @@ describe('add_edge connects two existing nodes', () => {
     assert.equal((await callErr(ro, 'add_edge', { graphId: g.graphId, edge: { source: 'a', target: 'b' } })).code, gs.ERR.INSUFFICIENT_SCOPE)
     const { client: bob } = await connect(env, BOB_RW)
     assert.equal((await callErr(bob, 'add_edge', { graphId: g.graphId, edge: { source: 'a', target: 'b' } })).code, gs.ERR.FORBIDDEN_GRAPH)
+  })
+})
+
+describe('add_nodes writes many nodes and edges in ONE version', () => {
+  const KW = [1, 2, 3].map((i) => ({ id: `kw-${i}`, label: `Ord ${i}`, type: 'fulltext', info: 'x' }))
+  const KW_EDGES = [1, 2, 3].map((i) => ({ source: 'sum', target: `kw-${i}`, label: 'nøkkelord' }))
+
+  test('nodes and the edges between them land in one version (the «Gruppe 2026-09-24» case)', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X', nodes: [{ id: 't', label: 'Transkripsjon' }] })
+    const r = await callOk(client, 'add_nodes', { graphId: g.graphId, nodes: [{ id: 'sum', label: 'Oppsummering' }, ...KW], edges: KW_EDGES, expectedVersion: 1 })
+    assert.equal(r.written, true)
+    assert.equal(r.newVersion, 2, 'one version for 4 nodes and 3 edges')
+    assert.deepEqual(r.addedNodeIds, ['sum', 'kw-1', 'kw-2', 'kw-3'])
+    assert.deepEqual(r.addedEdgeIds, ['sum_kw-1', 'sum_kw-2', 'sum_kw-3'])
+    const read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(read.nodeCount, 5)
+    assert.equal(read.edgeCount, 3)
+    const hist = await callOk(client, 'get_graph_history', { graphId: g.graphId })
+    assert.equal(hist.versions.length, 2)
+  })
+
+  test('running the same call again writes nothing and makes no new version', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X', nodes: [{ id: 'sum', label: 'S' }] })
+    await callOk(client, 'add_nodes', { graphId: g.graphId, nodes: KW, edges: KW_EDGES })
+    const again = await callOk(client, 'add_nodes', { graphId: g.graphId, nodes: KW, edges: KW_EDGES })
+    assert.equal(again.written, false)
+    assert.equal(again.newVersion, 2)
+    assert.deepEqual(again.skippedNodeIds, ['kw-1', 'kw-2', 'kw-3'])
+    assert.equal(again.skippedEdgeIds.length, 3)
+    const read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(read.nodeCount, 4, 'no second copies')
+  })
+
+  test('one edge to a missing node writes nothing at all', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X', nodes: [{ id: 'sum', label: 'S' }] })
+    const e = await callErr(client, 'add_nodes', { graphId: g.graphId, nodes: KW, edges: [...KW_EDGES, { source: 'sum', target: 'ghost' }] })
+    assert.equal(e.code, gs.ERR.INVALID_INPUT)
+    const read = await callOk(client, 'get_graph', { graphId: g.graphId })
+    assert.equal(read.version, 1)
+    assert.equal(read.nodeCount, 1)
+  })
+
+  test('the same id twice in one call is refused; a stale version is a VERSION_CONFLICT', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X', nodes: [{ id: 'a', label: 'A' }] })
+    assert.equal((await callErr(client, 'add_nodes', { graphId: g.graphId, nodes: [{ id: 'x', label: '1' }, { id: 'x', label: '2' }] })).code, gs.ERR.INVALID_INPUT)
+    assert.equal((await callErr(client, 'add_nodes', { graphId: g.graphId, nodes: [{ id: 'y', label: 'Y' }], expectedVersion: 0 })).code, gs.ERR.VERSION_CONFLICT)
+  })
+
+  test('needs graph:write, and someone else\'s graph is refused', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X', nodes: [{ id: 'a', label: 'A' }] })
+    const { client: ro } = await connect(env, ALICE_RO)
+    assert.equal((await callErr(ro, 'add_nodes', { graphId: g.graphId, nodes: [{ label: 'n' }] })).code, gs.ERR.INSUFFICIENT_SCOPE)
+    const { client: bob } = await connect(env, BOB_RW)
+    assert.equal((await callErr(bob, 'add_nodes', { graphId: g.graphId, nodes: [{ label: 'n' }] })).code, gs.ERR.FORBIDDEN_GRAPH)
+  })
+})
+
+describe('get_graph(nodeId) shows the node\'s metadata in the text', () => {
+  test('a flow step\'s tool and params can be read without structuredContent', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'T', metaArea: '#X', nodes: [{ id: 's', label: 'Steg', metadata: { kind: 'action', toolName: 'add_nodes' } }] })
+    const r = await client.callTool({ name: 'get_graph', arguments: { graphId: g.graphId, nodeId: 's' } })
+    const text = r.content.map((c) => c.text).join('')
+    assert.match(text, /metadata: \{/)
+    assert.match(text, /"toolName": "add_nodes"/)
   })
 })
 

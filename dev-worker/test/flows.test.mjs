@@ -243,7 +243,7 @@ describe('callToolForFlow — a flow runs MCP tools as its owner, read-only', ()
 
   test('write-own lends graph:write for that one tool only', async () => {
     const { FLOW_WRITE_OWN_TOOLS } = await import('../flow-tools.js')
-    assert.deepEqual(Object.keys(FLOW_WRITE_OWN_TOOLS).sort(), ['add_edge', 'add_node', 'create_calendar_event', 'create_graph', 'transcribe_contact_recording', 'update_graph_metadata', 'update_node'])
+    assert.deepEqual(Object.keys(FLOW_WRITE_OWN_TOOLS).sort(), ['add_edge', 'add_node', 'add_nodes', 'create_calendar_event', 'create_graph', 'transcribe_contact_recording', 'update_graph_metadata', 'update_node'])
     assert.ok(Object.values(FLOW_WRITE_OWN_TOOLS).every((s) => s === 'graph:write'))
   })
 

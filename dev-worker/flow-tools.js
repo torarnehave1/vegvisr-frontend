@@ -74,6 +74,8 @@ export const FLOW_WRITE_OWN_TOOLS = {
   transcribe_contact_recording: 'graph:write',
   create_graph: 'graph:write',
   add_node: 'graph:write',
+  // 2026-11-18: many nodes and edges in one version — what a flow should use to build a graph.
+  add_nodes: 'graph:write',
   update_node: 'graph:write',
   add_edge: 'graph:write',
   update_graph_metadata: 'graph:write',
