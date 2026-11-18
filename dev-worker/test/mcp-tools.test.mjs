@@ -675,6 +675,8 @@ describe('graph_index: the whole collection in one call', () => {
     assert.ok(all.graphs[0].version > all.graphs[1].version, 'three more writes, a higher version')
     const high = await callOk(client, 'graph_index', { minVersion: all.graphs[0].version, brief: true })
     assert.deepEqual(high.graphs.map((g) => [g.title, g.version]), [['Eldst', all.graphs[0].version]])
+    // The same number sent as text is accepted (a client with an older copy of the input schema).
+    assert.equal((await callOk(client, 'graph_index', { minVersion: String(all.graphs[0].version), brief: true })).total, 1)
     assert.equal(all.graphs[0].nodes, undefined)
     assert.deepEqual(all.graphs[0].nodeTypes, ['fulltext'])
     assert.deepEqual(all.graphs[1].nodeTypes, [])

@@ -8026,7 +8026,9 @@ ${result.warnings.join('\n')}` : ''),
         published: z.enum(['live', 'published', 'private']).optional().describe('"live": served at a hostname. "published": publication state published. "private": anything not published.'),
         createdFrom: z.string().optional().describe('Only graphs created at or after this UTC date or date-time, e.g. "2025-01-01".'),
         createdTo: z.string().optional().describe('Only graphs created at or before this UTC date or date-time; a bare date includes the whole day.'),
-        minVersion: z.number().int().min(1).optional().describe('Only graphs whose version number is this or higher, e.g. 51 for "over 50".'),
+        // Coerced: a client that has not yet re-read this tool's input schema sends a new field as text
+        // ("51"), and the plain number type refused it (seen on the day it was added, 2026-11-18).
+        minVersion: z.coerce.number().int().min(1).optional().describe('Only graphs whose version number is this or higher, e.g. 51 for "over 50".'),
         offset: z.number().int().min(0).optional().describe('Skip this many matches (paging). Default 0.'),
         limit: z.number().int().min(1).max(5000).optional().describe('Return at most this many matches. Default: all.'),
         brief: z.boolean().optional().describe('Return only graphId, title, metaArea, world, createdAt and version per graph.'),
