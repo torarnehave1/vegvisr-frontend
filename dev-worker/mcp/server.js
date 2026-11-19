@@ -27,6 +27,7 @@ import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/sdk/types.js'
 import { allowedNodeTypes, worldNodeTypes } from '../node-type-registry.js'
 import { worldStoresFor } from '../graph-store.js'
 import { registerTools, registerWorkerTools, actorFromAuth, TOOL_NAMES } from './tools.js'
+import { offeredToolsOnly, toolSetOf } from './tool-sets.js'
 import { HISTORY_CAP } from '../graph-store.js'
 import { discoverWorkerTools } from '../worker-tools.js'
 
@@ -294,12 +295,18 @@ export const mcpHandler = {
     // schemas are built for this request (cached a minute in node-type-registry.js).
     // Plus the own types of every World this caller may use (phase 2): the schema lists them, and
     // add_node / update_node / create_graph check each one against the graph's own World.
-    registerTools(server, () => ({ auth, env, props, ctx }), { nodeTypes: await requestNodeTypes(env, actorFromAuth(auth, props)) })
+    //
+    // Only the tools this connection is OFFERED are registered (mcp/tool-sets.js): those whose
+    // scopes it holds, and — for a grant that chose the Starter set — those on the starter list.
+    // The rest do not exist for this request: not in tools/list, and not callable by name.
+    const toolSet = toolSetOf(props)
+    const offered = offeredToolsOnly(server, { scopes: Array.isArray(auth.scope) ? auth.scope : [], toolSet })
+    registerTools(offered, () => ({ auth, env, props, ctx }), { nodeTypes: await requestNodeTypes(env, actorFromAuth(auth, props)) })
 
     // The create_worker workers' own tools, for the Superadmin only, and only on the two methods
     // that can use them — discovery costs a GitHub call and one fetch per worker (cached a minute),
-    // and an initialize or a ping should not pay it.
-    if (wantsWorkerTools(parsed) && actorFromAuth(auth, props)?.isSuperadmin) {
+    // and an initialize or a ping should not pay it. Never part of the Starter set.
+    if (toolSet === 'all' && wantsWorkerTools(parsed) && actorFromAuth(auth, props)?.isSuperadmin) {
       registerWorkerTools(server, () => ({ auth, env, props }), await discoverWorkerTools(env))
     }
 
