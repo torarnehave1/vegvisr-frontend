@@ -1763,6 +1763,19 @@ describe('update_graph_metadata gives updateMetadata its first caller', () => {
     assert.equal(after.nodeCount, 1, 'nodes untouched')
   })
 
+  test('addMetaAreas adds tags and keeps the ones the graph has', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const g = await callOk(client, 'create_graph', { title: 'Prinsipper', metaArea: '#VEGR.AI #KUNNSKAPSLEDELSE' })
+    const r = await callOk(client, 'update_graph_metadata', { graphId: g.graphId, fields: { addMetaAreas: ['#kohesjon', 'KUNNSKAPSLEDELSE'] } })
+    assert.equal(r.metaArea, '#VEGR.AI #KUNNSKAPSLEDELSE #KOHESJON')
+    assert.deepEqual(r.updatedFields, ['metaArea'])
+    const both = await callErr(client, 'update_graph_metadata', { graphId: g.graphId, fields: { metaArea: '#X', addMetaAreas: ['#Y'] } })
+    assert.equal(both.code, gs.ERR.INVALID_INPUT)
+    const spaced = await callErr(client, 'update_graph_metadata', { graphId: g.graphId, fields: { addMetaAreas: ['#TO ORD'] } })
+    assert.equal(spaced.code, gs.ERR.INVALID_INPUT)
+  })
+
   test('createdDate moves the created date, and only that', async () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RW)
@@ -1832,7 +1845,7 @@ describe('update_graph_metadata gives updateMetadata its first caller', () => {
     const { tools } = await client.listTools()
     const t = tools.find((x) => x.name === 'update_graph_metadata')
     const fieldNames = Object.keys(t.inputSchema.properties.fields.properties).sort()
-    assert.deepEqual(fieldNames, ['category', 'createdDate', 'description', 'metaArea', 'title'])
+    assert.deepEqual(fieldNames, ['addMetaAreas', 'category', 'createdDate', 'description', 'metaArea', 'title'])
     assert.ok(!fieldNames.includes('publicationState'), 'publishing is its own action')
     assert.ok(!fieldNames.includes('createdBy'), 'a model cannot reassign authorship')
     assert.ok(!fieldNames.includes('version'))

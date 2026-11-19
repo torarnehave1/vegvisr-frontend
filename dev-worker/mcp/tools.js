@@ -4698,7 +4698,8 @@ ${result.warnings.join('\n')}` : ''),
         'REPLACE THE OLD VALUES ENTIRELY — metaArea is a single space-separated string, so to ' +
         'ADD a tag you must read the current value with get_graph and send the whole new string ' +
         'including the tags that were already there. Sending only the new tag silently deletes ' +
-        'the rest. Meta-area tags are written #LIKETHIS, uppercase, separated by spaces. ' +
+        'the rest. To add tags without reading first, send addMetaAreas instead: it keeps what ' +
+        'is there. Meta-area tags are written #LIKETHIS, uppercase, separated by spaces. ' +
         'Anything you omit is left untouched. createdDate moves the graph\'s created date (see the field). ' +
         'This cannot publish a graph (unpublish_graph takes one back to private) and ' +
         'cannot change who created it. Requires the graph:write scope.',
@@ -4715,6 +4716,16 @@ ${result.warnings.join('\n')}` : ''),
                 'The COMPLETE new meta-area string, e.g. "#MAIKENSNEEGGEN #LIVINGART #OFFER". ' +
                   'This replaces the whole value — read the current one first and include every ' +
                   'tag you want to keep.',
+              ),
+            addMetaAreas: z
+              .array(z.string().min(2).max(60))
+              .min(1)
+              .max(10)
+              .optional()
+              .describe(
+                'Meta-area tags to ADD, e.g. ["#KOHESJON"]. The tags the graph already has are kept ' +
+                  'and a tag it already carries is not added twice. Use this instead of metaArea ' +
+                  'when the wish is to add; the two cannot be sent together.',
               ),
             category: z.string().optional().describe('New category, e.g. "#Uncategorized".'),
             createdDate: z
@@ -4769,6 +4780,29 @@ ${result.warnings.join('\n')}` : ''),
 
       if (!fields || Object.keys(fields).length === 0) {
         return err(gs.ERR.INVALID_INPUT, 'fields must name at least one metadata field to change.')
+      }
+
+      // addMetaAreas (2026-11-19): add tags and keep the ones the graph has. The tool's text
+      // answers do not show a graph's meta areas, so a caller that only sees text could not build
+      // the complete string metaArea asks for. The current value is read here instead.
+      if (fields.addMetaAreas) {
+        if (fields.metaArea !== undefined) {
+          return err(gs.ERR.INVALID_INPUT, 'Send either metaArea (replaces) or addMetaAreas (adds), not both.')
+        }
+        const read = await gs.getGraph(env, graphId, { caller: actor })
+        if (!read.ok) return fromService(read)
+        const have = String(read.graph?.metadata?.metaArea || '').split(/\s+/).filter(Boolean)
+        const seen = new Set(have.map((t) => t.toUpperCase()))
+        for (const raw of fields.addMetaAreas) {
+          const tag = '#' + String(raw).trim().replace(/^#+/, '').toUpperCase()
+          if (!/^#[^\s#]+$/.test(tag)) return err(gs.ERR.INVALID_INPUT, `"${raw}" is not one meta-area tag: write it like #KOHESJON, without spaces.`)
+          if (!seen.has(tag)) {
+            seen.add(tag)
+            have.push(tag)
+          }
+        }
+        const { addMetaAreas: _a, ...rest } = fields
+        fields = { ...rest, metaArea: have.join(' ') }
       }
 
       // updateMetadata compares against MAX(version) in the history table, NOT metadata.version.
