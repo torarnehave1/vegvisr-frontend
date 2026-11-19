@@ -218,6 +218,23 @@ The sign-in window asks for the mobile number registered on the account, sends a
 the scopes for approval. If the browser already carries a `vegvisr_token` session cookie from
 vegvisr.org, the code step is skipped and only the consent screen appears.
 
+### Signing in from a World's editor — added 2026-11-19
+
+The code step takes Norwegian numbers only, and the session shortcut reads a cookie on
+`.vegvisr.org`. A World Founder abroad who works in her own World's editor has neither. So the
+sign-in page also offers **"Logg inn med din World"**:
+
+1. She types her World's address (`navaninas.site`). It must be a domain in `world_founders`.
+2. `/authorize` binds a one-time hand-off id to the transaction and redirects to
+   `https://editor.<domain>/?mcp_connect=<id>`.
+3. The editor (Knowledge-Editor, `src/components/McpConnect.tsx`) asks her to confirm — signing
+   her in first if needed — and POSTs `action=world-token`, the id and her login token back.
+4. The token is looked up as the session cookie's is, and the consent screen appears.
+
+Code: `oauth/world-login.js`; tests: `test/world-login.test.mjs`. The transaction id never
+leaves this origin, the id works once and lives 15 minutes, and consent is still required.
+NOT verified end to end on the live host: it needs a person signed in at a World's editor.
+
 **Tools:** `create_graph`, `get_graph`, `add_node`, `update_node`, `get_graph_links`,
 `search_graphs`, `list_my_graphs`, `post_chat_message`, `list_chat_groups`,
 `read_chat_messages`, `get_fulltext_elements`, plus `search` and `fetch` — the two fixed names ChatGPT's deep research

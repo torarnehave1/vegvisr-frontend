@@ -31,6 +31,8 @@
 
 import { createTx, getTx, putTx, deleteTx, sendChallenge, verifyChallenge, OTP_ERR, OTP_LIMITS } from './otp.js'
 import { AuthorizationError } from '@cloudflare/workers-oauth-provider'
+import { startWorldHandoff, redeemWorldHandoff, WORLD_ERR } from './world-login.js'
+import { knownWorld } from '../graph-store.js'
 import { CONNECT_SCOPES, KNOWN_SCOPES, SCOPE_TEXT, OPT_IN_SCOPES, OPT_IN_SCOPE_DETAIL, sanitizeOptIns, grantableScopes as pickScopes } from './scopes.js'
 
 export const ISSUER = 'https://knowledge.vegvisr.org'
@@ -99,7 +101,17 @@ ${hint ? `<div class="ok">${esc(hint)}</div>` : ''}
          placeholder="+47 000 00 000">
   <button type="submit">Send kode</button>
 </form>
-<p class="sub" style="margin-top:18px">Du får en 6-sifret kode på SMS. Nummeret må være registrert på VEGR.AI-kontoen din.</p>`)
+<p class="sub" style="margin-top:18px">Du får en 6-sifret kode på SMS. Nummeret må være registrert på VEGR.AI-kontoen din.</p>
+<hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
+<p class="sub" style="margin-bottom:0"><strong>Har du din egen World?</strong> Da kan du logge inn der i stedet, uten SMS-kode.</p>
+<form method="POST" action="/authorize">
+  <input type="hidden" name="tx" value="${esc(tx.txId)}">
+  <input type="hidden" name="action" value="world-start">
+  <label for="world">Adressen til din World</label>
+  <input id="world" name="world" type="text" inputmode="url" autocapitalize="none" autocomplete="off" spellcheck="false"
+         required placeholder="dittdomene.no">
+  <button class="secondary" type="submit">Logg inn med din World</button>
+</form>`)
 }
 
 function codeForm(tx, error, notice) {
@@ -399,12 +411,41 @@ async function handlePost(request, env, url, trace = {}) {
   trace.action = action || 'POST'
   trace.txId = txId || '-'
 
+  // Coming back from a World's editor (oauth/world-login.js). This POST is cross-site by design
+  // and carries no tx: the one-time hand-off id stands in for it, so the transaction id — the
+  // CSRF token of every other action — never leaves this origin.
+  if (action === 'world-token') {
+    const result = await redeemWorldHandoff(env, { handoff: form.get('handoff'), token: form.get('token') })
+    if (result.ok) {
+      trace.txId = result.tx.txId
+      console.log(`[OAuth] session from the World ${result.world} recognised; skipping the code step`)
+      return consentForm(result.tx, grantableScopes(result.tx))
+    }
+    if (result.code === WORLD_ERR.BAD_TOKEN) {
+      return phoneForm(result.tx, 'Innloggingen fra din World ble ikke gjenkjent. Logg inn der på nytt, og prøv igjen.', null)
+    }
+    return expiredPage()
+  }
+
   // The transaction id doubles as the CSRF token: it is 128 bits of randomness that only this
   // server and this browser have seen, so a cross-site form post cannot produce it.
   const tx = await getTx(env, txId)
   if (!tx) return expiredPage()
 
   const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown'
+
+  if (action === 'world-start') {
+    // Only before anyone is identified: at consent there is nothing left to sign in to.
+    if (tx.stage === 'consent') return renderStage(env, tx)
+    const result = await startWorldHandoff(env, tx, form.get('world'), { knownWorld })
+    if (!result.ok) {
+      const msg = result.code === WORLD_ERR.UNKNOWN_WORLD
+        ? 'Fant ingen World med den adressen. Skriv domenet, for eksempel dittdomene.no.'
+        : 'Skriv adressen til din World, for eksempel dittdomene.no.'
+      return phoneForm(tx, msg, null)
+    }
+    return Response.redirect(result.redirectTo, 302)
+  }
 
   if (action === 'send-otp') {
     const result = await sendChallenge(env, { tx, phoneRaw: form.get('phone'), clientIp })
