@@ -2419,6 +2419,12 @@ export async function searchText(env, { query, scope = 'all', graphIds = null, a
  *
  * Who sees what is exactly listMyGraphs' rule ('mine') or searchGraphs' rule ('all').
  */
+// The address of a ![Header|…](address) element; only https addresses are passed on.
+function headerImageOf(text) {
+  const m = /^!\[Header[^\]]*\]\(\s*(https:\/\/[^)\s]+)\s*\)/.exec(typeof text === 'string' ? text : '')
+  return m ? m[1] : null
+}
+
 export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeType = null, includeNodes = false, actor }) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   const all = scope === 'all'
@@ -2477,6 +2483,11 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
           WHERE json_extract(value, '$.type') = 'portfolio-image'
             AND json_extract(value, '$.path') IS NOT NULL
           LIMIT 1) AS image_path,
+        CASE WHEN instr(data, '![Header') > 0 THEN (
+          SELECT substr(json_extract(value, '$.info'), instr(json_extract(value, '$.info'), '![Header'), 900)
+          FROM json_each(${nodesSql})
+          WHERE instr(COALESCE(json_extract(value, '$.info'), ''), '![Header') > 0
+          LIMIT 1) END AS header_md,
         created_date,
         updated_at${nodeCols}
       FROM knowledge_graphs`
@@ -2522,6 +2533,10 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
     // The graph's card image: the path of its first portfolio-image node, exactly as
     // /getknowgraphsummaries picks portfolioImagePath. A map draws it on a course (2026-11-16).
     image: typeof r.image_path === 'string' && r.image_path ? r.image_path : null,
+    // The graph's header image: the address in the first ![Header|…](address) of its nodes, as
+    // the viewers show it on top of the graph. A map draws it inside the graph's circle when
+    // the circle is large on screen (2026-11-19). Null: no node has a header image.
+    headerImage: headerImageOf(r.header_md),
     // The node's own stamp only; the caller merges it with the publish registry, as the lists do.
     publishedDomainsCsv: r.published_domains_csv || '',
     ...(includeNodes

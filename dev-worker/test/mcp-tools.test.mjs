@@ -687,6 +687,12 @@ describe('graph_index: the whole collection in one call', () => {
     const withImage = await callOk(client, 'graph_index', {})
     assert.equal(withImage.graphs[1].image, 'https://cdn.example.test/photos/kurs/x/kursbilde.jpg')
     assert.equal(withImage.graphs[0].image, null)
+    // The header image: the address in the first ![Header|…](address) of the graph's nodes.
+    assert.equal(withImage.graphs[1].headerImage, null)
+    await callOk(client, 'add_node', { graphId: b.graphId, node: { label: 'Header Image', type: 'markdown-image', info: "![Header|height: 200px; object-fit: 'cover'](https://cdn.example.test/header.jpg?w=1080&q=80)\n\nTekst etter bildet" } })
+    const withHeader = await callOk(client, 'graph_index', {})
+    assert.equal(withHeader.graphs[1].headerImage, 'https://cdn.example.test/header.jpg?w=1080&q=80')
+    assert.equal(withHeader.graphs[0].headerImage, null)
 
     const nine = await callOk(client, 'graph_index', { metaArea: '#NINE', includeNodes: true })
     assert.equal(nine.total, 1)
