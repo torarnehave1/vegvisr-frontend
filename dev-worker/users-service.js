@@ -148,6 +148,24 @@ export function normaliseGroupTags(raw) {
 }
 
 /**
+ * A stored phone number in the form the SMS tools show: "+47 ••••••32". Only the country code
+ * (when it is a Norwegian number) and the last two digits survive. Kept here rather than imported
+ * from sms-service, which imports this file. The stored value may be "+4798765432", "98765432"
+ * or a foreign number, so nothing but the last two digits is ever taken from the subscriber part.
+ */
+export function maskStoredPhone(raw) {
+  const cleaned = String(raw || '').replace(/[\s()-]/g, '')
+  const digits = cleaned.replace(/\D/g, '')
+  if (digits.length < 4) return '••'
+  const norwegian =
+    cleaned.startsWith('+47') ||
+    digits.startsWith('0047') ||
+    (digits.startsWith('47') && digits.length === 10) ||
+    (!cleaned.startsWith('+') && digits.length === 8)
+  return `${norwegian ? '+47 ' : ''}••••••${digits.slice(-2)}`
+}
+
+/**
  * The registered people, for the caller to look up who is already on the platform.
  *
  * Superadmin only — this is other people's contact data, and it lands in a model's context.
@@ -183,7 +201,8 @@ export async function listUsers(env, { actor, groupTag = null, query = null, lim
              COALESCE(json_extract(data, '$.profile.name'), display_name, '') AS name,
              Role AS role,
              group_tags,
-             CASE WHEN phone IS NULL OR phone = '' THEN 0 ELSE 1 END AS has_phone
+             phone,
+             phone_verified_at
       FROM config
       ${whereSql}
       ORDER BY LOWER(email)
@@ -192,15 +211,23 @@ export async function listUsers(env, { actor, groupTag = null, query = null, lim
     .bind(...binds, lim)
     .all()
 
-  const users = (rows.results || []).map((r) => ({
-    email: r.email,
-    name: r.name || null,
-    role: r.role || null,
-    groupTags: r.group_tags || null,
-    // Whether they can receive an SMS code, not the number itself: a phone book is not what was
-    // asked for, and the number is not needed to answer "who is registered".
-    canSignInBySms: r.has_phone === 1,
-  }))
+  const users = (rows.results || []).map((r) => {
+    const hasPhone = Boolean(r.phone && String(r.phone).trim())
+    return {
+      email: r.email,
+      name: r.name || null,
+      role: r.role || null,
+      groupTags: r.group_tags || null,
+      // Whether they can receive an SMS code, and the number in MASKED form only: enough to tell
+      // which number is on file ("the one ending in 01"), never enough to call or text it. The
+      // full number leaves this function in no field (owner's decision 2026-11-19).
+      canSignInBySms: hasPhone,
+      phoneMasked: hasPhone ? maskStoredPhone(r.phone) : null,
+      // Verified = the person completed an SMS code with this number (config.phone_verified_at),
+      // or a Superadmin set it. It is what the person-addressed SMS tools and chat groups require.
+      phoneVerified: hasPhone && Boolean(r.phone_verified_at),
+    }
+  })
 
   return { ok: true, users, count: users.length, limit: lim }
 }

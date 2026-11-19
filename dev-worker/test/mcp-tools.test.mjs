@@ -2488,6 +2488,40 @@ describe('list_users answers who is already registered', () => {
     const blob = JSON.stringify(r)
     assert.ok(!blob.includes('tok-kate') && !blob.includes('sess-root'))
     assert.ok(!blob.includes('+4790000010'), 'a phone book is not what was asked for')
+    assert.ok(!blob.includes('90000010') && !blob.includes('90000009'), 'nor the subscriber number in any form')
+  })
+
+  test('every line says what is on file for the phone: masked and verified, masked and not, or none', async () => {
+    const env = seeded()
+    const { client } = await connect(env, ROOT_READ)
+    const res = await client.callTool({ name: 'list_users', arguments: {} })
+    const r = res.structuredContent
+    const text = res.content.map((c) => c.text).join('\n')
+
+    const kate = r.users.find((u) => u.email === 'kate@longwhitecloud.com')
+    assert.equal(kate.phoneMasked, null)
+    assert.equal(kate.phoneVerified, false)
+    assert.match(text, /kate@longwhitecloud\.com.* · no phone/)
+
+    const garet = r.users.find((u) => u.email === 'garet@garetbedrosian.com')
+    assert.equal(garet.canSignInBySms, true)
+    assert.equal(garet.phoneMasked, '+47 ••••••10')
+    assert.equal(garet.phoneVerified, false, 'a number nobody confirmed by SMS code is not verified')
+    assert.match(text, /garet@garetbedrosian\.com.* · phone \+47 ••••••10 \(not verified\)/)
+  })
+
+  test('a number confirmed by SMS code is shown as verified', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    raw.prepare("INSERT OR REPLACE INTO config (user_id, data, email, emailVerificationToken, Role, phone, phone_verified_at, group_tags) VALUES (?,?,?,?,?,?,?,?)")
+      .run('u-root', '{"profile":{"name":"Root"}}', 'root@example.com', 'sess-root', 'Superadmin', '90000009', '2026-11-01T10:00:00Z', null)
+    const { client } = await connect(env, ROOT_READ)
+    const res = await client.callTool({ name: 'list_users', arguments: { query: 'root@example.com' } })
+    const root = res.structuredContent.users[0]
+    assert.equal(root.phoneMasked, '+47 ••••••09', 'an 8-digit stored number is masked the same way')
+    assert.equal(root.phoneVerified, true)
+    assert.match(res.content[0].text, /phone \+47 ••••••09 \(verified\)/)
+    assert.ok(!JSON.stringify(res).includes('90000009'))
   })
 
   test('a group tag filters, with or without the #', async () => {

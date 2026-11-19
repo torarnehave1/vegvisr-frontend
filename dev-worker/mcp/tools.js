@@ -5283,9 +5283,11 @@ ${result.warnings.join('\n')}` : ''),
         'it to check whether someone already has an account before calling register_user, to find ' +
         'who holds an address, or to see who belongs to a group. THIS RETURNS OTHER PEOPLE\'S ' +
         'CONTACT DETAILS into the conversation — ask for the narrowest filter that answers the ' +
-        'question rather than pulling the whole directory. Sign-in credentials and phone numbers ' +
-        'are never returned; the reply only says whether an SMS sign-in is possible. Requires the ' +
-        'user:read scope and the Superadmin role.',
+        'question rather than pulling the whole directory. Sign-in credentials and full phone ' +
+        'numbers are never returned. Every line says what is on file for the phone: a MASKED ' +
+        'number ("+47 ••••••32") with "verified" or "not verified", or "no phone". A person with ' +
+        'a number can sign in by SMS code; "verified" is what chat groups and send_sms_to_user ' +
+        'require. Requires the user:read scope and the Superadmin role.',
       inputSchema: {
         groupTag: z.string().optional().describe('Only people in this group, e.g. "#IIBA". One tag at a time.'),
         query: z.string().optional().describe('Free text matched against email and name.'),
@@ -5302,6 +5304,8 @@ ${result.warnings.join('\n')}` : ''),
             role: z.string().nullable(),
             groupTags: z.string().nullable(),
             canSignInBySms: z.boolean(),
+            phoneMasked: z.string().nullable(),
+            phoneVerified: z.boolean(),
           }),
         ),
       },
@@ -5322,7 +5326,8 @@ ${result.warnings.join('\n')}` : ''),
       const head = r.count === 0 ? 'Nobody matched.' : `${r.count} registered ${r.count === 1 ? 'person' : 'people'}:`
       const lines = r.users.map(
         (u) => `• ${u.name || '(no name)'} — ${u.email} · ${u.role || 'no role'}` +
-          `${u.groupTags ? ` · ${u.groupTags}` : ''}${u.canSignInBySms ? '' : ' · no phone'}`,
+          `${u.groupTags ? ` · ${u.groupTags}` : ''}` +
+          ` · ${u.phoneMasked ? `phone ${u.phoneMasked} (${u.phoneVerified ? 'verified' : 'not verified'})` : 'no phone'}`,
       )
       return ok({ success: true, ...payload }, [head, ...lines].join('\n'))
     },
