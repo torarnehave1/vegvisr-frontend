@@ -33,6 +33,7 @@ import { createTx, getTx, putTx, deleteTx, sendChallenge, verifyChallenge, OTP_E
 import { AuthorizationError } from '@cloudflare/workers-oauth-provider'
 import { startWorldHandoff, redeemWorldHandoff, WORLD_ERR } from './world-login.js'
 import { knownWorld } from '../graph-store.js'
+import { STARTER_TOOLS, sanitizeToolSet } from '../mcp/tool-sets.js'
 import { CONNECT_SCOPES, KNOWN_SCOPES, SCOPE_TEXT, OPT_IN_SCOPES, OPT_IN_SCOPE_DETAIL, sanitizeOptIns, grantableScopes as pickScopes } from './scopes.js'
 
 export const ISSUER = 'https://knowledge.vegvisr.org'
@@ -175,6 +176,19 @@ function consentForm(tx, scopes) {
 <form method="POST" action="/authorize">
   <input type="hidden" name="tx" value="${esc(tx.txId)}">
   <input type="hidden" name="action" value="approve">
+  <p class="sub" style="margin:18px 0 0"><strong>Which tools should it get?</strong></p>
+  <label class="optin">
+    <input type="radio" name="toolset" value="starter">
+    <span><strong>Starter</strong><br>
+    <span class="detail">Graphs, nodes, node types, images and albums — for working with the editor and Garnet.
+    About ${STARTER_TOOLS.length} tools. Of the boxes below, only "Delete graphs" adds anything to Starter.</span></span>
+  </label>
+  <label class="optin">
+    <input type="radio" name="toolset" value="all" checked>
+    <span><strong>Everything</strong><br>
+    <span class="detail">Every tool that the access above and the boxes you tick below allow.</span></span>
+  </label>
+  <p class="sub" style="margin:18px 0 0"><strong>Extra access</strong> — tick only what you need.</p>
   ${OPT_IN_SCOPES.map((s) => `
   <label class="optin">
     <input type="checkbox" name="optin" value="${esc(s)}">
@@ -493,6 +507,9 @@ async function handlePost(request, env, url, trace = {}) {
     // way they can be granted, and it takes a person on this page to do it.
     const optedIn = sanitizeOptIns(form.getAll ? form.getAll('optin') : form.get('optin'))
     const scope = [...new Set([...grantableScopes(tx), ...optedIn])]
+    // Starter or Everything (mcp/tool-sets.js). Chosen by the person on this page, stored on the
+    // grant beside the identity — it narrows what the grant shows and grants nothing.
+    const toolSet = sanitizeToolSet(form.get('toolset'))
     if (optedIn.length) {
       console.log(`[OAuth] user opted in to ${optedIn.join(',')} for client=${tx.clientId}`)
     }
@@ -508,13 +525,14 @@ async function handlePost(request, env, url, trace = {}) {
         email: tx.email,
         role: tx.role,
         authMethod: 'oauth_otp',
+        toolSet,
       },
     })
 
     // The transaction has served its purpose; leaving it in KV would leave a replayable
     // consent sitting around for the rest of its TTL.
     await deleteTx(env, tx.txId)
-    console.log(`[OAuth] authorization granted to client=${tx.clientId} scopes=${scope.join(',')}`)
+    console.log(`[OAuth] authorization granted to client=${tx.clientId} scopes=${scope.join(',')} toolSet=${toolSet}`)
     return Response.redirect(redirectTo, 302)
   }
 

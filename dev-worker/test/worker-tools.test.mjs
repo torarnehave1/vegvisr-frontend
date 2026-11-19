@@ -195,7 +195,9 @@ describe('through the real MCP handler: Superadmin only', () => {
   test('a worker tool cannot shadow one of the fixed tools', async () => {
     // Every fixed name lacks "__", and every worker tool has it.
     net = network()
-    const list = await rpc(env(), ROOT, 'tools/list')
+    // create_worker needs graph:publish, and a tool is only listed for a connection that holds
+    // its scope (mcp/tool-sets.js, 2026-11-19) — so this connection holds it.
+    const list = await rpc(env(), ctxFor('root@example.com', 'Superadmin', ['graph:read', 'graph:publish']), 'tools/list')
     const fixed = list.tools.filter((x) => !x.name.includes('__')).map((x) => x.name)
     assert.ok(fixed.includes('create_worker'))
     assert.equal(new Set(list.tools.map((x) => x.name)).size, list.tools.length, 'no duplicate names')

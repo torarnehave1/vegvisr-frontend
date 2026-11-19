@@ -218,6 +218,21 @@ The sign-in window asks for the mobile number registered on the account, sends a
 the scopes for approval. If the browser already carries a `vegvisr_token` session cookie from
 vegvisr.org, the code step is skipped and only the consent screen appears.
 
+### Which tools a connection is offered — added 2026-11-19
+
+Every connection used to be shown all 142 tools. Now (`mcp/tool-sets.js`):
+
+- **By permission:** a tool is listed only when the connection holds every scope the tool's
+  description names ("Requires the graph:write scope."). A test checks each description against
+  what the tool actually refuses with.
+- **By tool set:** the "Give access" page asks **Starter** or **Everything**. Starter is a fixed
+  list of 45 tools — graphs, nodes, node types, images and albums. The choice is stored on the
+  grant as `props.toolSet`; a grant without one is Everything.
+
+A tool that is not offered is not registered for the request: absent from `tools/list`, and not
+callable by name. To get more later, connect again and choose Everything. Not a scope: the scope
+vocabulary is unchanged and nobody has to authorize again.
+
 ### Signing in from a World's editor — added 2026-11-19
 
 The code step takes Norwegian numbers only, and the session shortcut reads a cookie on
