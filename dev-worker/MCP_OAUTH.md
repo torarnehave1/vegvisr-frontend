@@ -222,7 +222,7 @@ vegvisr.org, the code step is skipped and only the consent screen appears.
 
 The code step takes Norwegian numbers only, and the session shortcut reads a cookie on
 `.vegvisr.org`. A World Founder abroad who works in her own World's editor has neither. So the
-sign-in page also offers **"Logg inn med din World"**:
+sign-in page also offers **"Sign in with your World"** (all page text is English since 2026-11-19):
 
 1. She types her World's address (`navaninas.site`). It must be a domain in `world_founders`.
 2. `/authorize` binds a one-time hand-off id to the transaction and redirects to

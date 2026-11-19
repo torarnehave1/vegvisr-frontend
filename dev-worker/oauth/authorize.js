@@ -53,7 +53,9 @@ const esc = (s) =>
 
 function page(title, body, { status = 200 } = {}) {
   return new Response(
-    `<!doctype html><html lang="no"><head><meta charset="utf-8">
+    // ENGLISH ONLY (owner decision 2026-11-19): these pages are read by World Founders outside
+    // Norway, and Norwegians read English. Do not add Norwegian copy back.
+    `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <title>${esc(title)} — VEGR.AI</title>
@@ -88,54 +90,54 @@ label.optin .detail{color:var(--muted);font-size:13px;display:block;margin-top:4
 }
 
 function phoneForm(tx, error, hint) {
-  return page('Logg inn', `
-<h1>Logg inn</h1>
-<p class="sub"><span class="client">${esc(tx.clientName || tx.clientId)}</span> vil koble seg til kunnskapsgrafene dine.</p>
+  return page('Sign in', `
+<h1>Sign in</h1>
+<p class="sub"><span class="client">${esc(tx.clientName || tx.clientId)}</span> wants to connect to your knowledge graphs.</p>
 ${error ? `<div class="err">${esc(error)}</div>` : ''}
 ${hint ? `<div class="ok">${esc(hint)}</div>` : ''}
 <form method="POST" action="/authorize">
   <input type="hidden" name="tx" value="${esc(tx.txId)}">
   <input type="hidden" name="action" value="send-otp">
-  <label for="phone">Mobilnummer</label>
+  <label for="phone">Norwegian mobile number</label>
   <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" required autofocus
          placeholder="+47 000 00 000">
-  <button type="submit">Send kode</button>
+  <button type="submit">Send code</button>
 </form>
-<p class="sub" style="margin-top:18px">Du får en 6-sifret kode på SMS. Nummeret må være registrert på VEGR.AI-kontoen din.</p>
+<p class="sub" style="margin-top:18px">You get a 6-digit code by SMS. The number must be registered on your VEGR.AI account. Norwegian numbers only.</p>
 <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
-<p class="sub" style="margin-bottom:0"><strong>Har du din egen World?</strong> Da kan du logge inn der i stedet, uten SMS-kode.</p>
+<p class="sub" style="margin-bottom:0"><strong>Do you have your own World?</strong> Then you can sign in there instead, without an SMS code.</p>
 <form method="POST" action="/authorize">
   <input type="hidden" name="tx" value="${esc(tx.txId)}">
   <input type="hidden" name="action" value="world-start">
-  <label for="world">Adressen til din World</label>
+  <label for="world">The address of your World</label>
   <input id="world" name="world" type="text" inputmode="url" autocapitalize="none" autocomplete="off" spellcheck="false"
-         required placeholder="dittdomene.no">
-  <button class="secondary" type="submit">Logg inn med din World</button>
+         required placeholder="yourdomain.com">
+  <button class="secondary" type="submit">Sign in with your World</button>
 </form>`)
 }
 
 function codeForm(tx, error, notice) {
-  return page('Skriv koden', `
-<h1>Skriv koden</h1>
-<p class="sub">Vi har sendt en 6-sifret kode på SMS. Den er gyldig i ${OTP_LIMITS.CODE_TTL_SECONDS / 60} minutter.</p>
+  return page('Enter the code', `
+<h1>Enter the code</h1>
+<p class="sub">We have sent a 6-digit code by SMS. It is valid for ${OTP_LIMITS.CODE_TTL_SECONDS / 60} minutes.</p>
 ${error ? `<div class="err">${esc(error)}</div>` : ''}
 ${notice ? `<div class="ok">${esc(notice)}</div>` : ''}
 <form method="POST" action="/authorize" id="codeform">
   <input type="hidden" name="tx" value="${esc(tx.txId)}">
   <input type="hidden" name="action" value="verify-otp">
-  <label for="code">Kode</label>
+  <label for="code">Code</label>
   <input id="code" name="code" class="otp" inputmode="numeric" autocomplete="one-time-code"
          pattern="[0-9]{6}" maxlength="6" required autofocus>
-  <button type="submit">Bekreft</button>
+  <button type="submit">Confirm</button>
 </form>
 <form method="POST" action="/authorize">
   <input type="hidden" name="tx" value="${esc(tx.txId)}">
   <input type="hidden" name="action" value="send-otp">
   <input type="hidden" name="phone" value="${esc(tx.phone || '')}">
-  <button class="secondary" type="submit">Send ny kode</button>
+  <button class="secondary" type="submit">Send a new code</button>
 </form>
-<p class="sub" style="margin-top:14px">Får du ingen kode? Nummeret må være registrert på kontoen din.
-Legg det inn under profilen din på vegvisr.org, og prøv igjen.</p>
+<p class="sub" style="margin-top:14px">No code? The number must be registered on your account.
+Add it under your profile at vegvisr.org, and try again.</p>
 <script>
 // WebOTP: on Chrome for Android the browser reads the code out of the SMS itself, because the
 // message ends with "@knowledge.vegvisr.org #<code>". Safari does the same through
@@ -163,9 +165,9 @@ Legg det inn under profilen din på vegvisr.org, og prøv igjen.</p>
 }
 
 function consentForm(tx, scopes) {
-  return page('Gi tilgang', `
-<h1>Gi tilgang</h1>
-<p class="sub"><span class="client">${esc(tx.clientName || tx.clientId)}</span> ber om tilgang til kontoen
+  return page('Give access', `
+<h1>Give access</h1>
+<p class="sub"><span class="client">${esc(tx.clientName || tx.clientId)}</span> asks for access to the account
 <strong>${esc(tx.email)}</strong>.</p>
 <ul class="scopes">
   ${scopes.map((s) => `<li>${esc(SCOPE_TEXT[s] || s)}<br><code>${esc(s)}</code></li>`).join('')}
@@ -179,7 +181,7 @@ function consentForm(tx, scopes) {
     <span><strong>${esc(SCOPE_TEXT[s] || s)}</strong> <code>${esc(s)}</code><br>
     <span class="detail">${esc(OPT_IN_SCOPE_DETAIL[s] || '')}</span></span>
   </label>`).join('')}
-  <button type="submit">Godkjenn tilgang</button>
+  <button type="submit">Approve access</button>
 </form>
 <script>
 // A second submit cannot be honoured: approving deletes the transaction, so the next POST finds
@@ -190,16 +192,16 @@ for (const form of document.querySelectorAll('form')) {
   form.addEventListener('submit', () => {
     for (const b of form.querySelectorAll('button')) { b.disabled = true }
     const go = form.querySelector('button[type=submit]')
-    if (go) { go.textContent = 'Vent litt…' }
+    if (go) { go.textContent = 'One moment…' }
   }, { once: true })
 }
 </script>
 <form method="POST" action="/authorize">
   <input type="hidden" name="tx" value="${esc(tx.txId)}">
   <input type="hidden" name="action" value="deny">
-  <button class="secondary" type="submit">Avslå</button>
+  <button class="secondary" type="submit">Decline</button>
 </form>
-<p class="sub" style="margin-top:18px">Du kan trekke tilgangen tilbake senere. Tilgangen gjelder bare grafene du selv eier.</p>`)
+<p class="sub" style="margin-top:18px">You can withdraw the access later. The access covers only the graphs you own yourself.</p>`)
 }
 
 /**
@@ -222,25 +224,25 @@ for (const form of document.querySelectorAll('form')) {
  */
 function expiredPage() {
   return page(
-    'Vinduet er ferdig',
-    `<h1>Dette vinduet er ferdig</h1>
-     <p class="sub">Har du nettopp godkjent tilgang, er tilkoblingen alt aktiv — lukk vinduet og
-     gå tilbake til appen. Du trenger ikke gjøre noe mer.</p>
-     <p class="sub">Ellers har innloggingen gått ut. Den varer i 15 minutter. Start tilkoblingen
-     på nytt fra appen.</p>`,
+    'This window is done',
+    `<h1>This window is done</h1>
+     <p class="sub">If you have just approved access, the connection is already active — close the
+     window and go back to the app. You do not need to do anything more.</p>
+     <p class="sub">Otherwise the sign-in has expired. It lasts 15 minutes. Start the connection
+     again from the app.</p>`,
     { status: 400 },
   )
 }
 
 const OTP_MESSAGES = {
-  [OTP_ERR.BAD_PHONE]: 'Oppgi et gyldig norsk mobilnummer.',
-  [OTP_ERR.RATE_LIMITED]: 'For mange kodeforespørsler. Prøv igjen senere.',
-  [OTP_ERR.NO_CHALLENGE]: 'Ingen aktiv kode. Be om en ny.',
-  [OTP_ERR.EXPIRED]: 'Koden er utløpt. Be om en ny.',
-  [OTP_ERR.TOO_MANY_ATTEMPTS]: 'For mange forsøk. Be om en ny kode.',
-  [OTP_ERR.WRONG_CODE]: 'Feil kode.',
-  [OTP_ERR.SMS_FAILED]: 'Kunne ikke sende SMS. Prøv igjen.',
-  [OTP_ERR.TX_NOT_FOUND]: 'Innloggingen er utløpt. Start på nytt fra appen.',
+  [OTP_ERR.BAD_PHONE]: 'Enter a valid Norwegian mobile number. No Norwegian number? Use "Sign in with your World" below.',
+  [OTP_ERR.RATE_LIMITED]: 'Too many code requests. Try again later.',
+  [OTP_ERR.NO_CHALLENGE]: 'No active code. Ask for a new one.',
+  [OTP_ERR.EXPIRED]: 'The code has expired. Ask for a new one.',
+  [OTP_ERR.TOO_MANY_ATTEMPTS]: 'Too many attempts. Ask for a new code.',
+  [OTP_ERR.WRONG_CODE]: 'Wrong code.',
+  [OTP_ERR.SMS_FAILED]: 'Could not send the SMS. Try again.',
+  [OTP_ERR.TX_NOT_FOUND]: 'The sign-in has expired. Start again from the app.',
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -256,7 +258,7 @@ export async function handleAuthorize(request, env, ctx) {
   try {
     if (request.method === 'GET') return await handleGet(request, env, url)
     if (request.method === 'POST') return await handlePost(request, env, url, trace)
-    return page('Feil', '<h1>Metoden støttes ikke</h1>', { status: 405 })
+    return page('Error', '<h1>Method not supported</h1>', { status: 405 })
   } catch (error) {
     return authorizeFailure(trace, error)
   }
@@ -290,11 +292,11 @@ function authorizeFailure(trace, error) {
     error?.stack || '',
   )
   return page(
-    'Noe gikk galt',
-    `<h1>Noe gikk galt</h1>
-     <p class="sub">Tilkoblingen ble ikke fullført. Ingenting er gitt tilgang, og du kan trygt prøve igjen.</p>
-     <p class="sub">Lukk dette vinduet og start tilkoblingen på nytt fra appen. Skjer det igjen, oppgi tidspunktet
-     ${esc(new Date().toISOString())} — feilen er logget.</p>`,
+    'Something went wrong',
+    `<h1>Something went wrong</h1>
+     <p class="sub">The connection was not completed. No access has been given, and you can safely try again.</p>
+     <p class="sub">Close this window and start the connection again from the app. If it happens again, give the time
+     ${esc(new Date().toISOString())} — the error is logged.</p>`,
     { status: 500 },
   )
 }
@@ -351,7 +353,7 @@ async function handleGet(request, env, url) {
     // Without a validated redirect URI there is nothing safe to redirect to, so the error is
     // rendered here rather than bounced to a caller-supplied address.
     if (!error.redirectUri) {
-      return page('Ugyldig forespørsel', `<h1>Ugyldig forespørsel</h1><p class="sub">${esc(error.description)}</p><p><code>${esc(error.code)}</code></p>`, { status: 400 })
+      return page('Invalid request', `<h1>Invalid request</h1><p class="sub">${esc(error.description)}</p><p><code>${esc(error.code)}</code></p>`, { status: 400 })
     }
     const redirect = new URL(error.redirectUri)
     redirect.searchParams.set('error', error.code)
@@ -362,7 +364,7 @@ async function handleGet(request, env, url) {
   }
 
   const client = await oauth.lookupClient(authRequest.clientId)
-  if (!client) return page('Ukjent klient', '<h1>Ukjent OAuth-klient</h1>', { status: 400 })
+  if (!client) return page('Unknown client', '<h1>Unknown OAuth client</h1>', { status: 400 })
 
   const tx = await createTx(env, {
     authRequest,
@@ -402,7 +404,7 @@ async function handlePost(request, env, url, trace = {}) {
   try {
     form = await request.formData()
   } catch {
-    return page('Feil', '<h1>Ugyldig skjema</h1>', { status: 400 })
+    return page('Error', '<h1>Invalid form</h1>', { status: 400 })
   }
   const action = String(form.get('action') || '')
   const txId = String(form.get('tx') || '')
@@ -422,7 +424,7 @@ async function handlePost(request, env, url, trace = {}) {
       return consentForm(result.tx, grantableScopes(result.tx))
     }
     if (result.code === WORLD_ERR.BAD_TOKEN) {
-      return phoneForm(result.tx, 'Innloggingen fra din World ble ikke gjenkjent. Logg inn der på nytt, og prøv igjen.', null)
+      return phoneForm(result.tx, 'The sign-in from your World was not recognised. Sign in there again, and try once more.', null)
     }
     return expiredPage()
   }
@@ -440,8 +442,8 @@ async function handlePost(request, env, url, trace = {}) {
     const result = await startWorldHandoff(env, tx, form.get('world'), { knownWorld })
     if (!result.ok) {
       const msg = result.code === WORLD_ERR.UNKNOWN_WORLD
-        ? 'Fant ingen World med den adressen. Skriv domenet, for eksempel dittdomene.no.'
-        : 'Skriv adressen til din World, for eksempel dittdomene.no.'
+        ? 'Found no World with that address. Type the domain, for example yourdomain.com.'
+        : 'Type the address of your World, for example yourdomain.com.'
       return phoneForm(tx, msg, null)
     }
     return Response.redirect(result.redirectTo, 302)
@@ -450,7 +452,7 @@ async function handlePost(request, env, url, trace = {}) {
   if (action === 'send-otp') {
     const result = await sendChallenge(env, { tx, phoneRaw: form.get('phone'), clientIp })
     if (!result.ok) {
-      const msg = OTP_MESSAGES[result.code] || 'Kunne ikke sende kode.'
+      const msg = OTP_MESSAGES[result.code] || 'Could not send the code.'
       return tx.stage === 'otp' ? codeForm(tx, msg, null) : phoneForm(tx, msg, null)
     }
     // result.sent is false when the number does not match the account. The page must not say
@@ -459,14 +461,14 @@ async function handlePost(request, env, url, trace = {}) {
       tx.stage = 'otp'
       await putTx(env, tx)
     }
-    return codeForm(tx, null, 'Kode sendt, hvis nummeret stemmer med kontoen.')
+    return codeForm(tx, null, 'Code sent, if the number matches the account.')
   }
 
   if (action === 'verify-otp') {
     const result = await verifyChallenge(env, { tx, codeRaw: form.get('code') })
     if (!result.ok) {
-      const base = OTP_MESSAGES[result.code] || 'Feil kode.'
-      const msg = result.remaining ? `${base} ${result.remaining} forsøk igjen.` : base
+      const base = OTP_MESSAGES[result.code] || 'Wrong code.'
+      const msg = result.remaining ? `${base} ${result.remaining} attempts left.` : base
       return result.code === OTP_ERR.WRONG_CODE ? codeForm(tx, msg, null) : phoneForm(tx, msg, null)
     }
     return consentForm(tx, grantableScopes(tx))
@@ -475,7 +477,7 @@ async function handlePost(request, env, url, trace = {}) {
   if (action === 'deny') {
     const redirectUri = tx.authRequest?.redirectUri
     await deleteTx(env, tx.txId)
-    if (!redirectUri) return page('Avslått', '<h1>Tilgang avslått</h1><p class="sub">Du kan lukke dette vinduet.</p>')
+    if (!redirectUri) return page('Declined', '<h1>Access declined</h1><p class="sub">You can close this window.</p>')
     const redirect = new URL(redirectUri)
     redirect.searchParams.set('error', 'access_denied')
     redirect.searchParams.set('error_description', 'The user denied the request.')
@@ -516,6 +518,6 @@ async function handlePost(request, env, url, trace = {}) {
     return Response.redirect(redirectTo, 302)
   }
 
-  return page('Feil', '<h1>Ukjent handling</h1>', { status: 400 })
+  return page('Error', '<h1>Unknown action</h1>', { status: 400 })
 }
 
