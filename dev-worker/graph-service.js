@@ -20,7 +20,7 @@
  */
 
 import { parseQuery, matchGraph, collectWords, suggest } from './mcp/search-text.js'
-import { platformStore, resolveGraphStore, GraphStoreError, reserveLocation, activateLocation, dropPendingLocation, relocateGraph, worldStoresFor, defaultWorldFor, setLocationStatus, graphIdOfTrashId } from './graph-store.js'
+import { platformStore, resolveGraphStore, GraphStoreError, reserveLocation, activateLocation, dropPendingLocation, relocateGraph, worldStoresFor, defaultWorldFor, setLocationStatus, graphIdOfTrashId, sharedInFor, sharedWorldStore, sharesOf, putShare, dropShare, knownWorld, SHARE_MODES } from './graph-store.js'
 
 /**
  * resolveGraphStore() throws on routing failures; the service speaks in fail() results. `caller`
@@ -322,7 +322,12 @@ export async function checkAccess(env, actor, graphId, action = 'read') {
   // World's founder or account holder, or a member carrying the World's tag — mayUseWorld), and
   // that is the whole rule there — the World's graphs are shared by its members, whoever typed
   // them in.
-  if (store.kind === 'world') return { ok: true, graph: row, owner: ownerOf(row, meta), isPublished, world: store.world }
+  //
+  // Reached through a share (graph_shares): a 'read' share may read and run, nothing else.
+  if (store.kind === 'world' && store.readOnly && action !== 'read' && action !== 'run') {
+    return fail(ERR.FORBIDDEN_GRAPH, `Graph ${graphId} is in ${store.world} and shared with ${store.sharedVia} for reading only, so you may not ${action} it.`)
+  }
+  if (store.kind === 'world') return { ok: true, graph: row, owner: ownerOf(row, meta), isPublished, world: store.world, ...(store.sharedVia ? { sharedVia: store.sharedVia, sharedMode: store.readOnly ? 'read' : 'write' } : {}) }
 
   // Superadmin passes everything.
   if (actor.isSuperadmin) return { ok: true, graph: row, owner: ownerOf(row, meta), isPublished }
@@ -2203,6 +2208,56 @@ export async function restoreGraph(env, { trashId = null, graphId = null, actor 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Sharing a World's graph with another World (2026-11-19)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Where a graph is, for sharing: only a graph in a World store, and only a member of THAT World
+ * (or whoever runs it, or a Superadmin) may share it — not someone who reaches it through a share.
+ */
+async function shareableGraph(env, actor, graphId) {
+  if (!actor) return { error: fail(ERR.UNAUTHENTICATED, 'Authentication required.') }
+  if (!graphId) return { error: fail(ERR.INVALID_INPUT, 'graphId is required.') }
+  const located = await storeFor(env, { graphId, actor })
+  if (located.error) return located
+  const { store } = located
+  if (store.kind !== 'world') return { error: fail(ERR.INVALID_INPUT, `Graph ${graphId} is in the platform's shared storage. Only a graph stored in a World can be shared with another World.`) }
+  if (store.sharedVia) return { error: fail(ERR.FORBIDDEN_GRAPH, `Graph ${graphId} is in ${store.world}; it is shared with you through ${store.sharedVia}, and only members of ${store.world} may share it on.`) }
+  if (!(await store.exists(graphId))) return { error: fail(ERR.GRAPH_NOT_FOUND, `Graph ${graphId} not found.`) }
+  return { store }
+}
+
+export async function shareGraphWithWorld(env, { graphId, world, mode = 'read', actor }) {
+  const at = await shareableGraph(env, actor, graphId)
+  if (at.error) return at.error
+  return guarded(async () => {
+    if (!SHARE_MODES.includes(mode)) return fail(ERR.INVALID_INPUT, `mode must be "read" or "write".`)
+    const domain = await knownWorld(env, world)
+    if (!domain) return fail(ERR.INVALID_INPUT, `${world} is not a World.`)
+    if (domain === at.store.world) return fail(ERR.INVALID_INPUT, `Graph ${graphId} is stored in ${domain}; its members reach it already.`)
+    await putShare(env, { graphId, world: domain, mode, sharedBy: actor.email || null })
+    return { ok: true, graphId, world: at.store.world, sharedWith: domain, mode, shares: (await sharesOf(env, [graphId])).get(graphId) || [] }
+  })
+}
+
+export async function unshareGraphFromWorld(env, { graphId, world, actor }) {
+  const at = await shareableGraph(env, actor, graphId)
+  if (at.error) return at.error
+  return guarded(async () => {
+    const domain = String(world || '').trim().toLowerCase()
+    const removed = await dropShare(env, { graphId, world: domain })
+    return { ok: true, graphId, world: at.store.world, removed, unsharedFrom: domain, shares: (await sharesOf(env, [graphId])).get(graphId) || [] }
+  })
+}
+
+export async function listGraphShares(env, { graphId, actor }) {
+  if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
+  const access = await checkAccess(env, actor, graphId, 'read')
+  if (!access.ok) return access
+  return guarded(async () => ({ ok: true, graphId, world: access.world || null, shares: (await sharesOf(env, [graphId])).get(graphId) || [] }))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // The whole collection in one read (2026-11-13)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2501,6 +2556,19 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
     const page = await store.all(`${selectSql} ${w.whereSql} ORDER BY created_date ASC LIMIT ?`, [...w.bindings, cap + 1])
     for (const r of page) rows.push({ ...r, _world: store.world })
   }
+  // Graphs shared INTO the caller's Worlds from a World whose store the caller cannot otherwise
+  // use (graph_shares, 2026-11-19): asked of that store by id, with the same filters.
+  const sharedIn = await sharedInFor(env, actor, stores.filter((s) => s.kind === 'world'))
+  for (const [home, list] of sharedIn) {
+    const store = await sharedWorldStore(env, home)
+    if (!store) continue
+    const by = new Map(list.map((x) => [x.graphId, x]))
+    const ids = [...by.keys()]
+    const c = [`id IN (${ids.map(() => '?').join(', ')})`, ...areaClause]
+    const page = await store.all(`${selectSql} WHERE ${c.join(' AND ')} ORDER BY created_date ASC LIMIT ?`, [...ids, ...areaBind, cap + 1])
+    for (const r of page) rows.push({ ...r, _world: home, _sharedVia: by.get(r.id)?.via, _sharedMode: by.get(r.id)?.mode })
+  }
+  const shareMap = await sharesOf(env)
   if (includeNodes && rows.length > INDEX_NODES_MAX_GRAPHS) {
     return fail(ERR.INVALID_INPUT, `That ${areaFilter ? 'meta area' : 'node type'}${areaFilter && typeFilter ? ' and node type' : ''} covers more than ${INDEX_NODES_MAX_GRAPHS} graphs; node lists are returned for at most ${INDEX_NODES_MAX_GRAPHS} graphs at a time.`)
   }
@@ -2528,6 +2596,10 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
     createdAt: r.created_date || null,
     updatedAt: r.updated_at || null,
     world: r._world || null,
+    // Shared with the caller's World from another (graph_shares): through which World, read or write.
+    ...(r._sharedVia ? { sharedVia: r._sharedVia, sharedMode: r._sharedMode } : {}),
+    // Every World this graph is shared with. Absent when it is shared with none.
+    ...(shareMap.has(r.id) ? { sharedWith: shareMap.get(r.id).map((x) => ({ world: x.world, mode: x.mode })) } : {}),
     // Which node types the graph contains, so a map can filter on "has a youtube-video".
     nodeTypes: parseList(r.node_types_json).filter((t) => t != null).map(String).sort(),
     // The graph's card image: the path of its first portfolio-image node, exactly as

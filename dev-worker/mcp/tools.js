@@ -508,6 +508,112 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
     },
   )
 
+  // ── share_graph_with_world / unshare_graph_from_world / list_graph_shares ──
+  // A World's graph stays in its World; a share lets the members of ANOTHER World reach it,
+  // read-only or read-write (owner decision 2026-11-19). Rules: graph-service.js shareGraphWithWorld.
+  const SHARE_ROW = z.object({ world: z.string(), mode: z.enum(['read', 'write']), sharedBy: z.string().nullable().optional(), createdAt: z.string().optional() })
+  server.registerTool(
+    'share_graph_with_world',
+    {
+      title: 'Share a graph with another World',
+      description:
+        "Let every member of another World reach one graph that is stored in a World's own storage, " +
+        'without moving or copying it: the graph stays where it is, with the same id and links. ' +
+        'mode "read" (default): they can open and read it, not change it. mode "write": they can also ' +
+        'change it, as members of its own World can. Sharing again with the same World changes the mode. ' +
+        "Only members of the graph's own World (or its founder, or a Superadmin) may share it; a graph in " +
+        "the platform's shared storage cannot be shared this way. Undo with unshare_graph_from_world. " +
+        'Requires the graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph to share. It must be stored in a World.'),
+        world: z.string().min(1).describe('The World to share it with, e.g. "navaninas.site".'),
+        mode: z.enum(['read', 'write']).optional().describe('"read" (default) or "write".'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        world: z.string().describe('The World that holds the graph.'),
+        sharedWith: z.string(),
+        mode: z.enum(['read', 'write']),
+        shares: z.array(SHARE_ROW).describe('Every World the graph is shared with now.'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ graphId, world, mode }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const result = await gs.shareGraphWithWorld(env, { graphId, world, mode: mode || 'read', actor })
+      if (!result.ok) return fromService(result)
+      const { ok: _o, ...payload } = result
+      return ok({ success: true, ...payload }, `Graph ${result.graphId} (in ${result.world}) is now shared with ${result.sharedWith} for ${result.mode === 'write' ? 'reading and writing' : 'reading only'}.`)
+    },
+  )
+
+  server.registerTool(
+    'unshare_graph_from_world',
+    {
+      title: 'Stop sharing a graph with a World',
+      description:
+        'Remove one share made with share_graph_with_world: the members of that World no longer reach ' +
+        "the graph (unless they are members of the graph's own World). The graph itself is not touched. " +
+        "Only members of the graph's own World (or its founder, or a Superadmin) may. Requires the graph:write scope.",
+      inputSchema: {
+        graphId: z.string().min(1).describe('The shared graph.'),
+        world: z.string().min(1).describe('The World to stop sharing it with.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        world: z.string().describe('The World that holds the graph.'),
+        removed: z.boolean().describe('False when there was no such share.'),
+        unsharedFrom: z.string(),
+        shares: z.array(SHARE_ROW).describe('Every World the graph is still shared with.'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ graphId, world }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const result = await gs.unshareGraphFromWorld(env, { graphId, world, actor })
+      if (!result.ok) return fromService(result)
+      const { ok: _o, ...payload } = result
+      return ok({ success: true, ...payload }, result.removed ? `Graph ${result.graphId} is no longer shared with ${result.unsharedFrom}.` : `Graph ${result.graphId} was not shared with ${result.unsharedFrom}; nothing changed.`)
+    },
+  )
+
+  server.registerTool(
+    'list_graph_shares',
+    {
+      title: 'Which Worlds a graph is shared with',
+      description: 'Every World one graph is shared with (share_graph_with_world), and whether for reading or writing. Requires the graph:read scope and read access to the graph.',
+      inputSchema: { graphId: z.string().min(1).describe('The graph.') },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        world: z.string().nullable().describe("The World that holds the graph. Null: the platform's shared storage."),
+        shares: z.array(SHARE_ROW),
+      },
+      annotations: READ_ONLY,
+    },
+    async ({ graphId }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:read')
+      if (scopeErr) return scopeErr
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+      const result = await gs.listGraphShares(env, { graphId, actor })
+      if (!result.ok) return fromService(result)
+      const { ok: _o, ...payload } = result
+      return ok({ success: true, ...payload }, result.shares.length ? `Graph ${graphId} is shared with ${result.shares.map((x) => `${x.world} (${x.mode})`).join(', ')}.` : `Graph ${graphId} is shared with no World.`)
+    },
+  )
+
   // ── register_node_type ────────────────────────────────────────────────────
   server.registerTool(
     'register_node_type',
@@ -8088,6 +8194,9 @@ ${result.warnings.join('\n')}` : ''),
             createdAt: z.string().nullable().describe("When the graph was first saved (UTC, the row's created_date)."),
             updatedAt: z.string().nullable().optional(),
             world: z.string().nullable().describe("The World whose own storage holds this graph. Null: the platform's shared storage."),
+            sharedVia: z.string().optional().describe('Present when you reach this graph only because it is shared with this World of yours.'),
+            sharedMode: z.enum(['read', 'write']).optional().describe('With sharedVia: whether that share lets you change the graph.'),
+            sharedWith: z.array(z.object({ world: z.string(), mode: z.enum(['read', 'write']) })).optional().describe('Every World this graph is shared with (share_graph_with_world).'),
             nodeTypes: z.array(z.string()).optional().describe('The distinct node types in this graph, e.g. ["fulltext","youtube-video"]. Absent with brief.'),
             image: z.string().nullable().optional().describe("The graph's card image: the address held by its first portfolio-image node. Null when it has none."),
             headerImage: z.string().nullable().optional().describe("The graph's header image: the address in the first ![Header|…](address) element of its nodes. Null when it has none."),
@@ -8707,6 +8816,9 @@ export const TOOL_NAMES = [
   'search',
   'fetch',
   'move_graph_to_world',
+  'share_graph_with_world',
+  'unshare_graph_from_world',
+  'list_graph_shares',
   'register_node_type',
   'set_node_type_renderer',
   'approve_node_type_renderer',

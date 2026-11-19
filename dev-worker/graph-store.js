@@ -450,6 +450,11 @@ export class WorldStore {
   }
 
   async rpc(op, args) {
+    // A store reached through a READ share (graph_shares.mode = 'read') carries readOnly: every
+    // op that changes the store is refused here, the one place all World store calls pass.
+    if (this.readOnly && !readOnlyAllows(op, args)) {
+      throw new GraphStoreError('FORBIDDEN_GRAPH', `This graph is in ${this.world} and shared ${this.sharedVia ? `with ${this.sharedVia} ` : ''}for reading only, so it cannot be changed from there.`)
+    }
     if (!this.env.WORLD_GRAPH_SIGNING_KEY) {
       throw new GraphStoreError('STORE_UNAVAILABLE', `This worker cannot sign requests to the graph store of ${this.world}.`)
     }
@@ -594,6 +599,15 @@ export async function systemWorldStore(env, domain) {
 
 async function authorizedWorldStore(env, row, actor, graphId) {
   if (!(await mayUseWorld(env, actor, row.domain))) {
+    // Not a member of the World that holds the graph — but the graph may be shared with a World
+    // the actor is a member of (graph_shares, 2026-11-19).
+    const share = graphId ? await shareFor(env, actor, graphId) : null
+    if (share) {
+      const store = new WorldStore(env, row)
+      store.sharedVia = share.world
+      store.readOnly = share.mode !== 'write'
+      return store
+    }
     throw new GraphStoreError(
       'FORBIDDEN_GRAPH',
       graphId
@@ -710,6 +724,153 @@ export async function worldStoresFor(env, actor) {
     })
   }
   return rows.map((row) => new WorldStore(env, row))
+}
+
+// ── Sharing a World's graph with another World (owner decision 2026-11-19) ──────────────────────
+//
+// A graph stays in the store of the World that holds it. A row here lets every member of ANOTHER
+// World reach it too: mode 'read' through a read-only store (WorldStore.rpc), 'write' as a member
+// would. Only graphs in a World store are shared (the platform keeps its own rules). Any member of
+// the holding World may share; the row follows the graph id, so a move keeps it.
+
+export const SHARE_READ_OPS = new Set(['getRow', 'exists', 'currentVersion', 'first', 'all', 'getAiInstructions', 'historyList', 'historyVersion', 'exportGraph'])
+export const SHARE_MODES = Object.freeze(['read', 'write'])
+
+// first/all take SQL: through a read-only store only a SELECT (or WITH … SELECT) may pass.
+export function readOnlyAllows(op, args) {
+  if (!SHARE_READ_OPS.has(op)) return false
+  if (op !== 'first' && op !== 'all') return true
+  const sql = String(args?.[0] || '')
+  return /^\s*(SELECT|WITH)\b/i.test(sql) && !/\b(INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER|CREATE)\b/i.test(sql)
+}
+
+const SHARES_DDL = `CREATE TABLE IF NOT EXISTS graph_shares (
+  graph_id TEXT NOT NULL,
+  world_domain TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  shared_by TEXT,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (graph_id, world_domain)
+)`
+
+async function sharesRead(env, sql, params = []) {
+  try {
+    return (await env.vegvisr_org.prepare(sql).bind(...params).all()).results || []
+  } catch (e) {
+    if (/no such table/i.test(e.message)) return []
+    throw new GraphStoreError('STORE_UNAVAILABLE', `The share registry could not be read: ${e.message}`)
+  }
+}
+
+/** Every World this actor is a member of, founds or holds the account of (lowercase domains). */
+export async function worldsOfActor(env, actor) {
+  if (!actor || actor.anonymous || !actor.email) return new Set()
+  let founders
+  try {
+    founders = (await env.vegvisr_org.prepare('SELECT * FROM world_founders').all()).results || []
+  } catch (e) {
+    if (/no such table/i.test(e.message)) return new Set()
+    throw new GraphStoreError('STORE_UNAVAILABLE', `The graph registry could not be read: ${e.message}`)
+  }
+  const tags = await groupTagsOf(env, actor.email)
+  const out = new Set()
+  for (const f of founders) {
+    const d = String(f.domain || '').toLowerCase()
+    if (!d) continue
+    if ([f.founder_email, f.account_holder_email].some((e) => String(e || '').toLowerCase() === actor.email) || tags.has(worldTagOf(d, f))) out.add(d)
+  }
+  return out
+}
+
+/** The share that lets this actor reach a graph, or null. 'write' wins over 'read'. */
+export async function shareFor(env, actor, graphId) {
+  if (!actor || actor.anonymous || !actor.email) return null
+  const rows = await sharesRead(env, 'SELECT world_domain, mode FROM graph_shares WHERE graph_id = ?', [graphId])
+  if (!rows.length) return null
+  const mine = await worldsOfActor(env, actor)
+  const hits = rows.filter((r) => mine.has(String(r.world_domain).toLowerCase()))
+  if (!hits.length) return null
+  const best = hits.find((r) => r.mode === 'write') || hits[0]
+  return { world: best.world_domain, mode: best.mode === 'write' ? 'write' : 'read' }
+}
+
+/** Every share of these graphs (all when ids is null): Map graphId → [{ world, mode, sharedBy, createdAt }]. */
+export async function sharesOf(env, ids = null) {
+  const rows = await sharesRead(env, 'SELECT graph_id, world_domain, mode, shared_by, created_at FROM graph_shares ORDER BY world_domain')
+  const want = ids ? new Set(ids) : null
+  const out = new Map()
+  for (const r of rows) {
+    if (want && !want.has(r.graph_id)) continue
+    const list = out.get(r.graph_id) || []
+    list.push({ world: r.world_domain, mode: r.mode === 'write' ? 'write' : 'read', sharedBy: r.shared_by || null, createdAt: r.created_at })
+    out.set(r.graph_id, list)
+  }
+  return out
+}
+
+/**
+ * Graphs shared INTO the actor's Worlds that sit in a store the actor cannot otherwise use:
+ * Map holdingWorld → [{ graphId, via, mode }]. For listings, which must ask those stores by id.
+ */
+export async function sharedInFor(env, actor, ownStores) {
+  const mine = await worldsOfActor(env, actor)
+  if (!mine.size) return new Map()
+  const rows = await sharesRead(
+    env,
+    "SELECT s.graph_id, s.world_domain, s.mode, l.world_domain AS home FROM graph_shares s JOIN graph_locations l ON l.graph_id = s.graph_id WHERE l.status = 'active'",
+  )
+  const own = new Set(ownStores.map((s) => s.world))
+  const out = new Map()
+  for (const r of rows) {
+    if (!mine.has(String(r.world_domain).toLowerCase()) || own.has(r.home)) continue
+    const list = out.get(r.home) || []
+    const had = list.find((x) => x.graphId === r.graph_id)
+    if (had) {
+      if (r.mode === 'write') had.mode = 'write'
+      continue
+    }
+    list.push({ graphId: r.graph_id, via: r.world_domain, mode: r.mode === 'write' ? 'write' : 'read' })
+    out.set(r.home, list)
+  }
+  return out
+}
+
+/** A live World store by domain, for reading graphs shared out of it (callers have checked the share). */
+export async function sharedWorldStore(env, domain) {
+  const row = await worldStoreRow(env, domain).catch((e) => {
+    if (e instanceof GraphStoreError) return null
+    throw e
+  })
+  if (!row) return null
+  const store = new WorldStore(env, row)
+  store.readOnly = true
+  return store
+}
+
+/** Is this a World in the registry (world_founders)? Lowercase domain, or null. */
+export async function knownWorld(env, domain) {
+  const d = String(domain || '').trim().toLowerCase()
+  if (!d) return null
+  const row = await registryRead(env, 'SELECT domain FROM world_founders WHERE LOWER(domain) = ? LIMIT 1', [d])
+  return row ? d : null
+}
+
+export async function putShare(env, { graphId, world, mode, sharedBy, now = new Date().toISOString() }) {
+  await env.vegvisr_org.prepare(SHARES_DDL).run()
+  await env.vegvisr_org
+    .prepare('INSERT INTO graph_shares (graph_id, world_domain, mode, shared_by, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (graph_id, world_domain) DO UPDATE SET mode = excluded.mode, shared_by = excluded.shared_by, created_at = excluded.created_at')
+    .bind(graphId, world, mode, sharedBy || null, now)
+    .run()
+}
+
+export async function dropShare(env, { graphId, world }) {
+  try {
+    const r = await env.vegvisr_org.prepare('DELETE FROM graph_shares WHERE graph_id = ? AND world_domain = ?').bind(graphId, world).run()
+    return Boolean(r?.meta?.changes)
+  } catch (e) {
+    if (/no such table/i.test(e.message)) return false
+    throw new GraphStoreError('STORE_UNAVAILABLE', `The share registry could not be written: ${e.message}`)
+  }
 }
 
 /** The graph id inside a trash id ("trash_<graphId>_<epoch ms>"), or null. */
