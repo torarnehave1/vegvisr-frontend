@@ -95,8 +95,8 @@ describe('the opt-in step-up', () => {
   test('the detail copy says the three things that make it outward-facing', () => {
     const d = OPT_IN_SCOPE_DETAIL['chat:write']
     assert.match(d, /AI/, 'must say an AI wrote it')
-    assert.match(d, /boten er lagt til/, 'must say the bot gates which groups')
-    assert.match(d, /ikke slettes/, 'must say it cannot be undone')
+    assert.match(d, /the bot has been added/, 'must say the bot gates which groups')
+    assert.match(d, /cannot be deleted/, 'must say it cannot be undone')
   })
 })
 
@@ -132,23 +132,23 @@ describe('chat:read is consented to separately from chat:write', () => {
   test('consent copy describes the risk class, not just today\'s tool', () => {
     // Consent must never be narrower than what the scope permits, or the next tool placed in an
     // existing scope is doing something the user did not agree to.
-    assert.match(SCOPE_TEXT['chat:write'], /andre mennesker/, 'not "chat groups" specifically')
-    assert.match(SCOPE_TEXT['graph:write'], /innholdet ditt/, 'not "graphs and nodes" specifically')
+    assert.match(SCOPE_TEXT['chat:write'], /other people/, 'not "chat groups" specifically')
+    assert.match(SCOPE_TEXT['graph:write'], /your content/, 'not "graphs and nodes" specifically')
     // Added 2026-10-03 with send_email. The consent screen must name e-mail, and must name the
     // limit that makes it safe — otherwise someone ticking the box for group messages has no way
     // to know what they granted.
-    assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /E-POST/,
+    assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /EMAIL/,
       'the copy must name e-mail once a tool in the class sends it')
-    assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /aldri fra en adresse du bare er\s+' \+\s+'Superadmin over|Superadmin over/,
+    assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /Superadmin over/,
       'and must say that Superadmin alone grants no address')
-    assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /meldingskanaler generelt/,
+    assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /message channels in general/,
       'must say the scope covers the class, so a future tool does not need a new scope')
     // Added 2026-10-05 with send_sms. The consent screen names the channel and the limits; the
     // actual price belongs in preview_sms, which reports segments and cost per message before
     // anything is sent. A shouted warning on a one-time grant screen is worse than a real figure
     // at the moment of sending — the architect's call, 2026-10-06.
     assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /SMS/, 'the copy must name SMS')
-    assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /Forhåndsvisningen viser/,
+    assert.match(OPT_IN_SCOPE_DETAIL['chat:write'], /The preview shows/,
       'and must point at where the real cost appears')
   })
 
@@ -158,7 +158,7 @@ describe('chat:read is consented to separately from chat:write', () => {
   // forbids. A per-channel assertion only catches the channel somebody remembered to add, so
   // this derives the requirement from the tool list instead.
   test('the consent copy names every channel chat:write actually reaches', () => {
-    const CHANNEL_WORD = { sms: 'SMS', email: 'E-POST', mail: 'E-POST', chat: 'CHATTEGRUPPER', meeting_report: 'COACHING-RAPPORT' }
+    const CHANNEL_WORD = { sms: 'SMS', email: 'EMAIL', mail: 'EMAIL', chat: 'CHAT GROUPS', meeting_report: 'COACHING REPORT' }
     const detail = OPT_IN_SCOPE_DETAIL['chat:write'].toUpperCase()
     const missing = []
     for (const name of TOOL_NAMES) {
@@ -186,12 +186,12 @@ describe('chat:read is consented to separately from chat:write', () => {
     assert.deepEqual(grantableScopes(['graph:read', 'user:register']), ['graph:read'])
     assert.deepEqual(sanitizeOptIns(['user:register']), ['user:register'])
     const d = OPT_IN_SCOPE_DETAIL['user:register']
-    assert.match(d, /opprette en konto/, 'must say an account is created')
+    assert.match(d, /create an account/, 'must say an account is created')
     assert.match(d, /Superadmin/, 'must say the role ceiling')
     // The copy has to track the behaviour: a duplicate is REFUSED, not completed, and the scope
     // also covers changing group tags — set_user_groups rides on it rather than a sixth opt-in.
-    assert.match(d, /avvist/, 'must say an existing email is refused')
-    assert.match(d, /grupper/, 'must say it also covers group changes')
+    assert.match(d, /refused/, 'must say an existing email is refused')
+    assert.match(d, /groups/, 'must say it also covers group changes')
   })
 
   test('user:read is consented to separately from user:register', () => {
@@ -200,20 +200,20 @@ describe('chat:read is consented to separately from chat:write', () => {
     assert.deepEqual(sanitizeOptIns(['user:read']), ['user:read'])
     assert.deepEqual(grantableScopes(['graph:read', 'user:read']), ['graph:read'])
     const d = OPT_IN_SCOPE_DETAIL['user:read']
-    assert.match(d, /ANDRE personers/, 'must say whose data it exposes')
-    assert.match(d, /Innloggingsnøkler vises aldri/)
+    assert.match(d, /OTHER people's/, 'must say whose data it exposes')
+    assert.match(d, /Sign-in keys are never shown/)
   })
 
   test('the publish copy says the page becomes public and the host must already exist', () => {
     const d = OPT_IN_SCOPE_DETAIL['graph:publish']
     assert.ok(d && d.length > 80, 'an outward-facing scope needs real copy')
-    assert.match(d, /hvem som helst/, 'must say the page becomes public')
-    assert.match(d, /ikke opprette nye/, 'must say it cannot create subdomains')
-    assert.match(d, /allerede er knyttet til/, 'must say the host is constrained to the node')
+    assert.match(d, /anyone/, 'must say the page becomes public')
+    assert.match(d, /cannot create new/, 'must say it cannot create subdomains')
+    assert.match(d, /is already tied to/, 'must say the host is constrained to the node')
     // Widened 2026-10-13 with create_worker: the box now also covers code, so the copy must say so
     // and must name the limit that makes it safe.
-    assert.match(d, /KODE/, 'must say it can write code')
-    assert.match(d, /godkjent/, 'must say nothing goes to production without approval')
+    assert.match(d, /CODE/, 'must say it can write code')
+    assert.match(d, /approved/, 'must say nothing goes to production without approval')
   })
 
   test('granting one does not grant the other — that is the whole point of two boxes', () => {
@@ -224,7 +224,7 @@ describe('chat:read is consented to separately from chat:write', () => {
 
   test('the copy says reading exposes other people, and that addresses are withheld', () => {
     const d = OPT_IN_SCOPE_DETAIL['chat:read']
-    assert.match(d, /andre deltakere/, 'must say it reads other participants')
-    assert.match(d, /aldri e-postadresser/, 'must say e-mail addresses are withheld')
+    assert.match(d, /other participants/, 'must say it reads other participants')
+    assert.match(d, /never email addresses/, 'must say e-mail addresses are withheld')
   })
 })

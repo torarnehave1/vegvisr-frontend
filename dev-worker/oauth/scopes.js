@@ -74,17 +74,19 @@ export const KNOWN_SCOPES = ['graph:read', 'graph:write', 'graph:publish', 'grap
 
 /** Human text for the consent screen. Covers every known scope, advertised or not. */
 export const SCOPE_TEXT = {
-  'graph:read': 'Lese kunnskapsgrafene dine',
+  // ENGLISH ONLY (owner decision 2026-11-19): the sign-in and consent pages are read by World
+  // Founders outside Norway, and Norwegians read English. Do not add Norwegian copy back.
+  'graph:read': 'Read your knowledge graphs',
   // Widened 2026-11-16 for create_calendar_event — same class: your own content, added to. The
   // event has no guests, so nothing reaches anyone; inviting people stays under chat:write.
-  'graph:write': 'Opprette og endre innholdet ditt — grafer, noder, bilder og metadata, legge til kontakter i din egen adressebok og avtaler (uten gjester) i din egen kalender',
-  'graph:publish': 'Gjøre innhold synlig for folk som ikke er innlogget',
-  'graph:delete': 'Slette grafer (de ligger i papirkurven i 30 dager, så er de borte)',
-  'chat:write': 'Sende meldinger som når andre mennesker, og styre hvem som er med i gruppene dine',
-  'chat:read': 'Lese meldinger andre har skrevet — i chatten og i E-POSTINNBOKSER du kan sende fra',
-  'user:register': 'Opprette brukerkontoer og endre dem — rolle og gruppe',
-  'user:read': 'Se andre registrerte personer: navn, e-post, rolle og gruppe',
-  'contacts:read': 'Lese din egen kontaktliste (ContactHub): navn, e-post, telefon, adresse og etiketter — og din egen KALENDER og SMS du har sendt',
+  'graph:write': 'Create and change your content — graphs, nodes, images and metadata, add contacts to your own address book and events (without guests) to your own calendar',
+  'graph:publish': 'Make content visible to people who are not signed in',
+  'graph:delete': 'Delete graphs (they stay in the trash for 30 days, then they are gone)',
+  'chat:write': 'Send messages that reach other people, and manage who is in your groups',
+  'chat:read': 'Read messages other people have written — in the chat and in EMAIL INBOXES you can send from',
+  'user:register': 'Create user accounts and change them — role and group',
+  'user:read': 'See other registered people: name, email, role and group',
+  'contacts:read': 'Read your own contact list (ContactHub): name, email, phone, address and labels — and your own CALENDAR and SMS you have sent',
 }
 
 /**
@@ -131,52 +133,52 @@ export const OPT_IN_SCOPES = [
 /** Longer copy for the consent screen: the one-liner is not enough for an outward-facing scope. */
 export const OPT_IN_SCOPE_DETAIL = {
   'graph:delete':
-    'Lar assistenten slette en hel graf når du ber om det. Grafen flyttes til papirkurven med ' +
-    'hele historikken sin og kan hentes tilbake i 30 dager; etter det er den borte for godt. ' +
-    'Bare den som opprettet grafen, eller en Superadmin, kan slette den. Kryss av bare hvis du ' +
-    'vil kunne slette grafer herfra. Å la den stå tom gjør at sletting blir avvist.',
+    'Lets the assistant delete a whole graph when you ask for it. The graph moves to the trash ' +
+    'with its whole history and can be restored for 30 days; after that it is gone for good. ' +
+    'Only the person who created the graph, or a Superadmin, can delete it. Tick this only if ' +
+    'you want to be able to delete graphs from here. Left empty, a delete is refused.',
   'user:read':
-    'Lar assistenten liste de registrerte brukerne på plattformen med navn, e-postadresse, ' +
-    'rolle og gruppe. Dette er ANDRE personers kontaktopplysninger, og de blir en del av ' +
-    'samtalen din hos AI-leverandøren. Innloggingsnøkler vises aldri. Egen avkryssing fra ' +
-    'det å opprette brukere, fordi det å lese om andre er noe annet enn å legge til én.',
+    'Lets the assistant list the registered users on the platform with name, email address, ' +
+    'role and group. These are OTHER people\'s contact details, and they become part of your ' +
+    'conversation at the AI provider. Sign-in keys are never shown. A separate box from ' +
+    'creating users, because reading about others is not the same as adding one.',
   'contacts:read':
-    'Lar assistenten lese og søke i DIN EGEN kontaktliste i ContactHub: navn, e-postadresser, ' +
-    'telefonnumre, første adresse, organisasjon og etiketter. Dette er ANDRE personers ' +
-    'kontaktopplysninger — folk som ikke selv har registrert seg her — og det som hentes blir en ' +
-    'del av samtalen din hos AI-leverandøren. Notater og samtalehistorikk tas ikke med. Den kan ' +
-    'aldri lese andres kontaktlister, og den kan ikke endre eller slette kontakter. ' +
+    'Lets the assistant read and search YOUR OWN contact list in ContactHub: names, email ' +
+    'addresses, phone numbers, first address, organisation and labels. These are OTHER ' +
+    'people\'s contact details — people who have not registered here themselves — and what is ' +
+    'fetched becomes part of your conversation at the AI provider. Notes and conversation ' +
+    'history are not included. It can never read other people\'s contact lists, and it cannot ' +
+    'change or delete contacts. ' +
     // Widened 2026-10-22 for get_my_day and list_sent_sms — same class: your own data that names
     // other people. Both read only.
-    'KALENDER: den kan også lese DIN EGEN kalender (tid, tittel, sted, deltakere — ikke ' +
-    'beskrivelsen). SMS: den kan lese SMS sendt fra plattformens SMS-konto (mottakernummer, tekst, ' +
-    'status, pris) hvis du står på listen over SMS-avsendere; innloggingskoder vises aldri. Egen ' +
-    'avkryssing fra å se registrerte brukere, fordi en adressebok er noe annet enn brukerkatalogen.',
+    'CALENDAR: it can also read YOUR OWN calendar (time, title, place, participants — not the ' +
+    'description). SMS: it can read SMS sent from the platform\'s SMS account (recipient number, ' +
+    'text, status, price) if you are on the list of SMS senders; sign-in codes are never shown. ' +
+    'A separate box from seeing registered users, because an address book is not the user directory.',
   'user:register':
-    'Lar assistenten skrive i brukerkatalogen på dine vegne: opprette en konto for en annen ' +
-    'person med navn og e-post, og endre ' +
-    'hvilke grupper registrerte personer tilhører. Personen kan deretter logge inn på ' +
-    'plattformen med e-posten sin. Kontoen kan ikke gis Superadmin-rolle herfra, og en e-post ' +
-    'som allerede finnes blir avvist i stedet for endret — bare gruppetaggene kan endres ' +
-    'etterpå.',
+    'Lets the assistant write to the user directory on your behalf: create an account for ' +
+    'another person with name and email, and change which groups registered people belong to. ' +
+    'The person can then sign in to the platform with their email. The account cannot be given ' +
+    'the Superadmin role from here, and an email that already exists is refused instead of ' +
+    'changed — only the group tags can be changed afterwards.',
   'graph:publish':
-    'Lar assistenten publisere en html-node til en nettadresse som ALLEREDE er satt opp, slik ' +
-    'at siden blir synlig for hvem som helst på internett. Den kan ikke opprette nye ' +
-    'subdomener, og den kan bare publisere til en adresse noden allerede er knyttet til — et ' +
-    'forsøk på en annen adresse blir avvist. En publisert side erstatter det som lå der fra før. ' +
+    'Lets the assistant publish an html-node to a web address that is ALREADY set up, so that ' +
+    'the page becomes visible to anyone on the internet. It cannot create new subdomains, and ' +
+    'it can only publish to an address the node is already tied to — an attempt at another ' +
+    'address is refused. A published page replaces what was there before. ' +
     // Widened 2026-10-13 for create_worker — same class: something reachable by people who are
-    // not signed in. Named here because "publisere en side" would not make anyone expect code.
-    'Den kan også skrive KODE til en liten frittstående Cloudflare Worker og legge den i det ' +
-    'offentlige GitHub-repoet. Koden blir synlig der med én gang, men workeren går ikke i ' +
-    'produksjon før eieren har godkjent den på GitHub. En slik worker har ingen tilgang til ' +
-    'database, lagring eller hemmeligheter. ' +
+    // not signed in. Named here because "publish a page" would not make anyone expect code.
+    'It can also write CODE for a small standalone Cloudflare Worker and put it in the public ' +
+    'GitHub repo. The code is visible there at once, but the worker does not go into production ' +
+    'until the owner has approved it on GitHub. Such a worker has no access to database, ' +
+    'storage or secrets. ' +
     // Widened 2026-11-13 for publish_component — the same class again, and the one case here
     // with NO approval step, so the copy has to say that in so many words.
-    'Den kan også oppdatere en KOMPONENT som nettsidene dine laster (for eksempel porteføljen) ' +
-    'med koden som ligger i GitHub-repoet Agent-Builder. Det skjer UTEN godkjenning på GitHub, og ' +
-    'den nye koden kjører på alle sider som bruker komponenten i løpet av noen minutter. ' +
-    'Assistenten kan ikke sende inn egen kode her — bare hente det som allerede er lagt i repoet. ' +
-    'Virker bare for Superadmin.',
+    'It can also update a COMPONENT that your web pages load (for example the portfolio) with ' +
+    'the code that is in the GitHub repo Agent-Builder. This happens WITHOUT approval on GitHub, ' +
+    'and the new code runs on every page that uses the component within a few minutes. The ' +
+    'assistant cannot send in code of its own here — only fetch what is already in the repo. ' +
+    'Works for Superadmin only.',
   // Widened 2026-09-30 to name group membership, when the member tools landed. The TEXT is not
   // frozen — only the scope names are — so describing more of a risk class costs a consent
   // screen that reads correctly and nothing else. Naming it matters: someone reading only
@@ -194,33 +196,33 @@ export const OPT_IN_SCOPE_DETAIL = {
   // Sending as another World requires that World holder's deliberate, revocable grant, and no
   // amount of consent here produces one.
   'chat:write':
-    'Lar assistenten sende meldinger som når andre mennesker, på dine vegne, og endre hvem som ' +
-    'er med i chattegrupper DU eier eller er admin i. I dag betyr det chattegrupper du er ' +
-    'medlem av, E-POST OG SMS. E-post: den kan sende fra adresser som står på din egen profil, ' +
-    'eller som noen uttrykkelig har gitt deg lov til å bruke — aldri fra en adresse du bare er ' +
-    'Superadmin over, og en sendt e-post kan ikke kalles tilbake. SMS: den kan sende tekstmelding ' +
-    'til norske mobilnummer, begrenset til en uttrykkelig liste over hvem som får sende, med en ' +
-    'daglig grense. Superadmin alene gir ingenting her heller, avsendernavnet velges av serveren, ' +
-    'og en sendt SMS kan ikke kalles tilbake. Forhåndsvisningen viser melding, antall segmenter og ' +
-    'pris før sending. ' +
+    'Lets the assistant send messages that reach other people, on your behalf, and change who ' +
+    'is in chat groups YOU own or are admin of. Today that means CHAT GROUPS you are a member ' +
+    'of, EMAIL AND SMS. Email: it can send from addresses that are on your own profile, or that ' +
+    'someone has expressly allowed you to use — never from an address you are merely ' +
+    'Superadmin over, and a sent email cannot be called back. SMS: it can send a text message ' +
+    'to Norwegian mobile numbers, limited to an express list of who may send, with a daily ' +
+    'limit. Superadmin alone gives nothing here either, the sender name is chosen by the ' +
+    'server, and a sent SMS cannot be called back. The preview shows the message, the number of ' +
+    'segments and the price before sending. ' +
     // Widened 2026-10-21 for send_meeting_report — same class: it writes into a customer's
-    // kontaktlogg in an outside CMS and cannot be called back.
-    'COACHING-RAPPORT: den kan sende møterapporten fra ContactHub (status, utfall og notat) til ' +
-    'Enkel endring CMS, der den lagres på samtalen og i kundens kontaktlogg — bare for personer ' +
-    'på en uttrykkelig liste, etter en forhåndsvisning, og den kan ikke kalles tilbake. Scopen dekker ' +
-    'meldingskanaler generelt, så et framtidig verktøy i samme klasse ' +
-    'vil bruke den i stedet for å be deg autorisere på nytt. Meldingene postes av ' +
-    'assistentens egen bot og merkes alltid med at en AI skrev dem på dine vegne. Den kan bare ' +
-    'poste i grupper der boten er lagt til. Meldinger kan ikke slettes av assistenten etterpå. ' +
-    'Den kan bare legge til folk som allerede er registrerte VEGR.AI-brukere, og bare i grupper ' +
-    'der du selv er eier eller admin — ikke i grupper du bare er medlem av.',
+    // contact log in an outside CMS and cannot be called back.
+    'COACHING REPORT: it can send the meeting report from ContactHub (status, outcome and note) ' +
+    'to the Enkel endring CMS, where it is stored on the conversation and in the customer\'s ' +
+    'contact log — only for people on an express list, after a preview, and it cannot be called ' +
+    'back. The scope covers message channels in general, so a future tool in the same class ' +
+    'will use it instead of asking you to authorize again. The messages are posted by the ' +
+    'assistant\'s own bot and are always marked as written by an AI on your behalf. It can only ' +
+    'post in groups where the bot has been added. Messages cannot be deleted by the assistant ' +
+    'afterwards. It can only add people who are already registered VEGR.AI users, and only in ' +
+    'groups where you yourself are owner or admin — not in groups you are merely a member of.',
   'chat:read':
-    'Lar assistenten lese meldinger — også fra andre deltakere — i grupper du er medlem av og ' +
-    'der assistentens bot er lagt til. Den ser bare det du selv allerede ser i chatten, og får ' +
-    'visningsnavn, aldri e-postadresser. Gi dette hvis du vil be den oppsummere en samtale. ' +
-    'Den lar den også lese E-POST i innboksen til en adresse du selv har eller har fått lov til ' +
-    'å sende fra (for eksempel en felles postkasse): avsender, emne, tekst og navn på vedlegg. ' +
-    'Den kan ikke slette, flytte eller merke e-post som lest.',
+    'Lets the assistant read messages — also from other participants — in groups you are a ' +
+    'member of and where the assistant\'s bot has been added. It sees only what you already see ' +
+    'in the chat, and gets display names, never email addresses. Give this if you want to ask ' +
+    'it to summarise a conversation. It also lets it read EMAIL in the inbox of an address you ' +
+    'have, or have been allowed to send from (for example a shared mailbox): sender, subject, ' +
+    'text and names of attachments. It cannot delete, move or mark email as read.',
 }
 
 /** Validate a user's opt-in picks: only real opt-in scopes, never anything else. */

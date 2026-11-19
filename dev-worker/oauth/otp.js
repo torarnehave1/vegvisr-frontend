@@ -213,7 +213,9 @@ export async function sendChallenge(env, { tx, phoneRaw, clientIp }) {
   // desktop OAuth window — there the user still types six digits.
   const smsBody = {
     to: phone,
-    message: `Din VEGR.AI-innloggingskode: ${code}\n\n@${OTP_BOUND_DOMAIN} #${code}`,
+    // "verification code" is what sms-service.js (LOGIN_CODE_SMS) looks for to keep these
+    // messages out of list_sent_sms. Reword it only together with that pattern.
+    message: `Your VEGR.AI verification code: ${code}\n\n@${OTP_BOUND_DOMAIN} #${code}`,
     sender: 'VEGR.AI',
   }
   const req = {
