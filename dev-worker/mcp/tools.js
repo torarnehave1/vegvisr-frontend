@@ -8143,9 +8143,11 @@ ${result.warnings.join('\n')}` : ''),
         'and no content. scope "mine" (default) is the graphs you own, as list_my_graphs counts ' +
         'them; scope "all" is everything you can see, as search_graphs counts it. metaArea narrows ' +
         'to one tag. nodeType keeps only the graphs that contain a node of that type, in any meta ' +
-        'area. includeNodes (needs a metaArea or a nodeType, at most 600 graphs) adds each graph\'s nodes ' +
+        'area. includeNodes (needs a metaArea, a nodeType or graphIds, at most 600 graphs) adds each graph\'s nodes ' +
         '(id, label, type) and edges (source, target) — never node text; with nodeType it is ALL ' +
-        'nodes of each matching graph, not only the nodes of that type. Made for maps, timelines ' +
+        'nodes of each matching graph, not only the nodes of that type. graphIds (at most 600) keeps ' +
+        'only those graphs, e.g. the ones a map is showing: the 600 limit then counts that selection, ' +
+        'not everything the meta area or node type covers. Made for maps, timelines ' +
         'and counts over the whole collection; the rows are in the structured result, and the text ' +
         'is only a summary — to read graphs as lines use list_my_graphs, to read one use get_graph. ' +
         'Optional narrowing, all combinable: world (a World domain, or "shared"), metaAreas (any of ' +
@@ -8160,7 +8162,8 @@ ${result.warnings.join('\n')}` : ''),
         scope: z.enum(['mine', 'all']).optional().describe('"mine" (default): graphs you own. "all": every graph you can see, in every World you can use.'),
         metaArea: z.string().optional().describe('Narrow to a meta-area tag, e.g. "#NINE".'),
         nodeType: z.string().optional().describe('Only graphs containing a node of this type, e.g. "micro-story". Exact match, as list_node_types spells it.'),
-        includeNodes: z.boolean().optional().describe('Also return each graph\'s nodes (id, label, type) and edges. Needs metaArea or nodeType.'),
+        includeNodes: z.boolean().optional().describe('Also return each graph\'s nodes (id, label, type) and edges. Needs metaArea, nodeType or graphIds.'),
+        graphIds: z.array(z.string()).max(600).optional().describe('Only these graphs, e.g. the graphs a map is showing. At most 600.'),
         world: z.string().optional().describe('Only graphs stored in this World, e.g. "sodesign.no"; "shared" for the platform\'s shared storage.'),
         metaAreas: z.array(z.string()).optional().describe('Only graphs carrying ANY of these meta-area tags, e.g. ["#NINE", "#BOOK"].'),
         published: z.enum(['live', 'published', 'private']).optional().describe('"live": served at a hostname. "published": publication state published. "private": anything not published.'),
@@ -8208,7 +8211,7 @@ ${result.warnings.join('\n')}` : ''),
       },
       annotations: READ_ONLY,
     },
-    async ({ scope, metaArea, nodeType, includeNodes, world, metaAreas, published, createdFrom, createdTo, minVersion, offset, limit, brief, order }) => {
+    async ({ scope, metaArea, nodeType, includeNodes, graphIds, world, metaAreas, published, createdFrom, createdTo, minVersion, offset, limit, brief, order }) => {
       const { auth, env, props } = getContext()
       const scopeErr = requireScope(auth, 'graph:read')
       if (scopeErr) return scopeErr
@@ -8218,7 +8221,7 @@ ${result.warnings.join('\n')}` : ''),
       const badFilter = ixf.checkIndexFilters(extra)
       if (badFilter) return err(gs.ERR.INVALID_INPUT, badFilter)
 
-      const r = await gs.graphIndex(env, { scope, metaArea, nodeType, includeNodes: Boolean(includeNodes), actor })
+      const r = await gs.graphIndex(env, { scope, metaArea, nodeType, includeNodes: Boolean(includeNodes), graphIds, actor })
       if (!r.ok) return fromService(r)
 
       const { ok: _o, graphs: rawGraphs, ...rest } = r
