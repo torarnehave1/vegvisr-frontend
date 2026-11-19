@@ -733,6 +733,43 @@ describe('graph_index: the whole collection in one call', () => {
     assert.equal((await callOk(client, 'graph_index', {})).nodeType, null)
   })
 
+  // 2026-11-19: Garnet showed five graphs ("created today, with a fulltext node") and was refused
+  // their nodes, because the node type alone covered more than 600. The ids of the graphs shown
+  // now narrow the read itself.
+  test('graphIds: the node lists of a small selection, however many graphs the node type covers', async () => {
+    const { env } = freshDb()
+    const { client } = await connect(env, ALICE_RW)
+    const made = []
+    for (let i = 0; i < 601; i++) {
+      made.push((await callOk(client, 'create_graph', { title: `G${i}`, metaArea: '#MANY', nodes: [{ label: `n${i}`, type: 'fulltext', info: 'HEMMELIG' }] })).graphId)
+    }
+    // The node type alone: more than 600 graphs, refused as before — and the message says what to do.
+    const refused = await callErr(client, 'graph_index', { nodeType: 'fulltext', includeNodes: true })
+    assert.equal(refused.code, gs.ERR.INVALID_INPUT)
+    assert.match(refused.message, /graphIds/)
+
+    // Five of them, named: their nodes come back.
+    const five = made.slice(100, 105)
+    const picked = await callOk(client, 'graph_index', { nodeType: 'fulltext', includeNodes: true, graphIds: five })
+    assert.equal(picked.total, 5)
+    assert.deepEqual(picked.graphs.map((g) => g.graphId).sort(), [...five].sort())
+    assert.deepEqual(picked.graphs.map((g) => g.nodes.length), [1, 1, 1, 1, 1])
+    assert.ok(!JSON.stringify(picked).includes('HEMMELIG'), 'node content must not be in the index')
+
+    // graphIds alone is enough for includeNodes; without includeNodes it narrows the plain index.
+    assert.equal((await callOk(client, 'graph_index', { includeNodes: true, graphIds: five })).total, 5)
+    assert.equal((await callOk(client, 'graph_index', { graphIds: five.slice(0, 2) })).total, 2)
+    // Unknown ids match nothing; repeated ids count once; the other filters still apply.
+    assert.equal((await callOk(client, 'graph_index', { includeNodes: true, graphIds: ['nope', five[0], five[0]] })).total, 1)
+    assert.equal((await callOk(client, 'graph_index', { nodeType: 'info', includeNodes: true, graphIds: five })).total, 0)
+    // 600 ids in one call: one bound value, so D1's limit of 100 bound values is not in the way.
+    assert.equal((await callOk(client, 'graph_index', { includeNodes: true, graphIds: made.slice(0, 600) })).total, 600)
+
+    // The ids select among what the caller may see: another person's private graph stays out.
+    const { client: bob } = await connect(env, BOB_RW)
+    assert.equal((await callOk(bob, 'graph_index', { scope: 'all', includeNodes: true, graphIds: five })).total, 0)
+  })
+
   test('world, metaAreas, published, created range, paging and brief narrow the index', async () => {
     const { env } = freshDb()
     const { client } = await connect(env, ALICE_RW)

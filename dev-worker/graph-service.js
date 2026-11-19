@@ -2480,7 +2480,7 @@ function headerImageOf(text) {
   return m ? m[1] : null
 }
 
-export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeType = null, includeNodes = false, actor }) {
+export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeType = null, includeNodes = false, graphIds = null, actor }) {
   if (!actor) return fail(ERR.UNAUTHENTICATED, 'Authentication required.')
   const all = scope === 'all'
   if (!all && !actor.email) {
@@ -2493,15 +2493,32 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
 
   const areaFilter = metaAreaTagFilter(dataSql, metaArea)
   const typeFilter = String(nodeType ?? '').trim()
-  if (includeNodes && !areaFilter && !typeFilter) {
-    return fail(ERR.INVALID_INPUT, 'includeNodes needs a metaArea or a nodeType: node lists are returned for one meta area or one node type at a time.')
+  // graphIds (2026-11-19): the graphs a map is SHOWING. Garnet filters by World, dates and more on
+  // its own side; "graphs created today with a fulltext node" is five graphs there, but the node
+  // type alone covers 1,792, and the node lists were refused for a selection that was never large.
+  // The ids narrow the read itself, so the limit below counts what was asked for. They select
+  // among the graphs the caller may see — the visibility clause still applies to every one.
+  const idList = Array.isArray(graphIds) ? [...new Set(graphIds.map((x) => String(x || '').trim()).filter(Boolean))] : null
+  if (idList && idList.length > INDEX_NODES_MAX_GRAPHS) {
+    return fail(ERR.INVALID_INPUT, `graphIds takes at most ${INDEX_NODES_MAX_GRAPHS} graphs at a time.`)
   }
-  // The same test search_graphs uses for its nodeType filter.
+  const idFilter = idList && idList.length ? idList : null
+  if (includeNodes && !areaFilter && !typeFilter && !idFilter) {
+    return fail(ERR.INVALID_INPUT, 'includeNodes needs a metaArea, a nodeType or graphIds: node lists are returned for one meta area, one node type or one selection of graphs at a time.')
+  }
+  // The same test search_graphs uses for its nodeType filter. The ids go in as ONE bound value
+  // (a JSON list read with json_each): D1 allows 100 bound values in a statement, and a map can
+  // show 600 graphs.
   const areaClause = [
     ...(areaFilter ? [areaFilter.sql] : []),
     ...(typeFilter ? [`EXISTS (SELECT 1 FROM json_each(${nodesSql}) WHERE json_extract(value, '$.type') = ?)`] : []),
+    ...(idFilter ? [`id IN (SELECT value FROM json_each(?))`] : []),
   ]
-  const areaBind = [...(areaFilter ? [areaFilter.binding] : []), ...(typeFilter ? [typeFilter] : [])]
+  const areaBind = [
+    ...(areaFilter ? [areaFilter.binding] : []),
+    ...(typeFilter ? [typeFilter] : []),
+    ...(idFilter ? [JSON.stringify(idFilter)] : []),
+  ]
 
   const whereFor = await indexWhereFor(env, actor, all, areaClause, areaBind)
 
@@ -2570,7 +2587,7 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
   }
   const shareMap = await sharesOf(env)
   if (includeNodes && rows.length > INDEX_NODES_MAX_GRAPHS) {
-    return fail(ERR.INVALID_INPUT, `That ${areaFilter ? 'meta area' : 'node type'}${areaFilter && typeFilter ? ' and node type' : ''} covers more than ${INDEX_NODES_MAX_GRAPHS} graphs; node lists are returned for at most ${INDEX_NODES_MAX_GRAPHS} graphs at a time.`)
+    return fail(ERR.INVALID_INPUT, `That ${areaFilter ? 'meta area' : 'node type'}${areaFilter && typeFilter ? ' and node type' : ''} covers more than ${INDEX_NODES_MAX_GRAPHS} graphs; node lists are returned for at most ${INDEX_NODES_MAX_GRAPHS} graphs at a time. Pass graphIds to ask for a smaller selection.`)
   }
   rows.sort((a, b) => String(a.created_date || '').localeCompare(String(b.created_date || '')))
 
