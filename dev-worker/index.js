@@ -23,6 +23,7 @@ import {
   encryptDataNodeInfo,
   decryptDataNodeInfo,
   withEdgeIds,
+  stampChangedNodes,
 } from './graph-service.js'
 import { platformStore, resolveGraphStore, GraphStoreError, setLocationStatus, worldStoresFor, graphIdOfTrashId, reserveLocation, activateLocation, dropPendingLocation, publicWorldStoresByTag, defaultWorldFor, mayUseWorld } from './graph-store.js'
 
@@ -6318,13 +6319,16 @@ const restHandler = {
             )
           }
 
+          // Each node's own update time (2026-11-20): a new graph, so every node gets now.
+          const savedNow = new Date().toISOString()
+          stampChangedNodes(null, graphData.nodes, savedNow)
           await (await resolveGraphStore(env, { graphId: id, actor: normalizeActor(tokenValidation) })).insertUnversioned({
             id,
             title: graphData.metadata.title,
             description: graphData.metadata.description,
             createdBy: graphData.metadata.createdBy,
             data: JSON.stringify(graphData),
-            now: new Date().toISOString(),
+            now: savedNow,
           })
 
           console.log('[Worker] Knowledge graph saved successfully')
@@ -6434,7 +6438,16 @@ const restHandler = {
 
           console.log(`[Worker] Updating graph with ID: ${id}`)
 
-          await (await resolveGraphStore(env, { graphId: id, actor: normalizeActor(tokenValidation) })).putData(id, JSON.stringify(graphData), new Date().toISOString())
+          // Each node's own update time (2026-11-20): this endpoint writes no version, so the time
+          // on the node is the only trace of which nodes it changed. Compared with what is stored.
+          const updStore = await resolveGraphStore(env, { graphId: id, actor: normalizeActor(tokenValidation) })
+          const updNow = new Date().toISOString()
+          let updStored = []
+          try {
+            updStored = JSON.parse((await updStore.getRow(id))?.data || '{}')?.nodes || []
+          } catch { /* an unparseable stored graph: every node counts as changed */ }
+          stampChangedNodes(updStored, graphData.nodes, updNow)
+          await updStore.putData(id, JSON.stringify(graphData), updNow)
 
           console.log('[Worker] Graph updated successfully')
           return new Response(JSON.stringify({ message: 'Graph updated successfully', id }), {
@@ -9807,6 +9820,8 @@ const restHandler = {
             color: '#f4e2d8',
             type: 'notes',
             info: noteResult.note,
+            // The node's own update time, as every other write sets it (2026-11-20).
+            metadata: { updatedAt: new Date().toISOString() },
           }
           graphData.nodes.push(newNode)
 
