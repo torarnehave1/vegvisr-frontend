@@ -427,3 +427,68 @@ describe('status code mapping', () => {
     assert.equal(gs.statusForCode(gs.ERR.INTERNAL_ERROR), 500)
   })
 })
+
+describe("a node's own update time (metadata.updatedAt)", () => {
+  const nodeOf = async (env, graphId, id) => (await gs.getGraph(env, graphId, { caller: alice })).graph.nodes.find((n) => n.id === id)
+  const wait = () => new Promise((r) => setTimeout(r, 5))
+
+  test('add_node stamps the node; a client-sent time is not trusted', async () => {
+    const { env } = freshDb()
+    const r = await makeGraph(env)
+    const a = await gs.addNode(env, { graphId: r.graphId, node: { label: 'N', info: 'x', metadata: { updatedAt: '1999-01-01T00:00:00.000Z', status: 'open' } }, actor: alice })
+    const n = await nodeOf(env, r.graphId, a.nodeId)
+    assert.match(n.metadata.updatedAt, /^20\d\d-/)
+    assert.equal(n.metadata.status, 'open')
+  })
+
+  test('update_node: a content change moves the time, a move alone keeps it', async () => {
+    const { env } = freshDb()
+    const r = await makeGraph(env)
+    const a = await gs.addNode(env, { graphId: r.graphId, node: { label: 'N', info: 'x' }, actor: alice })
+    const t0 = (await nodeOf(env, r.graphId, a.nodeId)).metadata.updatedAt
+    await wait()
+    const moved = await gs.updateNode(env, { graphId: r.graphId, nodeId: a.nodeId, fields: { position: { x: 5, y: 6 } }, expectedVersion: a.newVersion, actor: alice })
+    assert.equal(moved.ok, true, moved.message)
+    assert.equal((await nodeOf(env, r.graphId, a.nodeId)).metadata.updatedAt, t0)
+    await wait()
+    const edited = await gs.updateNode(env, { graphId: r.graphId, nodeId: a.nodeId, fields: { info: 'y', metadata: { status: 'done' } }, expectedVersion: moved.newVersion, actor: alice })
+    assert.equal(edited.ok, true, edited.message)
+    const n = await nodeOf(env, r.graphId, a.nodeId)
+    assert.ok(n.metadata.updatedAt > t0)
+    assert.equal(n.metadata.status, 'done')
+  })
+
+  test('a whole-graph save stamps only the nodes that changed, and gives back a time the client dropped', async () => {
+    const { env } = freshDb()
+    const r = await makeGraph(env)
+    const a = await gs.addNode(env, { graphId: r.graphId, node: { label: 'A', info: 'a' }, actor: alice })
+    const b = await gs.addNode(env, { graphId: r.graphId, node: { label: 'B', info: 'b' }, actor: alice })
+    const before = (await gs.getGraph(env, r.graphId, { caller: alice })).graph
+    const tA = before.nodes.find((n) => n.id === a.nodeId).metadata.updatedAt
+    const tB = before.nodes.find((n) => n.id === b.nodeId).metadata.updatedAt
+    await wait()
+    // An editor sends the graph back: A moved and without its metadata, B edited, C new.
+    const nodes = before.nodes.map((n) => {
+      if (n.id === a.nodeId) { const { metadata: _m, ...rest } = n; return { ...rest, position: { x: 9, y: 9 } } }
+      if (n.id === b.nodeId) return { ...n, info: 'b2' }
+      return n
+    })
+    nodes.push({ id: crypto.randomUUID(), label: 'C', info: 'c' })
+    const saved = await gs.saveGraph(env, { id: r.graphId, graphData: { metadata: before.metadata, nodes, edges: before.edges }, actor: alice })
+    assert.equal(saved.ok, true, saved.message)
+    const after = (await gs.getGraph(env, r.graphId, { caller: alice })).graph
+    assert.equal(after.nodes.find((n) => n.id === a.nodeId).metadata.updatedAt, tA)
+    assert.ok(after.nodes.find((n) => n.id === b.nodeId).metadata.updatedAt > tB)
+    assert.match(after.nodes.find((n) => n.label === 'C').metadata.updatedAt, /^20\d\d-/)
+  })
+
+  test('graph_index with includeNodes carries each node\'s time', async () => {
+    const { env } = freshDb()
+    const r = await makeGraph(env)
+    const a = await gs.addNode(env, { graphId: r.graphId, node: { label: 'N' }, actor: alice })
+    const idx = await gs.graphIndex(env, { scope: 'mine', graphIds: [r.graphId], includeNodes: true, actor: alice })
+    assert.equal(idx.ok, true, idx.message)
+    const n = idx.graphs[0].nodes.find((x) => x.id === a.nodeId)
+    assert.match(n.updatedAt, /^20\d\d-/)
+  })
+})

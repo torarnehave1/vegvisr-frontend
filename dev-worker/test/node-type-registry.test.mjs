@@ -123,9 +123,11 @@ describe('register_node_type → add_node / update_node with the new type', () =
     const read = await gs.getGraph(env, g.graphId)
     const byId = Object.fromEntries(read.graph.nodes.map((n) => [n.id, n]))
     assert.equal(byId['ctx-1'].type, 'work-context')
-    assert.deepEqual(byId['ctx-1'].metadata, { tools: ['mcp_call'], order: 1 })
+    // metadata.updatedAt is the server's own stamp (2026-11-20), set aside here.
+    const own = ({ updatedAt: _t, ...rest }) => rest
+    assert.deepEqual(own(byId['ctx-1'].metadata), { tools: ['mcp_call'], order: 1 })
     assert.equal(byId.n2.type, 'work-context')
-    assert.deepEqual(byId.n2.metadata, { order: 2 }, 'changing the type must not touch metadata')
+    assert.deepEqual(own(byId.n2.metadata), { order: 2 }, 'changing the type must not touch metadata')
   })
 
   test('registering twice is reported, not duplicated', async () => {

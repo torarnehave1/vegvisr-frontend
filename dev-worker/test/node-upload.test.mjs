@@ -54,7 +54,9 @@ test('an upload replaces the text of an existing node, byte for byte, and keeps 
   assert.equal(node.info, HTML)
   assert.equal(node.label, 'Page')
   assert.equal(node.type, 'html-node')
-  assert.deepEqual(node.metadata, { keep: 'me' })
+  // metadata.updatedAt is the server's own stamp (2026-11-20), set aside here.
+  const { updatedAt: _t, ...kept } = node.metadata
+  assert.deepEqual(kept, { keep: 'me' })
   assert.equal(read.version, body.version)
 
   // Once only.

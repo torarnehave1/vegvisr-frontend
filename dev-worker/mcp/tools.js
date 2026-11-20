@@ -132,7 +132,8 @@ const makeNodeInput = (nodeTypes) => z
     metadata: NodeMetadata.optional().describe(
       'Structured fields for machines, beside the prose a human reads in `info` — a kind, a ' +
         'binding name, a pointer to another graph. The viewer renders `info`; tools query this. ' +
-        'Reserved keys (createdBy, userId, token, encrypted, review) are refused.',
+        'Reserved keys (createdBy, userId, token, encrypted, review) are refused. ' +
+        'metadata.updatedAt is set by the server (when the node\'s content last changed); a value sent is ignored.',
     ),
   })
   .describe('A knowledge-graph node.')
@@ -8211,7 +8212,8 @@ ${result.warnings.join('\n')}` : ''),
         'them; scope "all" is everything you can see, as search_graphs counts it. metaArea narrows ' +
         'to one tag. nodeType keeps only the graphs that contain a node of that type, in any meta ' +
         'area. includeNodes (needs a metaArea, a nodeType or graphIds, at most 600 graphs) adds each graph\'s nodes ' +
-        '(id, label, type) and edges (source, target) — never node text; with nodeType it is ALL ' +
+        '(id, label, type, updatedAt) and edges (source, target) — never node text; updatedAt is when ' +
+        'that node\'s content last changed (null for a node not written since 2026-11-20); with nodeType it is ALL ' +
         'nodes of each matching graph, not only the nodes of that type. graphIds (at most 600) keeps ' +
         'only those graphs, e.g. the ones a map is showing: the 600 limit then counts that selection, ' +
         'not everything the meta area or node type covers. Made for maps, timelines ' +
@@ -8271,7 +8273,7 @@ ${result.warnings.join('\n')}` : ''),
             image: z.string().nullable().optional().describe("The graph's card image: the address held by its first portfolio-image node. Null when it has none."),
             headerImage: z.string().nullable().optional().describe("The graph's header image: the address in the first ![Header|…](address) element of its nodes. Null when it has none."),
             publishedDomains: z.array(z.string()).optional().describe('Hostnames this graph serves a live page at. Empty for a graph that publishes nowhere.'),
-            nodes: z.array(z.object({ id: z.string(), label: z.string().nullable(), type: z.string().nullable() })).optional(),
+            nodes: z.array(z.object({ id: z.string(), label: z.string().nullable(), type: z.string().nullable(), updatedAt: z.string().nullable().optional().describe("When the node's content last changed (UTC). Null: not written since nodes began to carry a time.") })).optional(),
             edges: z.array(z.object({ source: z.string(), target: z.string() })).optional(),
           }),
         ),

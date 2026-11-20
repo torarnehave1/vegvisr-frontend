@@ -270,6 +270,69 @@ export function isUuidV4(id) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// A node's own update time (2026-11-20)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// node.metadata.updatedAt (ISO, UTC) is when the node's CONTENT last changed. Until this, only the
+// graph carried a time, and a map that wanted "the nodes changed today" had to read two saved
+// versions of every graph and compare them. The server sets the time on every versioned write;
+// what a client sends in that field is never trusted. Moving a node in an editor (position, x, y,
+// visible) is not a change to the node. Nodes written before this carry no time.
+
+const NODE_PLACE_KEYS = new Set(['position', 'x', 'y', 'visible'])
+
+/** A node as text for comparing two states of it: place and the stamp itself left out. */
+function nodeFace(node) {
+  const n = node && typeof node === 'object' ? node : {}
+  const out = {}
+  for (const k of Object.keys(n).sort()) {
+    if (NODE_PLACE_KEYS.has(k)) continue
+    let v = n[k]
+    if (k === 'metadata' && v && typeof v === 'object' && !Array.isArray(v)) {
+      const m = {}
+      for (const mk of Object.keys(v).sort()) if (mk !== 'updatedAt') m[mk] = v[mk]
+      v = Object.keys(m).length ? m : null
+    }
+    // The defaults enrichGraphData fills in on a whole-graph save, so a node stored by add_node
+    // and the same node sent back by an editor compare equal.
+    if (k === 'bibl' && Array.isArray(v) && !v.length) v = null
+    if (v === undefined || v === null || v === '') continue
+    out[k] = v
+  }
+  return JSON.stringify(out)
+}
+
+/** Set (time) or clear (null) a node's update time. A metadata that is not an object is left alone. */
+function setNodeUpdatedAt(node, time) {
+  if (!node || typeof node !== 'object') return
+  const m = node.metadata
+  if (m == null) {
+    if (time) node.metadata = { updatedAt: time }
+    return
+  }
+  if (typeof m !== 'object' || Array.isArray(m)) return
+  if (time) m.updatedAt = time
+  else delete m.updatedAt
+}
+
+/**
+ * Whole-graph save: a node that is new, or reads differently than the stored one, gets `now`;
+ * an unchanged node keeps the time the stored node carries (or none). prevNodes null: a new graph.
+ */
+export function stampChangedNodes(prevNodes, nodes, now) {
+  const was = new Map((Array.isArray(prevNodes) ? prevNodes : []).filter((n) => n && n.id != null).map((n) => [String(n.id), n]))
+  for (const n of Array.isArray(nodes) ? nodes : []) {
+    if (!n || typeof n !== 'object') continue
+    const old = n.id != null ? was.get(String(n.id)) : null
+    if (!old || nodeFace(old) !== nodeFace(n)) setNodeUpdatedAt(n, now)
+    else {
+      const t = old.metadata && typeof old.metadata === 'object' ? old.metadata.updatedAt : null
+      setNodeUpdatedAt(n, typeof t === 'string' && t ? t : null)
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Version helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -592,6 +655,19 @@ export async function saveGraph(env, { id, graphData, override = false, actor = 
   const sourceApp = enriched.metadata.createdBy || null
   const now = new Date().toISOString()
 
+  // Each node's own update time: compared with the graph as it is stored now.
+  let storedNodes = null
+  if (graphExists) {
+    try {
+      storedNodes = JSON.parse((await store.getRow(id))?.data || '{}')?.nodes || []
+    } catch {
+      storedNodes = [] // an unparseable stored graph: every node counts as changed
+    }
+  }
+  // enrichGraphData copies each node but not its metadata: copy it, so the caller's object is not changed.
+  for (const n of enriched.nodes) if (n.metadata && typeof n.metadata === 'object' && !Array.isArray(n.metadata)) n.metadata = { ...n.metadata }
+  stampChangedNodes(storedNodes, enriched.nodes, now)
+
   // A new row stores '' for a missing title/description/creator; an existing row keeps its
   // column when the incoming value is missing (null → COALESCE in the store).
   const blank = graphExists ? null : ''
@@ -710,6 +786,9 @@ export async function addNode(env, { graphId, node, expectedVersion = null, acto
     nodeToInsert.metadata.encrypted = true
   }
 
+  const now = new Date().toISOString()
+  if (nodeToInsert.metadata && typeof nodeToInsert.metadata === 'object' && !Array.isArray(nodeToInsert.metadata)) nodeToInsert.metadata = { ...nodeToInsert.metadata }
+  setNodeUpdatedAt(nodeToInsert, now)
   graphData.nodes.push(nodeToInsert)
 
   const newVersion = current + 1
@@ -720,7 +799,7 @@ export async function addNode(env, { graphId, node, expectedVersion = null, acto
     id: graphId,
     data: JSON.stringify(graphData),
     version: newVersion,
-    now: new Date().toISOString(),
+    now,
   })
 
   return {
@@ -913,12 +992,15 @@ export async function addElements(env, { graphId, nodes = [], edges = [], expect
   }
   if (!newNodes.length && !newEdges.length) return { ...base, newVersion: current, written: false }
 
+  const now = new Date().toISOString()
   for (const n of newNodes) {
     if (n.type === 'data-node' && n.info && env.ENCRYPTION_MASTER_KEY) {
       n.info = await encryptDataNodeInfo(n.info, env.ENCRYPTION_MASTER_KEY)
       if (!n.metadata) n.metadata = {}
       n.metadata.encrypted = true
     }
+    if (n.metadata && typeof n.metadata === 'object' && !Array.isArray(n.metadata)) n.metadata = { ...n.metadata }
+    setNodeUpdatedAt(n, now)
     graphData.nodes.push(n)
   }
   graphData.edges.push(...newEdges)
@@ -931,7 +1013,7 @@ export async function addElements(env, { graphId, nodes = [], edges = [], expect
     id: graphId,
     data: JSON.stringify(graphData),
     version: newVersion,
-    now: new Date().toISOString(),
+    now,
   })
 
   return { ...base, newVersion, written: true }
@@ -1704,7 +1786,15 @@ export async function updateNode(env, { graphId, nodeId, fields, expectedVersion
   }
 
   const { id: _ignoreId, ...safeFields } = patch
-  Object.assign(graphData.nodes[nodeIndex], safeFields)
+  const now = new Date().toISOString()
+  const target = graphData.nodes[nodeIndex]
+  const faceBefore = nodeFace(target)
+  const stampBefore = target.metadata && typeof target.metadata === 'object' ? target.metadata.updatedAt : null
+  Object.assign(target, safeFields)
+  // The node's own update time: now when its content changed; a move alone keeps the old time.
+  // A metadata sent in the patch replaces the node's metadata, so the time is put back either way.
+  if (target.metadata && typeof target.metadata === 'object' && !Array.isArray(target.metadata)) target.metadata = { ...target.metadata }
+  setNodeUpdatedAt(target, nodeFace(target) !== faceBefore ? now : typeof stampBefore === 'string' && stampBefore ? stampBefore : null)
 
   const newVersion = current + 1
   if (!graphData.metadata) graphData.metadata = {}
@@ -1715,7 +1805,7 @@ export async function updateNode(env, { graphId, nodeId, fields, expectedVersion
     data: JSON.stringify(graphData),
     version: newVersion,
     casVersion: expectedVersion,
-    now: new Date().toISOString(),
+    now,
   })
 
   // A conflict means another request won the race between the read above and this write.
@@ -2591,7 +2681,8 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
         (SELECT json_group_array(json_object(
             'id', json_extract(value, '$.id'),
             'label', json_extract(value, '$.label'),
-            'type', json_extract(value, '$.type')))
+            'type', json_extract(value, '$.type'),
+            'updatedAt', json_extract(value, '$.metadata.updatedAt')))
           FROM json_each(${nodesSql})) AS nodes_json,
         (SELECT json_group_array(json_object(
             'source', json_extract(value, '$.source'),
@@ -2696,7 +2787,9 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
       ? {
           nodes: parseList(r.nodes_json)
             .filter((n) => n && n.id != null)
-            .map((n) => ({ id: String(n.id), label: n.label == null ? null : String(n.label), type: n.type == null ? null : String(n.type) })),
+            // updatedAt: when the node's content last changed (node.metadata.updatedAt). Null for a
+            // node written before 2026-11-20, when nodes began to carry a time of their own.
+            .map((n) => ({ id: String(n.id), label: n.label == null ? null : String(n.label), type: n.type == null ? null : String(n.type), updatedAt: typeof n.updatedAt === 'string' && n.updatedAt ? n.updatedAt : null })),
           edges: parseList(r.edges_json)
             .filter((e) => e && e.source != null && e.target != null)
             .map((e) => ({ source: String(e.source), target: String(e.target) })),

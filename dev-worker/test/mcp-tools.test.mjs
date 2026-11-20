@@ -2223,6 +2223,13 @@ describe('node types: a graph generated over MCP cannot carry a type that will n
 // architecture graphs the MCP is supposed to maintain could not carry a kind or a review block.
 describe('node metadata: the second content slot, and what a model may not put in it', () => {
   const REVIEW = { approvedBy: 'alice@example.com', approvedAt: '2026-10-05T10:00:00Z', contentHash: 'abc123' }
+  // The server adds metadata.updatedAt (when the node's content last changed, 2026-11-20). These
+  // tests are about the keys a caller sends: the time is checked to be there, then set aside.
+  const own = (m) => {
+    assert.match(String(m?.updatedAt), /^20\d\d-/, 'the server stamps the node')
+    const { updatedAt: _t, ...rest } = m
+    return rest
+  }
 
   test('metadata is declared on both write tools, so a refactor cannot silently drop it again', async () => {
     const { env } = freshDb()
@@ -2247,7 +2254,7 @@ describe('node metadata: the second content slot, and what a model may not put i
       node: { id: 'n1', label: 'Email gate', type: 'fulltext', info: 'own-profile or a grant', metadata: { kind: 'decision', layer: 'communication' } },
     })
     const after = await callOk(client, 'get_graph', { graphId: g.graphId })
-    assert.deepEqual(after.nodes[0].metadata, { kind: 'decision', layer: 'communication' })
+    assert.deepEqual(own(after.nodes[0].metadata), { kind: 'decision', layer: 'communication' })
   })
 
   test('each reserved key is refused at the protocol, and nothing is written', async () => {
@@ -2307,7 +2314,7 @@ describe('node metadata: the second content slot, and what a model may not put i
       graphId: g.graphId, nodeId: 'n1', fields: { metadata: { kind: 'decision' } }, expectedVersion: 1,
     })
     const after = await callOk(client, 'get_graph', { graphId: g.graphId })
-    assert.deepEqual(after.nodes[0].metadata, { kind: 'decision', layer: 'communication', owner: 'email' },
+    assert.deepEqual(own(after.nodes[0].metadata), { kind: 'decision', layer: 'communication', owner: 'email' },
       'the keys not named must survive')
   })
 
@@ -2322,7 +2329,7 @@ describe('node metadata: the second content slot, and what a model may not put i
       graphId: g.graphId, nodeId: 'n1', fields: { metadata: { stale: null } }, expectedVersion: 1,
     })
     const after = await callOk(client, 'get_graph', { graphId: g.graphId })
-    assert.deepEqual(after.nodes[0].metadata, { kind: 'decision' })
+    assert.deepEqual(own(after.nodes[0].metadata), { kind: 'decision' })
   })
 
   // THE ONE THAT CARRIES THE DESIGN. Human Knowledge First means a human reviewed and approved the
