@@ -1011,6 +1011,70 @@ export async function removeEdge(env, { graphId, edgeId = null, source = null, t
 }
 
 /**
+ * Remove ONE node from a graph, with the edges that touch it (MCP remove_node, 2026-11-20).
+ *
+ * Asked for when a payment node had been made for someone who is not a member, and nothing could
+ * take a node away. The node is named by its id. expectedVersion is REQUIRED, as for remove_edge:
+ * this rewrites the node and edge lists, and the graph's history keeps the version before, so the
+ * node can be read back from get_graph_version. Other nodes are never touched.
+ */
+export async function removeNode(env, { graphId, nodeId, expectedVersion, actor = null, caller = undefined }) {
+  if (!graphId || !nodeId) return fail(ERR.INVALID_INPUT, 'graphId and nodeId are required.')
+  if (!Number.isInteger(expectedVersion)) {
+    return fail(ERR.INVALID_INPUT, 'expectedVersion (an integer, from get_graph) is required to remove a node.')
+  }
+
+  const located = await storeFor(env, { graphId, actor: caller === undefined ? actor : caller })
+  if (located.error) return located.error
+  const { store } = located
+  return guarded(async () => {
+  const result = await store.getRow(graphId)
+  if (!result) return fail(ERR.GRAPH_NOT_FOUND, 'Graph not found.')
+
+  const graphData = JSON.parse(result.data)
+  if (!Array.isArray(graphData.nodes)) graphData.nodes = []
+  if (!Array.isArray(graphData.edges)) graphData.edges = []
+
+  const current = await store.currentVersion(graphId)
+  if (current !== expectedVersion) {
+    return fail(ERR.VERSION_CONFLICT, 'Grafen er endret siden den ble lest.', { currentVersion: current })
+  }
+
+  const node = graphData.nodes.find((n) => n.id === nodeId)
+  if (!node) return fail(ERR.INVALID_INPUT, `No node ${nodeId} in graph ${graphId}. Nothing was removed.`)
+  const touching = graphData.edges.filter((e) => e.source === nodeId || e.target === nodeId)
+  graphData.nodes = graphData.nodes.filter((n) => n !== node)
+  graphData.edges = graphData.edges.filter((e) => !touching.includes(e))
+
+  const newVersion = current + 1
+  if (!graphData.metadata) graphData.metadata = {}
+  graphData.metadata.version = newVersion
+
+  await store.commit({
+    id: graphId,
+    data: JSON.stringify(graphData),
+    version: newVersion,
+    now: new Date().toISOString(),
+  })
+
+  return {
+    ok: true,
+    graphId,
+    nodeId,
+    label: node.label || null,
+    type: node.type || null,
+    removedEdgeIds: touching.map((e) => e.id || `${e.source}_${e.target}`),
+    currentVersion: current,
+    newVersion,
+    title: graphData.metadata?.title || null,
+    metaArea: graphData.metadata?.metaArea || null,
+    publicationState: graphData.metadata?.publicationState || 'private',
+    ...graphLinks(graphId, store.world),
+  }
+  })
+}
+
+/**
  * Update graph-level metadata under optimistic concurrency. Mirrors POST /patchGraphMetadata.
  * `allowPublicationState` gates the one field that must go through publishGraph() instead,
  * so publishing cannot happen as a side effect of an ordinary metadata edit (rule 2).

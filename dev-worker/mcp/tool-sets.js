@@ -45,7 +45,7 @@ export const STARTER_TOOLS = [
   'get_graph', 'get_graph_links', 'get_graph_history', 'get_graph_version', 'search', 'fetch',
   // Make and change graphs
   'create_graph', 'update_graph_metadata', 'add_node', 'add_nodes', 'update_node', 'reorder_nodes',
-  'add_edge', 'remove_edge',
+  'add_edge', 'remove_edge', 'remove_node',
   // Node types
   'list_node_types', 'get_node_types', 'get_fulltext_elements', 'register_node_type',
   'set_node_type_renderer', 'approve_node_type_renderer',

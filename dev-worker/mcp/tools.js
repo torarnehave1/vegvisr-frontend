@@ -1551,6 +1551,68 @@ export function registerTools(server, getContext, { nodeTypes = NODE_TYPES } = {
     },
   )
 
+  // ── remove_node (2026-11-20) ──────────────────────────────────────────────
+  //
+  // Asked for by the owner when a payment node had been made for someone who is not a member of
+  // the association, and no tool could take a node away. It removes ONE node by id, and the edges
+  // that touch it (an edge to nothing is not kept). Other nodes stay, expectedVersion is required,
+  // and the version before stays in the graph's history, so the node can be read back.
+  server.registerTool(
+    'remove_node',
+    {
+      title: 'Remove one node from a graph',
+      description:
+        'Remove ONE node, named by nodeId, together with the edges that touch it. Every other node ' +
+        'stays. expectedVersion is REQUIRED: read it from get_graph. The version before stays in ' +
+        'get_graph_history, so the node can be read back with get_graph_version. Remove a node only ' +
+        'when the user asked for it. Requires the graph:write scope.',
+      inputSchema: {
+        graphId: z.string().min(1).describe('The graph containing the node.'),
+        nodeId: z.string().min(1).describe('The node to remove.'),
+        expectedVersion: z.number().int().describe('The version you read from get_graph. Required.'),
+      },
+      outputSchema: {
+        success: z.boolean(),
+        graphId: z.string(),
+        nodeId: z.string(),
+        label: z.string().nullable(),
+        type: z.string().nullable(),
+        removedEdgeIds: z.array(z.string()),
+        currentVersion: z.number(),
+        newVersion: z.number(),
+        title: z.string().nullable(),
+        metaArea: z.string().nullable(),
+        publicationState: z.string(),
+        editorUrl: z.string(),
+        viewerUrl: z.string(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ graphId, nodeId, expectedVersion }) => {
+      const { auth, env, props } = getContext()
+      const scopeErr = requireScope(auth, 'graph:write')
+      if (scopeErr) return scopeErr
+
+      const actor = actorFromAuth(auth, props)
+      if (!actor) return err(gs.ERR.UNAUTHENTICATED, 'No authenticated user on this request.')
+
+      const access = await gs.checkAccess(env, actor, graphId, 'write')
+      if (!access.ok) return fromService(access)
+
+      const result = await gs.removeNode(env, { graphId, nodeId, expectedVersion, actor })
+      if (!result.ok) return fromService(result)
+
+      const { ok: _o, ...payload } = result
+      const edges = result.removedEdgeIds.length
+      return ok(
+        { success: true, ...payload },
+        `Removed node ${result.nodeId}${result.label ? ` ("${result.label}")` : ''} from graph ${graphId}` +
+          (edges ? `, with ${edges} edge${edges === 1 ? '' : 's'} that touched it` : '') +
+          `. Version ${result.currentVersion} → ${result.newVersion}; the version before is kept in the history.\nViewer: ${result.viewerUrl}`,
+      )
+    },
+  )
+
   // ── get_graph_links ───────────────────────────────────────────────────────
   server.registerTool(
     'get_graph_links',
@@ -8700,6 +8762,7 @@ export const TOOL_NAMES = [
   'add_edge',
   'add_nodes',
   'remove_edge',
+  'remove_node',
   'get_graph_links',
   'update_node',
   'reorder_nodes',
