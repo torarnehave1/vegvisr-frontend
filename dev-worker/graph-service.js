@@ -2737,7 +2737,12 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
             'id', json_extract(value, '$.id'),
             'label', json_extract(value, '$.label'),
             'type', json_extract(value, '$.type'),
-            'updatedAt', json_extract(value, '$.metadata.updatedAt')))
+            'updatedAt', json_extract(value, '$.metadata.updatedAt'),
+            -- History lines (2026-11-21): an event's year and lane, and the header's lanes, so a map
+            -- can draw the time axis from this one read instead of reading each graph whole.
+            'year', json_extract(value, '$.metadata.year'),
+            'lane', json_extract(value, '$.metadata.lane'),
+            'lanes', CASE WHEN json_extract(value, '$.type') = 'history-line' THEN json_extract(value, '$.metadata.lanes') END))
           FROM json_each(${nodesSql})) AS nodes_json,
         (SELECT json_group_array(json_object(
             'source', json_extract(value, '$.source'),
@@ -2844,7 +2849,18 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
             .filter((n) => n && n.id != null)
             // updatedAt: when the node's content last changed (node.metadata.updatedAt). Null for a
             // node written before 2026-11-20, when nodes began to carry a time of their own.
-            .map((n) => ({ id: String(n.id), label: n.label == null ? null : String(n.label), type: n.type == null ? null : String(n.type), updatedAt: typeof n.updatedAt === 'string' && n.updatedAt ? n.updatedAt : null })),
+            .map((n) => {
+              const out = { id: String(n.id), label: n.label == null ? null : String(n.label), type: n.type == null ? null : String(n.type), updatedAt: typeof n.updatedAt === 'string' && n.updatedAt ? n.updatedAt : null }
+              // History lines: only when the node carries them, so other rows stay as small as before.
+              if (typeof n.year === 'number' && Number.isFinite(n.year)) out.year = n.year
+              if (n.lane != null && n.lane !== '') out.lane = String(n.lane)
+              if (n.lanes != null) {
+                let ls = n.lanes
+                if (typeof ls === 'string') { try { ls = JSON.parse(ls) } catch { ls = null } }
+                if (Array.isArray(ls)) out.lanes = ls.filter((l) => l && typeof l === 'object').map((l) => ({ key: String(l.key ?? ''), name: String(l.name ?? l.key ?? '') }))
+              }
+              return out
+            }),
           edges: parseList(r.edges_json)
             .filter((e) => e && e.source != null && e.target != null)
             .map((e) => ({ source: String(e.source), target: String(e.target) })),

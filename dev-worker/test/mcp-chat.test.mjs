@@ -189,3 +189,28 @@ describe('links to a graph in a World whose editor is not set up', () => {
     assert.equal(gs.worldEditorState('nf.example'), false)
   })
 })
+
+describe('graph_index with includeNodes carries a history line', () => {
+  test('events give year and lane, the header gives its lanes; other nodes stay as before', async () => {
+    const { env, raw } = freshDb()
+    seedUsers(raw)
+    const actor = gs.normalizeActor({ valid: true, userId: 'u-alice', userEmail: 'alice@example.com', userRole: 'User' })
+    const r = await gs.createGraph(env, {
+      actor, title: 'H', metaArea: '#HL',
+      nodes: [
+        { id: 'h', label: 'Header', type: 'history-line', metadata: { lanes: [{ key: 'a', name: 'Lane A' }] } },
+        { id: 'e1', label: 'Event', info: 'x', metadata: { year: 2026.5, lane: 'a' } },
+        { id: 'p', label: 'Plain', info: 'y' },
+      ],
+    })
+    assert.ok(r.ok, JSON.stringify(r))
+    const idx = await gs.graphIndex(env, { scope: 'mine', metaArea: '#HL', includeNodes: true, actor })
+    assert.ok(idx.ok, JSON.stringify(idx))
+    const nodes = Object.fromEntries(idx.graphs[0].nodes.map((n) => [n.id, n]))
+    assert.deepEqual(nodes.h.lanes, [{ key: 'a', name: 'Lane A' }])
+    assert.equal(nodes.e1.year, 2026.5)
+    assert.equal(nodes.e1.lane, 'a')
+    assert.equal('year' in nodes.p, false)
+    assert.equal('lanes' in nodes.p, false)
+  })
+})
