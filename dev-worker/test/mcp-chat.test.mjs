@@ -164,3 +164,28 @@ describe('the loop', () => {
     assert.match(events.find((e) => e.ev === 'error').data.error, /overloaded/)
   })
 })
+
+describe('links to a graph in a World whose editor is not set up', () => {
+  test('no link at all, and a note that says what must be done', async () => {
+    const seen = []
+    await gs.checkWorldEditors(['ready.example', 'missing.example'], async (url) => {
+      seen.push(url)
+      if (url.includes('missing.example')) throw new Error('no such host')
+      return new Response('ok', { status: 200 })
+    })
+    assert.deepEqual(seen.sort(), ['https://editor.missing.example/', 'https://editor.ready.example/'])
+    assert.equal(gs.graphLinks('g1', 'ready.example').editorUrl, 'https://editor.ready.example/?graphId=g1')
+    const missing = gs.graphLinks('g1', 'missing.example')
+    assert.match(missing.editorUrl, /^NO LINK: the editor for the World missing\.example is not set up/)
+    assert.doesNotMatch(missing.viewerUrl, /vegvisr\.org/)
+    assert.equal(gs.graphLinks('g1', null).editorUrl, 'https://editor.vegvisr.org/?graphId=g1')
+  })
+  test('a 404 from the host counts as not set up; the answer is remembered', async () => {
+    let calls = 0
+    const f = async () => { calls++; return new Response('', { status: 404 }) }
+    await gs.checkWorldEditors(['nf.example'], f)
+    await gs.checkWorldEditors(['nf.example'], f)
+    assert.equal(calls, 1)
+    assert.equal(gs.worldEditorState('nf.example'), false)
+  })
+})

@@ -100,7 +100,62 @@ export function editorBaseFor(world) {
   return world ? `https://editor.${String(world).toLowerCase()}` : EDITOR_BASE
 }
 
+/**
+ * Is a World's own editor set up? (Tor Arne, 21 Nov 2026: a graph in a World whose editor is not
+ * set up gets NO link — not one to the World's missing editor and not one to editor.vegvisr.org.
+ * The person is told that the editor must be set up for that World.)
+ *
+ * checkWorldEditors() asks https://editor.<world>/ once and remembers the answer in this isolate
+ * (a working editor for 10 minutes, a missing one for 2, so a newly set-up editor shows soon).
+ * It is called at the start of each MCP request, chat and flow call, for the caller's Worlds
+ * (requestNodeTypes in mcp/server.js), so graphLinks below — which is synchronous and used in
+ * two dozen places — can read the answer. A World not checked yet keeps the World's own address.
+ */
+const editorReady = new Map() // world -> { ok, at }
+const EDITOR_OK_MS = 10 * 60 * 1000
+const EDITOR_MISSING_MS = 2 * 60 * 1000
+
+export function worldEditorState(world) {
+  const w = String(world || '').toLowerCase()
+  const hit = w ? editorReady.get(w) : null
+  if (!hit) return null
+  if (Date.now() - hit.at > (hit.ok ? EDITOR_OK_MS : EDITOR_MISSING_MS)) return null
+  return hit.ok
+}
+
+export function setWorldEditorState(world, ok) {
+  const w = String(world || '').toLowerCase()
+  if (w) editorReady.set(w, { ok: !!ok, at: Date.now() })
+}
+
+export async function checkWorldEditors(worlds, fetchImpl = globalThis.fetch) {
+  const todo = [...new Set((worlds || []).map((w) => String(w || '').toLowerCase()).filter((w) => /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(w)))]
+    .filter((w) => worldEditorState(w) === null)
+  await Promise.all(todo.map(async (w) => {
+    const stop = new AbortController()
+    const timer = setTimeout(() => stop.abort(), 2500)
+    try {
+      const r = await fetchImpl(`https://editor.${w}/`, { method: 'GET', redirect: 'manual', signal: stop.signal })
+      // Any answer from the host counts, except a 404/5xx that says nothing is served there.
+      setWorldEditorState(w, r.status < 400 || r.status === 401 || r.status === 403)
+    } catch {
+      setWorldEditorState(w, false)
+    } finally {
+      clearTimeout(timer)
+    }
+  }))
+}
+
+/** What stands where a link would, when the World's editor is not set up. */
+export function editorMissingText(world) {
+  return `NO LINK: the editor for the World ${world} is not set up (editor.${world} does not answer). It must be set up before graphs in this World can be opened.`
+}
+
 export function graphLinks(graphId, world = null) {
+  if (world && worldEditorState(world) === false) {
+    const note = editorMissingText(String(world).toLowerCase())
+    return { graphId, editorUrl: note, viewerUrl: note }
+  }
   const base = editorBaseFor(world)
   return {
     graphId,

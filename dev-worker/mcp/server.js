@@ -31,6 +31,7 @@ import { offeredToolsOnly, toolSetOf } from './tool-sets.js'
 import { HISTORY_CAP } from '../graph-store.js'
 import { discoverWorkerTools } from '../worker-tools.js'
 import { handleChat } from './chat.js'
+import { checkWorldEditors } from '../graph-service.js'
 
 // What the server reports in the MCP initialize handshake. A client shows this, and a bug
 // report that names a version is worth more than one that does not.
@@ -475,7 +476,11 @@ export async function requestNodeTypes(env, actor) {
   try { stores = actor ? await worldStoresFor(env, actor) : [] } catch (e) { console.error('[node-types] world stores:', e.message) }
   // In parallel: each World is a separate round trip (~0.1 s) when its cache is cold, and a
   // Superadmin sees every World, so one after another added up on every request.
-  const perWorld = await Promise.all(stores.map((store) => worldNodeTypes(env, store.world)))
+  // Also: is each of these Worlds' own editor set up? graphLinks reads the answer (graph-service.js).
+  const [perWorld] = await Promise.all([
+    Promise.all(stores.map((store) => worldNodeTypes(env, store.world))),
+    checkWorldEditors(stores.map((store) => store.world)).catch(() => {}),
+  ])
   for (const list of perWorld) for (const t of list) if (!types.includes(t)) types.push(t)
   return types
 }
