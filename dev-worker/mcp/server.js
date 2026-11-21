@@ -30,6 +30,7 @@ import { registerTools, registerWorkerTools, actorFromAuth, TOOL_NAMES } from '.
 import { offeredToolsOnly, toolSetOf } from './tool-sets.js'
 import { HISTORY_CAP } from '../graph-store.js'
 import { discoverWorkerTools } from '../worker-tools.js'
+import { handleChat } from './chat.js'
 
 // What the server reports in the MCP initialize handshake. A client shows this, and a bug
 // report that names a version is worth more than one that does not.
@@ -271,6 +272,12 @@ export const mcpHandler = {
     if (!auth || !props) {
       // Belt and braces: the provider should never route an unauthenticated request here.
       return json({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthenticated.' }, id: null }, 401)
+    }
+
+    // POST /mcp/chat — the chat that runs here, with the same login and tools (mcp/chat.js,
+    // 2026-11-21). A descendant of /mcp, so the provider has already checked the token.
+    if (new URL(request.url).pathname === '/mcp/chat') {
+      return handleChat(request, env, ctx, auth, props)
     }
 
     // The body is read once here so the audit can describe the call, then handed to the

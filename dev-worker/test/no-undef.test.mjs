@@ -30,7 +30,7 @@ const GLOBALS = Object.fromEntries(
     'console', 'crypto', 'fetch', 'Response', 'Request', 'URL', 'URLSearchParams', 'Headers',
     'FormData', 'File', 'Blob', 'Date', 'JSON', 'Math', 'Number', 'String', 'Object', 'Array',
     'Set', 'Map', 'Boolean', 'Error', 'Promise', 'atob', 'btoa', 'TextDecoder', 'TextEncoder',
-    'Uint8Array', 'ArrayBuffer', 'ReadableStream', 'setTimeout', 'clearTimeout', 'AbortController',
+    'Uint8Array', 'ArrayBuffer', 'ReadableStream', 'TransformStream', 'setTimeout', 'clearTimeout', 'AbortController',
     'structuredClone', 'globalThis', 'Symbol', 'RegExp', 'parseInt', 'parseFloat', 'isNaN',
     'WebSocketPair', 'caches', 'navigator', 'performance', 'queueMicrotask', 'Intl',
   ].map((g) => [g, 'readonly']),

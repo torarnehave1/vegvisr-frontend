@@ -189,6 +189,12 @@ service = "flows-worker"
 
 # gpt-image-2.5 for reference-image composition, through openai-worker's /images/edits.
 # Added 2026-10-01: Workers AI has nothing that preserves a specific subject across a new scene.
+# anthropic-worker — the model behind /mcp/chat (mcp/chat.js, 2026-11-21). Binding only; it uses
+# the person's own Anthropic key when they have one, else the platform's.
+[[services]]
+binding = "ANTHROPIC"
+service = "anthropic-worker"
+
 [[services]]
 binding = "OPENAI_WORKER"
 service = "openai-worker"
