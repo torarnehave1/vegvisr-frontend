@@ -1,0 +1,104 @@
+# Deploys agent-worker (agent.vegvisr.org) — whose code lives in the Agent-Builder repo, worker/ —
+# from here: unit tests → the owner's approval → wrangler deploy → live check.
+#
+# It runs in vegvisr-frontend, not in Agent-Builder, so it uses the SAME gate as every other
+# worker: the `mcp-production` environment, which has a required reviewer, and the only copy of
+# CLOUDFLARE_API_TOKEN. Never add that token as a repository secret, here or in Agent-Builder.
+#
+# The code is Agent-Builder's master (public repo; another branch or commit with the `ref` input).
+# The config is agent-worker-deploy/wrangler.toml here: bindings and route, no secrets, and
+# keep_vars so the plain-text vars stay on the dashboard.
+#
+# Agent-Builder has no trigger into this repo, so after merging there, start this workflow with
+# "Run workflow" under Actions (works from the phone).
+name: Deploy agent-worker (Agent-Builder)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'agent-worker-deploy/**'
+      - '.github/workflows/deploy-agent-worker.yml'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Agent-Builder branch, tag or commit to deploy'
+        required: false
+        default: master
+
+concurrency:
+  group: deploy-agent-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: torarnehave1/Agent-Builder
+          ref: ${{ inputs.ref || 'master' }}
+          path: agent-builder
+      - id: sha
+        run: echo "sha=$(git -C agent-builder rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: sudo apt-get update -q && sudo apt-get install -y -q ffmpeg
+      - run: npm ci --ignore-scripts
+        working-directory: agent-builder/worker
+      - name: 1/3 unit tests (Agent-Builder ${{ steps.sha.outputs.sha }})
+        working-directory: agent-builder/worker
+        # The package's own test list, minus test-provision-world-graphs, which needs a bundle
+        # built in vegvisr-frontend on the owner's disk and exits 1 anywhere else.
+        run: |
+          node -e '
+            const steps = require("./package.json").scripts.test.split("&&").map(s => s.trim())
+              .filter(s => s && !s.includes("test-provision-world-graphs"))
+            const { execSync } = require("child_process")
+            for (const s of steps) { console.log("::group::" + s); execSync(s, { stdio: "inherit" }); console.log("::endgroup::") }
+          '
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: mcp-production
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 5d9b2060ef095c777711a8649c24914e
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: torarnehave1/Agent-Builder
+          ref: ${{ needs.test.outputs.sha }}   # exactly the commit that was tested
+          path: agent-builder
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+        working-directory: agent-builder/worker
+
+      - name: Check the Cloudflare token is set
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Environment secret CLOUDFLARE_API_TOKEN is missing in mcp-production"
+            exit 1
+          fi
+
+      - name: 2/3 deploy
+        working-directory: agent-builder/worker
+        run: |
+          cp "$GITHUB_WORKSPACE/agent-worker-deploy/wrangler.toml" wrangler.ci.toml
+          npx --yes wrangler@4 deploy --config wrangler.ci.toml
+
+      - name: 3/3 live check
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 https://agent.vegvisr.org/)
+          echo "agent.vegvisr.org answered HTTP $code"
+          case "$code" in 5*|000) echo "::error::agent-worker does not answer after the deploy"; exit 1;; esac

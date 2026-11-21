@@ -53,6 +53,9 @@ main-worker/wrangler.toml
 !/seo-worker/wrangler.toml
 # openai-worker: same rule — keys stay in Cloudflare (.github/workflows/deploy-openai-worker.yml).
 !/openai-worker/wrangler.toml
+# agent-worker (code in Agent-Builder): same rule — no secrets, vars kept on the dashboard
+# (.github/workflows/deploy-agent-worker.yml).
+!/agent-worker-deploy/wrangler.toml
 nodetest.js
 
 # Documentation with potential secrets
