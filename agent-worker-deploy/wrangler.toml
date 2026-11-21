@@ -23,9 +23,9 @@ keep_vars = true
 workers_dev = true
 preview_urls = true
 
-routes = [
-  { pattern = "agent.vegvisr.org/*", zone_name = "vegvisr.org" },
-]
+# The route agent.vegvisr.org/* already exists on the zone and is NOT listed here: the
+# mcp-production token may not edit zone routes, and with it listed the deploy failed after
+# uploading (2026-11-21). Without routes, wrangler leaves the existing route as it is.
 
 [observability.logs]
 enabled = true
