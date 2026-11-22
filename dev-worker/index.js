@@ -24,6 +24,7 @@ import {
   decryptDataNodeInfo,
   withEdgeIds,
   stampChangedNodes,
+  rawTextPrefilter,
 } from './graph-service.js'
 import { platformStore, resolveGraphStore, GraphStoreError, setLocationStatus, worldStoresFor, graphIdOfTrashId, reserveLocation, activateLocation, dropPendingLocation, publicWorldStoresByTag, defaultWorldFor, mayUseWorld } from './graph-store.js'
 
@@ -7133,6 +7134,13 @@ const restHandler = {
             const registryClause = registryMatches.length
               ? ` OR id IN (${registryMatches.map(() => '?').join(',')})`
               : ''
+            // Cheap raw-text test first (see rawTextPrefilter): the JSON below is parsed only for
+            // rows whose text can match. Put at the front of the WHERE; a registry match is kept.
+            const pre = rawTextPrefilter(searchPattern, q)
+            if (pre) {
+              conditions.unshift(`(${pre.sql}${registryClause})`)
+              bindings.unshift(...pre.bindings, ...registryMatches)
+            }
             conditions.push(`(
               LOWER(COALESCE(json_extract(${safeJsonDataSql}, '$.metadata.title'), title, '')) LIKE ?
               OR LOWER(COALESCE(json_extract(${safeJsonDataSql}, '$.metadata.description'), '')) LIKE ?
