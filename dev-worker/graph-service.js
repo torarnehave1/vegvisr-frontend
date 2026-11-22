@@ -2771,35 +2771,41 @@ export async function graphIndex(env, { scope = 'mine', metaArea = null, nodeTyp
             'target', json_extract(value, '$.target')))
           FROM json_each(${edgesSql})) AS edges_json`
     : ''
+  // `j` is the graph's JSON, validated ONCE per row (null when invalid), and the node passes read
+  // it with json_each(j, '$.nodes') and ->> instead of re-validating and copying the nodes array
+  // for every column (2026-11-22). graph_index was the heaviest query on vegvisr_org — 79 calls a
+  // day at ~1.5 s, all 2071 graphs, part of the "D1 DB is overloaded" errors every app saw. Same
+  // output for every field of all 2001 graphs compared on live data; ~1.1 s instead of 1.3–2.7 s.
+  // Merging the four node passes into one was tried: slower (1.8 s) and not identical.
   const selectSql = `
       SELECT
         id,
-        COALESCE(json_extract(${dataSql}, '$.metadata.title'), title, '') AS title,
-        COALESCE(json_extract(${dataSql}, '$.metadata.metaArea'), '') AS meta_area,
-        COALESCE(json_extract(${dataSql}, '$.metadata.publicationState'), 'private') AS publication_state,
-        COALESCE(json_array_length(${nodesSql}), 0) AS node_count,
-        COALESCE(CAST(json_extract(${dataSql}, '$.metadata.version') AS INTEGER), 0) AS version,
-        (SELECT json_group_array(DISTINCT json_extract(value, '$.type'))
-          FROM json_each(${nodesSql})
-          WHERE json_extract(value, '$.type') IS NOT NULL) AS node_types_json,
+        COALESCE(j ->> '$.metadata.title', title, '') AS title,
+        COALESCE(j ->> '$.metadata.metaArea', '') AS meta_area,
+        COALESCE(j ->> '$.metadata.publicationState', 'private') AS publication_state,
+        COALESCE(json_array_length(j, '$.nodes'), 0) AS node_count,
+        COALESCE(CAST(j ->> '$.metadata.version' AS INTEGER), 0) AS version,
+        (SELECT json_group_array(DISTINCT t)
+          FROM (SELECT value ->> '$.type' AS t FROM json_each(j, '$.nodes'))
+          WHERE t IS NOT NULL) AS node_types_json,
         COALESCE((
-          SELECT GROUP_CONCAT(DISTINCT json_extract(value, '$.publishedDomain'))
-          FROM json_each(${nodesSql})
-          WHERE json_extract(value, '$.publishedDomain') IS NOT NULL
+          SELECT GROUP_CONCAT(DISTINCT p)
+          FROM (SELECT value ->> '$.publishedDomain' AS p FROM json_each(j, '$.nodes'))
+          WHERE p IS NOT NULL
         ), '') AS published_domains_csv,
-        (SELECT json_extract(value, '$.path')
-          FROM json_each(${nodesSql})
-          WHERE json_extract(value, '$.type') = 'portfolio-image'
-            AND json_extract(value, '$.path') IS NOT NULL
+        (SELECT value ->> '$.path'
+          FROM json_each(j, '$.nodes')
+          WHERE value ->> '$.type' = 'portfolio-image'
+            AND value ->> '$.path' IS NOT NULL
           LIMIT 1) AS image_path,
         CASE WHEN instr(data, '![Header') > 0 THEN (
-          SELECT substr(json_extract(value, '$.info'), instr(json_extract(value, '$.info'), '![Header'), 900)
-          FROM json_each(${nodesSql})
-          WHERE instr(COALESCE(json_extract(value, '$.info'), ''), '![Header') > 0
+          SELECT substr(i, instr(i, '![Header'), 900)
+          FROM (SELECT value ->> '$.info' AS i FROM json_each(j, '$.nodes'))
+          WHERE instr(i, '![Header') > 0
           LIMIT 1) END AS header_md,
         created_date,
         updated_at${nodeCols}
-      FROM knowledge_graphs`
+      FROM (SELECT *, ${dataSql} AS j FROM knowledge_graphs)`
 
   const cap = includeNodes ? INDEX_NODES_MAX_GRAPHS : INDEX_MAX_GRAPHS
   const stores = [platformStore(env), ...(await worldStoresFor(env, actor))]
