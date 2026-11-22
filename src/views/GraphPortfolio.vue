@@ -33,10 +33,11 @@
           <h6>Search</h6>
           <input
             type="text"
-            v-model="portfolioStore.searchQuery"
+            v-model="searchInput"
             class="form-control mb-2"
-            placeholder="🔍 Search by title, slug, domain, or #tag..."
-            @input="filterGraphs"
+            placeholder="🔍 Search + Enter (title, slug, domain, #tag)"
+            enterkeyhint="search"
+            @keydown.enter="applySearch"
           />
           <small class="text-muted">
             Portfolio Filter • Type SEO slug, published domain, #MetaArea or :published • For global search, use the search bar above
@@ -175,10 +176,11 @@
                   <div class="search-box">
                     <input
                       type="text"
-                      v-model="portfolioStore.searchQuery"
+                      v-model="searchInput"
                       class="form-control"
-                      placeholder="🔍 Search by title, slug, domain, or #tag..."
-                      @input="filterGraphs"
+                      placeholder="🔍 Search + Enter (title, slug, domain, #tag)"
+                      enterkeyhint="search"
+                      @keydown.enter="applySearch"
                     />
                     <small class="text-muted">
                       Portfolio Filter • Type SEO slug, published domain, #MetaArea or :published • For global search, use the search bar above
@@ -717,7 +719,26 @@
 
             <!-- No Results State -->
             <div v-if="!loading && !error && filteredGraphs.length === 0" class="text-center mt-5">
-              <p class="text-muted">No knowledge graphs found.</p>
+              <p v-if="debouncedSearchQuery" class="text-muted">
+                No graphs found for "{{ debouncedSearchQuery }}".
+              </p>
+              <p v-else class="text-muted">No knowledge graphs found.</p>
+              <div v-if="debouncedSearchQuery && metaAreaSuggestions.areas.length" class="mt-3">
+                <p class="text-muted small mb-2">
+                  {{ metaAreaSuggestions.matched ? 'Meta areas that match' : 'Try a meta area' }}
+                </p>
+                <div class="d-flex flex-wrap justify-content-center" style="gap: 0.5rem">
+                  <button
+                    v-for="area in metaAreaSuggestions.areas"
+                    :key="area"
+                    type="button"
+                    class="btn btn-sm btn-outline-primary"
+                    @click="pickSuggestedMetaArea(area)"
+                  >
+                    {{ area }} ({{ portfolioStore.metaAreaFrequencies[area] || 0 }})
+                  </button>
+                </div>
+              </div>
             </div>
 
             <!-- Share Modal -->
@@ -3000,6 +3021,45 @@ const filterByDomain = (domain) => {
 
 const clearPortfolioSearch = () => {
   portfolioStore.searchQuery = ''
+}
+
+// The box is a draft; the portfolio filters only when Enter applies it.
+// Buttons that set portfolioStore.searchQuery (domains, :published) still apply at once.
+const searchInput = ref(portfolioStore.searchQuery)
+watch(
+  () => portfolioStore.searchQuery,
+  (value) => {
+    searchInput.value = value || ''
+  },
+)
+const applySearch = () => {
+  portfolioStore.searchQuery = (searchInput.value || '').trim()
+}
+
+// Empty search: offer the meta areas whose name contains the word (or the word
+// contains the area), otherwise the 8 largest.
+const metaAreaSuggestions = computed(() => {
+  const norm = (v) => (v || '').toLowerCase().replace(/[#:]/g, '').trim()
+  const word = norm(debouncedSearchQuery.value)
+  const freq = portfolioStore.metaAreaFrequencies || {}
+  const byCount = [...(portfolioStore.allMetaAreas || [])].sort(
+    (a, b) => (freq[b] || 0) - (freq[a] || 0),
+  )
+  const matched = word
+    ? byCount.filter((a) => {
+        const n = norm(a)
+        return n && (n.includes(word) || word.includes(n))
+      })
+    : []
+  return matched.length
+    ? { matched: true, areas: matched.slice(0, 8) }
+    : { matched: false, areas: byCount.slice(0, 8) }
+})
+
+const pickSuggestedMetaArea = (area) => {
+  portfolioStore.searchQuery = ''
+  portfolioStore.selectedMetaArea = area
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 const filterByPublishedDomains = () => {
