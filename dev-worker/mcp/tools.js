@@ -153,10 +153,18 @@ const EdgeInput = z
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ok(structured, text) {
-  return {
-    content: [{ type: 'text', text }],
-    structuredContent: structured,
+  // The data goes in the text too, as its own block after the summary. A client that reads only
+  // `content` — Anthropic's MCP connector does, and so do most others — otherwise gets the
+  // summary without the rows: on 2026-11-24 a model saw "nibi · 7 allowed" and could not tell
+  // whether an address was among them. The MCP specification asks for exactly this.
+  const content = [{ type: 'text', text }]
+  try {
+    const data = JSON.stringify(structured)
+    if (data && data !== '{}' && data !== text) content.push({ type: 'text', text: data })
+  } catch {
+    /* not serialisable: the summary stands alone */
   }
+  return { content, structuredContent: structured }
 }
 
 /**
