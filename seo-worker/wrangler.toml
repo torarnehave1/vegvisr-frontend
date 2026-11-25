@@ -22,3 +22,8 @@ id = "e1d1272f61a746adb0522746319768e5"
 [[kv_namespaces]]
 binding = "PHOTO_ALBUMS"
 id = "baaee7b2eac9483990ab74df37547e86"
+
+# Live graph for /graph/<slug>/raw: a public-URL fetch to knowledge.vegvisr.org from this worker gives 522.
+[[services]]
+binding = "KG_WORKER"
+service = "knowledge-graph-worker"

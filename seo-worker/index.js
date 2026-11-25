@@ -307,7 +307,7 @@ async function handleGraphPage(request, env, url, corsHeaders) {
     // Regenerate from live graph data so /raw always reflects the latest nodes.
     if (pageData.graphId) {
       try {
-        const liveGraphData = await fetchLiveGraphData(pageData.graphId)
+        const liveGraphData = await fetchLiveGraphData(pageData.graphId, env)
         if (liveGraphData) {
           const liveNodeCount = Array.isArray(liveGraphData.nodes) ? liveGraphData.nodes.length : 0
           const rawHtml = generateStaticHTML({
@@ -444,9 +444,12 @@ async function handleMetaByGraphId(request, env, url, corsHeaders) {
   )
 }
 
-async function fetchLiveGraphData(graphId) {
+// Through the service binding: a public-URL fetch from this worker to knowledge.vegvisr.org (same
+// zone) answers 522, so /raw served the stored snapshot every time (seen 2026-11-25, three of three
+// graphs: "Failed to fetch graph …: 522", x-seo-raw-source: kv-fallback).
+async function fetchLiveGraphData(graphId, env) {
   const endpoint = `https://knowledge.vegvisr.org/getknowgraph?id=${encodeURIComponent(graphId)}`
-  const response = await fetch(endpoint)
+  const response = env?.KG_WORKER ? await env.KG_WORKER.fetch(endpoint) : await fetch(endpoint)
 
   if (!response.ok) {
     throw new Error(`Failed to fetch graph ${graphId}: ${response.status}`)
