@@ -3061,7 +3061,9 @@ ${result.warnings.join('\n')}` : ''),
     description:
       'Load a saved composition by id and return its full CompositionData exactly as stored. ' +
       'ALWAYS call this before editing one: modify the returned layers, then save back with ' +
-      'vemotion_save_composition and the SAME compositionId. Requires the graph:read scope.',
+      'vemotion_save_composition and the SAME compositionId. Also the way to preview or show one: ' +
+      'a client such as the VEGR.AI chat shows a preview button for a composition loaded here (a ' +
+      'composition is not a graph — do not search graphs for it). Requires the graph:read scope.',
     inputSchema: { compositionId: z.string().min(1).describe('e.g. "comp_abc123", from vemotion_list_compositions.') },
     outputSchema: { success: z.boolean(), result: AnyObject },
     annotations: READ_ONLY,
