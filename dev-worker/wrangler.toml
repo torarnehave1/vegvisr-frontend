@@ -155,7 +155,7 @@ KG_ENFORCE_READ_AUTH = ""
 # registered through /register has an opaque id and a self-chosen name, so it cannot claim a
 # named assistant's bot; it falls back to MCP_CHAT_BOT_FALLBACK_USERNAME.
 MCP_CHAT_BOT_MAP = """{"chatgpt.com":"chatgpt","claude.ai":"claude","grok.com":"grok"}"""
-MCP_CHAT_BOT_FALLBACK_USERNAME = "ai-assistant"
+MCP_CHAT_BOT_FALLBACK_USERNAME = "vegr"      # VEGR.AI chat (login-token) and unmapped clients post as @vegr
 
 # group-chat-worker, for the MCP post_chat_message tool. brand-worker binds the same worker
 # under the same name. Posting goes through its /bot-message endpoint, which checks that the
